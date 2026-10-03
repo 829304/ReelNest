@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/app/reelnest_app.dart';
+import 'package:reelnest/app/service_providers.dart';
 import 'package:reelnest/shell/desktop_shell.dart';
 import 'package:reelnest/shell/mobile_shell.dart';
+import 'package:reelnest/storage/credential_store.dart';
 
 void main() {
   Future<void> start(WidgetTester tester, Size size) async {
@@ -11,7 +13,14 @@ void main() {
     tester.view.physicalSize = size;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const ProviderScope(child: ReelNestApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          credentialStoreProvider.overrideWithValue(_MemoryCredentialStore()),
+        ],
+        child: const ReelNestApp(),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -67,4 +76,22 @@ void main() {
     expect(find.text('跟随系统'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+// Shell tests should never read credentials from the developer's OS account.
+class _MemoryCredentialStore implements CredentialStore {
+  String? _value;
+
+  @override
+  Future<String?> read() async => _value;
+
+  @override
+  Future<void> write(String value) async {
+    _value = value;
+  }
+
+  @override
+  Future<void> clear() async {
+    _value = null;
+  }
 }
