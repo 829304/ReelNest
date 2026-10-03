@@ -1,0 +1,14 @@
+name: Set up project Flutter
+description: Install the exact Flutter SDK pinned in the repository.
+runs:
+  using: composite
+  steps:
+    - id: sdk
+      shell: bash
+      run: |
+        python -c 'import json, os; v=json.load(open(".fvmrc"))["flutter"]; open(os.environ["GITHUB_OUTPUT"], "a").write("version="+v+"\n")'
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+      with:
+        flutter-version: ${{ steps.sdk.outputs.version }}
+        channel: stable
+        cache: true

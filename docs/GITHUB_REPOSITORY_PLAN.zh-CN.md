@@ -3,11 +3,11 @@
 日期：2026-10-02
 更新：2026-10-03，统一使用 `docs/`，补充应用外壳、播放器模块与结构设计链接。
 分析基线：旧项目 MediaLib `64f8ee2`，旧产品版本 `1.8.0` / build `98`。
-状态：规划稿。已确定品牌为“映栖 ReelNest”，先建立本地 `reelnest` 仓库；远程仓库、Flutter 工程、工作流和 GitHub 设置尚未创建或启用。
+状态：规划与实施并行。2026-10-04 已连接 `829304/ReelNest`，初始化 Flutter 工程并编写检查/构建工作流。远程 CI 运行、分支保护、签名和发布设置尚未验收。
 
 ## 1. 推荐结论
 
-新项目采用独立的 `reelnest` 主仓库，未来远程目标为 `829304/reelnest`，当前仅在本地创建。采用单仓库多模块的组织方式：一个 Flutter 客户端共享界面与业务代码，通过 Windows、macOS、Linux 构建环境分别生成 Windows、macOS、iOS、Android、Ubuntu 产物。
+新项目采用独立的 `reelnest` 主仓库，已连接远程 `829304/ReelNest`。采用单仓库多模块的组织方式：一个 Flutter 客户端共享界面与业务代码，通过 Windows、macOS、Linux 构建环境分别生成 Windows、macOS、iOS、Android、Ubuntu 产物。
 
 旧 `829304/MediaLib` 保留为参考项目与兼容服务端来源，不把旧源码整体复制进新仓库。这里保留新旧两个项目，并不表示按平台拆仓库；ReelNest 五端仍在同一个新仓库中维护。
 
@@ -19,7 +19,7 @@
 
 ## 2. 仓库目录
 
-新仓库采用以下目标布局。旧 Swift 工程、测试和打包脚本保留在原 MediaLib 仓库；本仓库当前只有 README 与 `docs/` 中的规划文档。模块职责和依赖规则以[项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)为准。
+新仓库采用以下目标布局。旧 Swift 工程、测试和打包脚本保留在原 MediaLib 仓库；本仓库已初始化 `apps/client` 和 `.github/workflows`，其余模块按需建立。模块职责和依赖规则以[项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)为准。
 
 ```text
 reelnest/
@@ -66,7 +66,7 @@ reelnest/
     └── dependabot.yml
 ```
 
-目录树是目标布局，不表示本次已经创建 Flutter 工程。初期只有一个应用时，可先把模块放在应用内；确实需要独立依赖、独立测试时再提取为包。
+目录树是目标布局；当前只有一个 Flutter 应用，模块先放在应用内，确实需要独立依赖、独立测试时再提取为包。
 
 多包阶段优先用 Dart 官方 Pub workspaces，统一解析依赖、提交根目录锁文件，不同时维护互相冲突的子包锁文件。暂不引入额外的仓库编排工具。[Pub workspaces 文档](https://dart.dev/tools/pub/workspaces)
 

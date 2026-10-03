@@ -1,0 +1,7 @@
+ReelNest
+
+Selected visual constants and sidebar styling in the Flutter client are adapted
+from MediaLib (https://github.com/829304/MediaLib), revision
+64f8ee258d87389414d5e06740a89f59cd857612, licensed under Apache License 2.0.
+The original SwiftUI implementation has been reimplemented in Dart/Flutter.
+See docs/design/SOURCE_MAPPING.md for the source mapping and current scope.
