@@ -1,6 +1,7 @@
 # 映栖 ReelNest：GitHub 仓库与发布规划
 
 日期：2026-10-02
+更新：2026-10-03，统一使用 `docs/`，补充应用外壳、播放器模块与结构设计链接。
 分析基线：旧项目 MediaLib `64f8ee2`，旧产品版本 `1.8.0` / build `98`。
 状态：规划稿。已确定品牌为“映栖 ReelNest”，先建立本地 `reelnest` 仓库；远程仓库、Flutter 工程、工作流和 GitHub 设置尚未创建或启用。
 
@@ -18,7 +19,7 @@
 
 ## 2. 仓库目录
 
-新仓库采用以下目标布局。旧 Swift 工程、测试和打包脚本保留在原 MediaLib 仓库；本仓库当前只包含 README 与两份计划书。
+新仓库采用以下目标布局。旧 Swift 工程、测试和打包脚本保留在原 MediaLib 仓库；本仓库当前只有 README 与 `docs/` 中的规划文档。模块职责和依赖规则以[项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)为准。
 
 ```text
 reelnest/
@@ -27,6 +28,7 @@ reelnest/
 │   └── client/                   # 新 Flutter 客户端，一个应用工程
 │       ├── lib/
 │       │   ├── app/              # 启动、路由、依赖装配
+│       │   ├── shell/            # 桌面与移动应用外壳
 │       │   ├── features/         # 首页、资料库、播放、下载、设置等
 │       │   └── platform/         # 系统能力接口与适配
 │       ├── assets/               # 已提取的跨端资源
@@ -42,13 +44,17 @@ reelnest/
 │   ├── reelnest_domain/          # Dart 领域模型和纯业务规则
 │   ├── reelnest_api/             # Mlink DTO、协议客户端、契约测试
 │   ├── reelnest_storage/         # SQLite/Drift、迁移、缓存
+│   ├── reelnest_player/          # 播放引擎接口与实现，不含业务页面
 │   └── reelnest_ui/              # 设计参数和共享组件
 ├── contracts/
 │   └── mlink-v1/                 # 从现有实现整理的契约与脱敏样例
 ├── tooling/                      # 新客户端的构建、版本校验、测试工具
 ├── docs/
+│   ├── README.md                # 文档索引
+│   ├── PROJECT_STRUCTURE.zh-CN.md
 │   ├── GITHUB_REPOSITORY_PLAN.zh-CN.md
 │   ├── FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md
+│   ├── design/                  # 原版界面参考与交互说明，按需建立
 │   └── decisions/               # 重要技术决策及原因
 ├── pubspec.yaml                 # 建立多个 Dart 包时启用 Pub workspace
 ├── pubspec.lock                 # workspace 的统一依赖锁

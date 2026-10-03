@@ -14,6 +14,8 @@ ReelNest 是新项目的独立仓库；旧 MediaLib 工程继续保留在原目�
 
 ## 计划文档
 
+- [文档索引](docs/README.md)：项目规划与设计文档入口。
+- [项目结构与模块设计](docs/PROJECT_STRUCTURE.zh-CN.md)：目录布局、功能分层、播放与平台边界、分阶段落地方式。
 - [GitHub 仓库与发布规划](docs/GITHUB_REPOSITORY_PLAN.zh-CN.md)：单仓库布局、分支规则、多平台 CI、版本、签名与发布安排。
 - [Flutter 重构实施计划](docs/FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)：接口复用边界、架构、界面还原、开发阶段与验收标准。
 
