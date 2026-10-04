@@ -19,6 +19,7 @@ class ServerConnectionState {
     this.needsRestore = false,
     this.pendingClear = false,
     this.pendingSave = false,
+    this.generation = 0,
   });
 
   final bool busy;
@@ -30,6 +31,7 @@ class ServerConnectionState {
   final bool needsRestore;
   final bool pendingClear;
   final bool pendingSave;
+  final int generation;
 }
 
 final connectionControllerProvider =
@@ -44,6 +46,22 @@ class ConnectionController extends Notifier<ServerConnectionState> {
   @override
   ServerConnectionState build() {
     _repository = ref.read(serverRepositoryProvider);
+    final subscription = _repository.changes.listen((_) {
+      if (_disposed) return;
+      final invalid = _repository.requiresLogin || _repository.pendingClear;
+      state = ServerConnectionState(
+        busy: state.busy, activity: state.activity,
+        connection: _repository.connection,
+        catalog: invalid ? null : state.catalog,
+        failure: _repository.requiresLogin ? AppFailure.sessionExpired : state.failure,
+        requiresLogin: _repository.requiresLogin,
+        pendingClear: _repository.pendingClear,
+        pendingSave: _repository.pendingSave,
+        needsRestore: !_repository.restored,
+        generation: _repository.generation,
+      );
+    });
+    ref.onDispose(() => unawaited(subscription.cancel()));
     ref.onDispose(() => _disposed = true);
     unawaited(Future<void>.microtask(_restore));
     return const ServerConnectionState(busy: true, activity: '正在读取本机连接…');
@@ -76,6 +94,7 @@ class ConnectionController extends Notifier<ServerConnectionState> {
           busy: true,
           activity: '正在读取媒体库…',
           connection: _repository.connection,
+          generation: _repository.generation,
         );
       }
       return _repository.loadCatalog();
@@ -112,6 +131,7 @@ class ConnectionController extends Notifier<ServerConnectionState> {
       requiresLogin: _repository.requiresLogin,
       pendingClear: _repository.pendingClear,
       pendingSave: _repository.pendingSave,
+      generation: _repository.generation,
     );
     LibraryCatalog? catalog = previousCatalog;
     AppFailure? failure;
@@ -131,6 +151,7 @@ class ConnectionController extends Notifier<ServerConnectionState> {
       needsRestore: !_repository.restored,
       pendingClear: _repository.pendingClear,
       pendingSave: _repository.pendingSave,
+      generation: _repository.generation,
     );
   }
 }

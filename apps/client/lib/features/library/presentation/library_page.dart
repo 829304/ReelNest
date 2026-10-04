@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/status_notice.dart';
+import '../../../domain/media.dart';
+import '../application/library_providers.dart';
 import '../../servers/application/connection_controller.dart';
 
 class LibraryPage extends ConsumerWidget {
@@ -12,6 +14,7 @@ class LibraryPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(connectionControllerProvider);
+    final scope = ref.watch(libraryScopeProvider);
     final controller = ref.read(connectionControllerProvider.notifier);
     final catalog = state.catalog;
     final signedIn = state.connection != null && !state.requiresLogin;
@@ -74,36 +77,21 @@ class LibraryPage extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: Card(
                 key: ValueKey(category.id),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.folder_outlined,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              category.title,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 6),
-                            Text('${category.itemCount} 项'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(20),
+                  leading: Icon(Icons.folder_outlined,
+                    color: Theme.of(context).colorScheme.primary),
+                  title: Text(category.title),
+                  subtitle: Text(mediaTypes.containsKey(category.id)
+                    ? '${category.itemCount} 项' : '${category.itemCount} 项 · 暂不支持浏览'),
+                  trailing: mediaTypes.containsKey(category.id)
+                    ? const Icon(Icons.chevron_right) : null,
+                  onTap: scope == null || !mediaTypes.containsKey(category.id)
+                    ? null : () => context.pushNamed('media-browse',
+                        pathParameters: {'type': category.id}),
                 ),
               ),
             ),
-          const SizedBox(height: 8),
-          const Text('当前显示分类与数量，媒体条目浏览将在后续版本接入。'),
         ],
       ],
     );

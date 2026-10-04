@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-已连接远程仓库 [829304/ReelNest](https://github.com/829304/ReelNest)，并在 `apps/client` 初始化五端 Flutter 工程。已有启动、路由、自适应应用外壳、基础主题和三个入口页面。本地新增了 Mlink 服务器登录、系统安全存储、会话恢复与刷新、媒体分类列表的代码；本轮仅静态编写，尚未编译、测试或连接真实服务验收。条目浏览、详情和播放尚未实现。
+已连接远程仓库 [829304/ReelNest](https://github.com/829304/ReelNest)，并在 `apps/client` 初始化五端 Flutter 工程。已有应用外壳、Mlink 登录与会话管理代码。本地进一步新增分类分页浏览、海报/列表切换、排序、鉴权海报、媒体详情、系列摘要与季集分页；系列摘要依赖旧 MediaLib 的本地服务端扩展，客户端兼容旧版服务。连接与浏览迭代均为静态编写，尚未编译、测试或连接真实服务验收；播放尚未实现。
 
 Flutter 固定为 **3.47.6**，由根 `.fvmrc` 管理。本轮在 `pubspec.yaml` 声明了安全存储插件，按用户要求未运行依赖解析；`apps/client/pubspec.lock` 仍为上一轮版本，需在恢复运行验证后更新。已编写代码检查和五端构建工作流，远程运行结果仍待验证。运行方式和本机 exFAT 限制见[开发指南](docs/DEVELOPMENT.zh-CN.md)。
 
@@ -20,6 +20,8 @@ ReelNest 是新项目的独立仓库；旧 MediaLib 工程继续保留在原目�
 - [开发指南](docs/DEVELOPMENT.zh-CN.md)：环境、运行命令、验证和构建限制。
 - [原版源码映射](docs/design/SOURCE_MAPPING.md)：按 SwiftUI 源码迁移的对应关系及当前范围。
 - [服务器连接实现](docs/MLINK_CONNECTION.zh-CN.md)：接口契约、会话生命周期、平台配置和待验证清单。
+- [媒体浏览与详情](docs/LIBRARY_BROWSING.zh-CN.md)：分页、海报、详情、季集接口边界和待验证事项。
+- [系列摘要接口](docs/SERIES_API.zh-CN.md)：配套服务端变更、能力协商与部署顺序。
 - [项目结构与模块设计](docs/PROJECT_STRUCTURE.zh-CN.md)：目录布局、功能分层、播放与平台边界、分阶段落地方式。
 - [GitHub 仓库与发布规划](docs/GITHUB_REPOSITORY_PLAN.zh-CN.md)：单仓库布局、分支规则、多平台 CI、版本、签名与发布安排。
 - [Flutter 重构实施计划](docs/FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)：接口复用边界、架构、界面还原、开发阶段与验收标准。
@@ -37,7 +39,7 @@ ReelNest 是新项目的独立仓库；旧 MediaLib 工程继续保留在原目�
 1. 在支持符号链接的文件系统上配置日常 Windows 开发环境，运行五端 CI。
 2. 确认发布用应用标识、目标系统版本和设备矩阵。
 3. 恢复验证后解析安全存储依赖、更新锁文件，并验收服务器连接流程。
-4. 接入分类下的分页条目浏览，再实现详情、播放与进度回传。
+4. 验收媒体浏览与详情，验证并部署配套系列摘要接口，再推进播放与进度回传。
 
 ## 参考基线
 

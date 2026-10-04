@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../features/home/presentation/home_page.dart';
 import '../features/library/presentation/library_page.dart';
+import '../features/library/presentation/browse_page.dart';
+import '../features/library/presentation/media_detail_page.dart';
 import '../features/servers/presentation/servers_page.dart';
 import '../features/settings/presentation/settings_page.dart';
 import '../shell/app_shell.dart';
@@ -28,6 +30,22 @@ final routerProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'library',
                     builder: (context, state) => const LibraryPage(),
+                    routes: [
+                      GoRoute(
+                        name: 'media-browse', path: 'category/:type',
+                        builder: (context, state) => BrowsePage(
+                          key: state.pageKey, type: state.pathParameters['type']!),
+                        routes: [
+                          GoRoute(name: 'media-detail', path: 'item/:id',
+                            builder: (context, state) => MediaDetailPage(
+                              key: state.pageKey,
+                              type: state.pathParameters['type']!,
+                              id: state.pathParameters['id']!,
+                              isSeries: state.uri.queryParameters['series'] == '1',
+                            )),
+                        ],
+                      ),
+                    ],
                   ),
                 ],
               ),

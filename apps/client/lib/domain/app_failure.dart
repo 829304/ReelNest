@@ -14,6 +14,8 @@ enum FailureKind {
   storage,
   server,
   unexpected,
+  notFound,
+  cancelled,
 }
 
 /// Only deliberate, credential-free messages cross into presentation state.

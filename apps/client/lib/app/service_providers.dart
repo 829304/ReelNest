@@ -12,7 +12,7 @@ final credentialStoreProvider = Provider<CredentialStore>(
 );
 
 final serverRepositoryProvider = Provider<ServerRepository>((ref) {
-  return ServerRepository(
+  final repository = ServerRepository(
     client: MlinkClient(),
     store: ref.watch(credentialStoreProvider),
     platform: switch (Platform.operatingSystem) {
@@ -23,4 +23,6 @@ final serverRepositoryProvider = Provider<ServerRepository>((ref) {
       _ => 'Linux',
     },
   );
+  ref.onDispose(repository.dispose);
+  return repository;
 });
