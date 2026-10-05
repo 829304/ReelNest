@@ -4,6 +4,8 @@
 
 **当前约束：MediaLib 的 Flutter 重构，第一阶段仅 Windows/macOS/Linux；功能、UI 与交互一致，不自行新增、删除或修改功能。** [项目边界](PROJECT_SCOPE.zh-CN.md)替代此前“五端同时推进”“简化 UI 后期再重做”等假设。
 
+品牌约定：客户端 **ReelNest**，自有服务端及对应可选来源 **ReelNest Server**。原 MediaLib 名称只用于源码出处、历史记录及必要的兼容说明。
+
 当前目标是 MediaLib 的 Flutter 多平台重构：直接管理本地文件夹、移动硬盘、已挂载 NAS，以及 Emby/Jellyfin/Plex。此前“依赖 MediaLib 服务端、先做 Mlink 客户端”的规划已撤销。第一轮已实现独立目录来源、扫描、索引和浏览，Mlink 试验路由只用于回归测试；完整目标仍按实施计划推进。
 
 | 文档 | 内容 |

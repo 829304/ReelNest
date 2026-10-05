@@ -387,7 +387,7 @@ class _SourcesEmptyState extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
             child: Text(
-              '接入本地文件夹、移动硬盘、网络挂载、MediaLIB Server、Emby、Jellyfin 或 Plex 媒体库后，ReelNest 会整理索引。',
+              '接入本地文件夹、移动硬盘、网络挂载、ReelNest Server、Emby、Jellyfin 或 Plex 媒体库后，ReelNest 会整理索引。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,

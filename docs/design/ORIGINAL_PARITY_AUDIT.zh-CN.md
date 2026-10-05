@@ -3,6 +3,8 @@
 日期：2026-10-05。原版基线：`64f8ee258d87389414d5e06740a89f59cd857612`。
 原仓库只读；不采用此前新增的系列摘要服务端接口。本表区分“找到入口”“读过规则”“已迁移”“已验收”，文件存在不代表功能完成。
 
+命名约定：用户已明确新项目的自有服务端及来源入口为 **ReelNest Server**。原代码中的 MediaLIB Server 是其迁移出处，原路径、历史记录及兼容标识保留原名；产品文案采用新品牌。
+
 ## 页面与依赖盘点
 
 原路径相对 MediaLib 仓库；Flutter 路径相对 `apps/client/lib`。
@@ -19,7 +21,7 @@
 | 扫描、索引 | `Sources/MediaLibCore/Models/MediaSource.swift`、`Services/MediaScanner.swift`、`FilenameParser.swift` | `domain/`、`sources/`、`storage/` 可复用；本批迁移过滤规则和成功清理语义，元数据/系列模型未完成 |
 | Emby/Jellyfin | `Sources/MediaLib/App/EmbyService.swift` 及 AppState 调用链 | 未接入独立客户端；认证、选库、同步及限制状态待逐项迁移 |
 | Plex | `Sources/MediaLib/App/PlexService.swift` | 未迁移；原来源配置用服务器地址和 Token，不能替换成账号密码表单 |
-| 可选 MediaLIB Server | `Sources/MediaLib/App/MlinkDiscoveryService.swift` 及原连接器调用链 | 旧试验代码保留；产品入口尚未按原版接回，不是应用运行前提 |
+| 可选 ReelNest Server | 原 MediaLIB Server：`Sources/MediaLib/App/MlinkDiscoveryService.swift` 及原连接器调用链 | 新品牌已确定；服务端迁移和正式连接入口尚未完成，旧 Mlink 试验代码保留，不是应用运行前提 |
 | 播放器 | `Views/PlayerView.swift`、`PlayerControllerSupport.swift`、`MpvMetalRenderer.swift`、`PlayerWindowActions.swift` | 未迁移；跨平台渲染和窗口适配待核对 |
 | 健康、任务 | `Views/LibraryHealthCenterView.swift`、`BackgroundTaskCenterView.swift` | 未迁移；当前扫描进度不能替代原任务中心 |
 | 搜索、隐私、设置、引导 | `Views/GlobalSearchView.swift`、`PrivacyLockView.swift`、`SettingsView.swift`、`OnboardingView.swift` | 仅临时主题设置；其余待逐项审核与迁移 |
@@ -46,7 +48,7 @@
 | 部分 | 原行为 | 迁移状态 |
 |---|---|---|
 | 来源页面 | “添加媒体源…”、“扫描全部”；连接/断开两个分组；扫描进度与原空态 | 已接入页头操作和分组；卡片、进度和空态材质仍待完整迁移 |
-| 入口 | 本地目录、网络视频地址、网络设备、Emby、Jellyfin、Plex、MediaLIB Server | 7 个入口均属原版范围；当前三类文件下拉框需替换 |
+| 入口 | 本地目录、网络视频地址、网络设备、Emby、Jellyfin、Plex、原 MediaLIB Server | 7 个入口均属迁移范围；最后一项在新项目命名为 ReelNest Server，当前三类文件下拉框需替换 |
 | 步骤 | 来源 → 连接 → 设置；URL 视频跳过设置 | 待迁移，不能给未接入连接器假成功 |
 | 尺寸 | sheet 宽 620、最大高 680；正文滚动上限 460；来源卡最小宽 188/高 88 | 已核对，尚未改写当前 Dialog |
 | 本地连接 | 原生目录多选，按目录名自动命名；显示前 4 条路径，剩余数量汇总 | 当前只有单选与手输名称，需修正；已确认安装的 file_selector 有 `getDirectoryPaths` API |

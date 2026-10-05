@@ -203,7 +203,7 @@ class _ConnectionFormState extends ConsumerState<_ConnectionForm> {
             children: [
               Text('服务器连接', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              const Text('连接 MediaLIB Server，填写服务器地址和登录凭据。'),
+              const Text('连接 ReelNest Server，填写服务器地址和登录凭据。'),
               const SizedBox(height: 20),
               TextFormField(
                 controller: _address,

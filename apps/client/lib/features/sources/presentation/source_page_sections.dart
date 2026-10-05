@@ -4,7 +4,7 @@ import '../../../ui/theme/design_tokens.dart';
 import '../../../ui/widgets/source_icons.dart';
 
 const sourcesSubtitle =
-    '管理本地文件夹、移动硬盘、网络挂载、MediaLIB Server、Emby、Jellyfin 和 Plex 媒体库。';
+    '管理本地文件夹、移动硬盘、网络挂载、ReelNest Server、Emby、Jellyfin 和 Plex 媒体库。';
 
 /// SourcesView/PageHeader: 62-point icon slot, 8-point gap and bottom-aligned
 /// actions. Typography and page spacing follow the original source constants.
