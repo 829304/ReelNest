@@ -8,17 +8,32 @@ enum MediaSort {
 }
 
 const mediaTypes = {
-  'movie': '电影', 'tvShow': '电视剧', 'anime': '动漫',
-  'documentary': '纪录片', 'variety': '综艺', 'homeVideo': '其他视频',
-  'music': '音乐', 'other': '其他', 'episode': '剧集', 'photo': '照片',
+  'movie': '电影',
+  'tvShow': '电视剧',
+  'anime': '动漫',
+  'documentary': '纪录片',
+  'variety': '综艺',
+  'homeVideo': '其他视频',
+  'music': '音乐',
+  'other': '其他',
+  'episode': '剧集',
+  'photo': '照片',
 };
 
 class MediaItem {
   const MediaItem({
-    required this.id, required this.type, required this.title,
-    required this.artworkAvailable, this.isSeries = false,
-    this.year, this.artist, this.album, this.durationSeconds,
-    this.progress = 0, this.watched = false, this.episodeNumber,
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.artworkAvailable,
+    this.isSeries = false,
+    this.year,
+    this.artist,
+    this.album,
+    this.durationSeconds,
+    this.progress = 0,
+    this.watched = false,
+    this.episodeNumber,
   });
 
   final String id;
@@ -38,9 +53,13 @@ class MediaItem {
 }
 
 class MediaPage {
-  MediaPage({required List<MediaItem> items, required this.total,
-    required this.offset, required this.limit, required this.hasMore})
-    : items = List.unmodifiable(items);
+  MediaPage({
+    required List<MediaItem> items,
+    required this.total,
+    required this.offset,
+    required this.limit,
+    required this.hasMore,
+  }) : items = List.unmodifiable(items);
 
   final List<MediaItem> items;
   final int total;
@@ -51,9 +70,14 @@ class MediaPage {
 }
 
 class MediaSeason {
-  const MediaSeason({required this.id, required this.title,
-    required this.number, required this.episodeCount,
-    required this.watchedCount, required this.inProgressCount});
+  const MediaSeason({
+    required this.id,
+    required this.title,
+    required this.number,
+    required this.episodeCount,
+    required this.watchedCount,
+    required this.inProgressCount,
+  });
 
   final String id;
   final String title;
@@ -65,17 +89,22 @@ class MediaSeason {
 }
 
 class SeriesSummary {
-  SeriesSummary({required this.totalEpisodeCount,
-    required List<MediaSeason> seasons}) : seasons = List.unmodifiable(seasons);
+  SeriesSummary({
+    required this.totalEpisodeCount,
+    required List<MediaSeason> seasons,
+  }) : seasons = List.unmodifiable(seasons);
 
   final int totalEpisodeCount;
   final List<MediaSeason> seasons;
 }
 
 class EpisodeContext {
-  EpisodeContext({required this.seriesId, required this.seriesTitle,
-    required List<MediaSeason> seasons, this.currentSeason})
-    : seasons = List.unmodifiable(seasons);
+  EpisodeContext({
+    required this.seriesId,
+    required this.seriesTitle,
+    required List<MediaSeason> seasons,
+    this.currentSeason,
+  }) : seasons = List.unmodifiable(seasons);
 
   final String seriesId;
   final String seriesTitle;
@@ -84,11 +113,18 @@ class EpisodeContext {
 }
 
 class MediaDetail {
-  MediaDetail({required this.item, required List<String> genres,
-    this.originalTitle, this.overview, this.communityRating,
-    this.videoCodec, this.audioCodec, this.resolution, this.episodeContext,
-    this.seriesSummary})
-    : genres = List.unmodifiable(genres);
+  MediaDetail({
+    required this.item,
+    required List<String> genres,
+    this.originalTitle,
+    this.overview,
+    this.communityRating,
+    this.videoCodec,
+    this.audioCodec,
+    this.resolution,
+    this.episodeContext,
+    this.seriesSummary,
+  }) : genres = List.unmodifiable(genres);
 
   final MediaItem item;
   final String? originalTitle;

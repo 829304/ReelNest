@@ -1,6 +1,8 @@
 # Mlink 服务器连接与分类读取
 
-更新：2026-10-04。状态：**已静态编写，未编译、未测试、未联调**。
+> 2026-10-05：本文仅保留历史试验实现记录。此前将 Mlink 作为新应用基础的方向有误，停止沿此主线扩展。ReelNest 直接支持文件来源和 Emby/Jellyfin/Plex，不要求 MediaLib 服务端；运行时代码仍待解耦。当前任务以 [实施计划](FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md) 为准，下列待验证清单不代表当前开发排期。
+
+更新：2026-10-04。状态：**Windows 构建及部分自动化冒烟通过，真实服务与安全存储生命周期仍待联调**。执行范围见[验证记录](WINDOWS_SMOKE.zh-CN.md)。
 
 ## 本轮范围
 
@@ -64,11 +66,11 @@
 
 ## 依赖与平台配置
 
-安全存储声明为 `flutter_secure_storage: ^11.2.0`，使用 [插件官方说明](https://pub.dev/packages/flutter_secure_storage) 中的原生存储能力。本轮没有运行 pub get，锁文件和插件生成文件仍是初始化版本。恢复验证时需解析依赖、审阅锁文件与生成变更，再运行现有 CI。不要手工编写生成注册代码。
+安全存储声明为 `flutter_secure_storage: ^11.2.0`，使用 [插件官方说明](https://pub.dev/packages/flutter_secure_storage) 中的原生存储能力。已运行 pub get 并更新锁文件及插件生成文件，Windows 原生插件构建通过。不要手工编写生成注册代码；真实凭据读写和其他平台仍需验证。
 
 | 平台 | 已写入的配置 | 仍需验证 |
 |---|---|---|
-| Windows | 使用插件默认适配器 | VS 的 C++ ATL 组件、当前用户凭据读写及重启恢复 |
+| Windows | 使用插件默认适配器，原生插件构建通过 | 当前用户凭据读写及重启恢复 |
 | macOS | Debug/Profile 与 Release 开启 network.client；本地网络用途说明；使用不共享的传统 Keychain | 签名后钥匙串提示、保存及删除、局域网权限 |
 | iOS | Runner.entitlements 的 keychain-access-groups；三个构建配置均引用；本地网络用途说明 | 实机签名、Keychain、系统网络授权 |
 | Android | INTERNET；最低 SDK 至少 23 且不降低 Flutter 要求；禁用备份并排除云备份/设备迁移数据 | KeyStore 读写、重启恢复与系统版本差异 |
@@ -76,9 +78,9 @@
 
 macOS 按插件的非共享 Keychain 方案设置 `usesDataProtectionKeychain: false`，未增加跨应用共享组。Android 备份排除同时涵盖旧版与 Android 12+ 格式，依据 [Android 备份文档](https://developer.android.com/identity/data/autobackup)。当前未启用全局明文网络或关闭 TLS 校验，也未安装任何本机工具链组件。
 
-## 后续验收清单（本轮均未执行）
+## 验收清单
 
-- 解析依赖并更新 lock；格式化、分析及现有组件测试；随后在支持符号链接的文件系统验证原生插件构建。
+- 已完成：解析依赖并更新 lock、格式化、分析、7 项自动化测试及 Windows 原生插件构建。以下场景需继续进行专项或真实环境验收，不能用部分冒烟代替完整覆盖。
 - 使用可控的 Mlink 服务验证正确登录、错误密码、服务初始化未完成、被限流和账号权限不足。
 - 地址覆盖 HTTPS、端口、IPv6 回环、非回环 HTTP 拒绝、嵌入凭据/路径拒绝、重定向拒绝和无效证书。
 - 响应覆盖字段缺失、未知 API 版本、畸形 JSON、重复分类 ID、负数量及超大/缓慢响应。
@@ -88,4 +90,4 @@ macOS 按插件的非共享 Keychain 方案设置 `usesDataProtectionKeychain: f
 - 验证空分类、零条目分类、刷新失败保留旧结果、退出清空结果，以及窄屏/大字号/键盘下的表单布局。
 - 分别验收五个平台的真实安全存储与网络权限；无签名构建通过不能代替 iOS 实机 Keychain 验收。
 
-分类下分页和详情已在后续静态迭代接入，详见[媒体浏览与详情](LIBRARY_BROWSING.zh-CN.md)。本文件的连接验收待办仍未执行。
+分类下分页和详情已接入，详见[媒体浏览与详情](LIBRARY_BROWSING.zh-CN.md)。已执行的部分连接冒烟范围见[验证记录](WINDOWS_SMOKE.zh-CN.md)。

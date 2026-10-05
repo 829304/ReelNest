@@ -25,10 +25,7 @@ class StoredSession {
         tokens: MlinkTokens.fromJson(jsonObject(json['tokens'])),
       );
     } catch (_) {
-      throw const AppFailure(
-        FailureKind.storage,
-        '已保存的会话无法读取，请清除本机连接后重新登录。',
-      );
+      throw const AppFailure(FailureKind.storage, '已保存的会话无法读取，请清除本机连接后重新登录。');
     }
   }
 

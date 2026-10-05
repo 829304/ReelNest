@@ -7,12 +7,14 @@ class PageContent extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    this.header,
     super.key,
   });
 
   final String title;
   final String subtitle;
   final List<Widget> children;
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
@@ -27,13 +29,17 @@ class PageContent extends StatelessWidget {
             vertical: DesignTokens.pageVertical,
           ),
           children: [
-            Text(title, style: theme.textTheme.headlineLarge),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 24),
+            if (header != null)
+              header!
+            else ...[
+              Text(title, style: theme.textTheme.headlineLarge),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ],
+            SizedBox(height: header == null ? 24 : 22),
             ...children,
           ],
         );

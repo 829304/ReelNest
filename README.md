@@ -2,26 +2,33 @@
 
 **让喜欢的声音与影像，有处可栖。**
 
-映栖是一个开发中的 Flutter 跨平台媒体库与播放器，目标平台为 Windows、macOS、iOS、Android 和 Ubuntu，涵盖影视、音乐、照片与个人媒体收藏。
+映栖是 MediaLib 的 Flutter 多平台重构版。第一阶段只适配 **Windows、macOS、Linux 三个桌面端**，功能、界面和交互与原项目一致，不自行新增、删减或修改功能。iOS/Android 留待后续阶段。
 
-项目参考 [MediaLib](https://github.com/829304/MediaLib) 的界面、业务规则和 Mlink 接口，以保留原 macOS 版视觉和主要交互为目标，重新实现跨平台客户端。
+按 [MediaLib](https://github.com/829304/MediaLib) 原源码迁移业务、各类服务器连接实现与 UI。**UI 一致性是模块完成条件**，不能以“最后打磨”为由另做一套界面。项目边界及已知偏差见 [项目边界](docs/PROJECT_SCOPE.zh-CN.md)。
 
 ## 当前状态
 
-已连接远程仓库 [829304/ReelNest](https://github.com/829304/ReelNest)，并在 `apps/client` 初始化五端 Flutter 工程。已有应用外壳、Mlink 登录与会话管理代码。本地进一步新增分类分页浏览、海报/列表切换、排序、鉴权海报、媒体详情、系列摘要与季集分页；系列摘要依赖旧 MediaLib 的本地服务端扩展，客户端兼容旧版服务。连接与浏览迭代均为静态编写，尚未编译、测试或连接真实服务验收；播放尚未实现。
+以下是已写代码的事实记录，不代表已符合原版。当前页面仍为简化实现，功能与默认规则存在迁移缺口，需先对照源码审核、纠正。
 
-Flutter 固定为 **3.47.6**，由根 `.fvmrc` 管理。本轮在 `pubspec.yaml` 声明了安全存储插件，按用户要求未运行依赖解析；`apps/client/pubspec.lock` 仍为上一轮版本，需在恢复运行验证后更新。已编写代码检查和五端构建工作流，远程运行结果仍待验证。运行方式和本机 exFAT 限制见[开发指南](docs/DEVELOPMENT.zh-CN.md)。
+已连接远程仓库 [829304/ReelNest](https://github.com/829304/ReelNest)，并在 `apps/client` 初始化五端 Flutter 工程。2026-10-05 已落实第一轮架构纠偏：默认入口改为媒体源管理，支持多个目录来源、选择目录、扫描、SQLite 持久化、分页浏览、文件信息、取消扫描和重新定位，不需要服务器登录。旧 Mlink 试验入口已从正常应用移除，仅保留代码与隔离回归测试。播放器、完整元数据和 Emby/Jellyfin/Plex 直连仍未实现，详见[本地媒体源](docs/LOCAL_SOURCES.zh-CN.md)。
 
-ReelNest 是新项目的独立仓库；旧 MediaLib 工程继续保留在原目录，作为实现参考及服务端兼容基线。上述目标平台不代表当前已有可用版本。
+2026-10-04 完成 Windows Release 构建、7 项自动化测试及启动冒烟；2026-10-05 补充标题栏拖动起步处理并重新构建。验证范围见[验证记录](docs/WINDOWS_SMOKE.zh-CN.md)。
+
+Flutter 固定为 **3.47.6**，由根 `.fvmrc` 管理。安全存储依赖已解析，锁文件及工具生成的插件注册文件已更新，锁一致性检查通过。代码检查和 Windows/macOS/Linux 构建工作流已编写，远程运行结果仍待验证。运行方式及历史 exFAT 限制见[开发指南](docs/DEVELOPMENT.zh-CN.md)。
+
+ReelNest 是新项目的独立仓库；旧 MediaLib 工程保留在原目录作为实现参考。上述目标平台不代表当前已有可用版本。
 
 ## 计划文档
 
+- [项目边界与一致性要求](docs/PROJECT_SCOPE.zh-CN.md)：三桌面端、功能/UI 一致、只重构不改变产品。
+
 - [文档索引](docs/README.md)：项目规划与设计文档入口。
 - [开发指南](docs/DEVELOPMENT.zh-CN.md)：环境、运行命令、验证和构建限制。
+- [本地媒体源与索引](docs/LOCAL_SOURCES.zh-CN.md)：实际实现、扫描保护、平台范围、验证与未完成能力。
 - [原版源码映射](docs/design/SOURCE_MAPPING.md)：按 SwiftUI 源码迁移的对应关系及当前范围。
-- [服务器连接实现](docs/MLINK_CONNECTION.zh-CN.md)：接口契约、会话生命周期、平台配置和待验证清单。
+- [Mlink 连接试验记录](docs/MLINK_CONNECTION.zh-CN.md)：历史实现，不是当前产品架构基线。
 - [媒体浏览与详情](docs/LIBRARY_BROWSING.zh-CN.md)：分页、海报、详情、季集接口边界和待验证事项。
-- [系列摘要接口](docs/SERIES_API.zh-CN.md)：配套服务端变更、能力协商与部署顺序。
+- [系列摘要接口试验记录](docs/SERIES_API.zh-CN.md)：历史服务端扩展，不再是 ReelNest 的依赖。
 - [项目结构与模块设计](docs/PROJECT_STRUCTURE.zh-CN.md)：目录布局、功能分层、播放与平台边界、分阶段落地方式。
 - [GitHub 仓库与发布规划](docs/GITHUB_REPOSITORY_PLAN.zh-CN.md)：单仓库布局、分支规则、多平台 CI、版本、签名与发布安排。
 - [Flutter 重构实施计划](docs/FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)：接口复用边界、架构、界面还原、开发阶段与验收标准。
@@ -36,10 +43,10 @@ ReelNest 是新项目的独立仓库；旧 MediaLib 工程继续保留在原目�
 
 ## 下一步
 
-1. 在支持符号链接的文件系统上配置日常 Windows 开发环境，运行五端 CI。
-2. 确认发布用应用标识、目标系统版本和设备矩阵。
-3. 恢复验证后解析安全存储依赖、更新锁文件，并验收服务器连接流程。
-4. 验收媒体浏览与详情，验证并部署配套系列摘要接口，再推进播放与进度回传。
+1. 建立原版功能、页面、交互和默认配置的源码对照清单。
+2. 审核现有实现，纠正简化 UI、规则差异及遗漏。
+3. 按原实现逐模块迁移来源、浏览、播放和其他功能，并同步还原 UI。
+4. 在 Windows、macOS、Linux 验收功能与界面一致性；不推进移动端功能。
 
 ## 参考基线
 

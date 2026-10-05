@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
-import '../ui/theme/design_tokens.dart';
 import 'desktop_shell.dart';
 import 'mobile_shell.dart';
 
@@ -16,7 +16,15 @@ class AppShell extends StatelessWidget {
       builder: (context, constraints) {
         final selectedIndex = navigationShell.currentIndex;
         void select(int index) => navigationShell.goBranch(index);
-        return constraints.maxWidth >= DesignTokens.desktopBreakpoint
+        // Desktop window constraints live in the native runners, as in the
+        // original MainWindowToolbarVisibilityGuard. Width is not a platform.
+        final desktop = switch (defaultTargetPlatform) {
+          TargetPlatform.windows ||
+          TargetPlatform.macOS ||
+          TargetPlatform.linux => true,
+          _ => false,
+        };
+        return desktop
             ? DesktopShell(
                 selectedIndex: selectedIndex,
                 onSelected: select,

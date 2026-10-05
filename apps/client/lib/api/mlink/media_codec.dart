@@ -4,7 +4,9 @@ import 'mlink_codec.dart';
 
 String mediaIdentifier(Object? value) {
   final id = jsonText(value, 512);
-  if (id == '.' || id == '..' || id.contains(RegExp(r'[/\\\x00-\x1f\x7f-\x9f]'))) {
+  if (id == '.' ||
+      id == '..' ||
+      id.contains(RegExp(r'[/\\\x00-\x1f\x7f-\x9f]'))) {
     throw AppFailure.invalidResponse;
   }
   return id;
@@ -20,7 +22,9 @@ String? _optionalText(Object? value, int limit) =>
     value == null ? null : jsonText(value, limit, minBytes: 0);
 
 int _integer(Object? value, {int max = 10000000}) {
-  if (value is! int || value < 0 || value > max) throw AppFailure.invalidResponse;
+  if (value is! int || value < 0 || value > max) {
+    throw AppFailure.invalidResponse;
+  }
   return value;
 }
 
@@ -50,25 +54,36 @@ MediaItem decodeMediaItem(Map<String, dynamic> json, {bool episode = false}) {
   final id = mediaIdentifier(json['id']);
   final type = episode ? 'episode' : jsonText(json['type'], 64);
   if (!mediaTypes.containsKey(type)) throw AppFailure.invalidResponse;
-  final state = json['userState'] == null ? null : jsonObject(json['userState']);
+  final state = json['userState'] == null
+      ? null
+      : jsonObject(json['userState']);
   if (state != null && state['itemID'] != id) throw AppFailure.invalidResponse;
   final year = _optionalInteger(json['year'], max: 3000);
   if (year != null && year < 1800) throw AppFailure.invalidResponse;
   return MediaItem(
-    id: id, type: type, title: _title(json['title']), year: year,
+    id: id,
+    type: type,
+    title: _title(json['title']),
+    year: year,
     artworkAvailable: _boolean(json['artworkAvailable']),
     isSeries: _boolean(json['isSeries'], fallback: false),
     artist: _optionalText(json['artist'], 2048),
     album: _optionalText(json['album'], 2048),
-    durationSeconds: _number(json[episode ? 'runtimeSeconds' : 'durationSeconds'], 31536000),
+    durationSeconds: _number(
+      json[episode ? 'runtimeSeconds' : 'durationSeconds'],
+      31536000,
+    ),
     progress: state == null ? 0 : _number(state['progress'], 1) ?? 0,
     watched: state == null ? false : _boolean(state['isWatched']),
     episodeNumber: _optionalInteger(json['episodeNumber']),
   );
 }
 
-MediaPage decodeMediaPage(Map<String, dynamic> json, {
-  required int offset, required int limit, bool episodes = false,
+MediaPage decodeMediaPage(
+  Map<String, dynamic> json, {
+  required int offset,
+  required int limit,
+  bool episodes = false,
 }) {
   if (_integer(json['offset'], max: 1000000) != offset ||
       _integer(json['limit'], max: 100) != limit) {
@@ -87,8 +102,13 @@ MediaPage decodeMediaPage(Map<String, dynamic> json, {
       (hasMore && items.isEmpty)) {
     throw AppFailure.invalidResponse;
   }
-  return MediaPage(items: items, total: total, offset: offset,
-    limit: limit, hasMore: hasMore);
+  return MediaPage(
+    items: items,
+    total: total,
+    offset: offset,
+    limit: limit,
+    hasMore: hasMore,
+  );
 }
 
 List<MediaSeason> _seasons(Object? value) {
@@ -99,8 +119,10 @@ List<MediaSeason> _seasons(Object? value) {
     final data = jsonObject(entry);
     final count = _integer(data['episodeCount']);
     final season = MediaSeason(
-      id: jsonText(data['id'], 128), title: _title(data['title']),
-      number: _optionalInteger(data['seasonNumber']), episodeCount: count,
+      id: jsonText(data['id'], 128),
+      title: _title(data['title']),
+      number: _optionalInteger(data['seasonNumber']),
+      episodeCount: count,
       watchedCount: _integer(data['watchedCount'], max: count),
       inProgressCount: _integer(data['inProgressCount'], max: count),
     );
@@ -126,19 +148,26 @@ MediaDetail decodeSeriesDetail(Map<String, dynamic> json, String id) {
   );
 }
 
-MediaDetail decodeMediaDetail(Map<String, dynamic> json, String id, {
+MediaDetail decodeMediaDetail(
+  Map<String, dynamic> json,
+  String id, {
   required bool isSeries,
 }) {
   if (json['id'] != id) throw AppFailure.invalidResponse;
   final item = decodeMediaItem({
-    ...json, 'isSeries': isSeries, 'durationSeconds': json['runtimeSeconds'],
+    ...json,
+    'isSeries': isSeries,
+    'durationSeconds': json['runtimeSeconds'],
   });
   EpisodeContext? context;
   if (json['episodeContext'] != null) {
     final data = jsonObject(json['episodeContext']);
-    context = EpisodeContext(seriesId: mediaIdentifier(data['seriesID']),
-      seriesTitle: _title(data['seriesTitle']), seasons: _seasons(data['seasons']),
-      currentSeason: _optionalInteger(data['seasonNumber']));
+    context = EpisodeContext(
+      seriesId: mediaIdentifier(data['seriesID']),
+      seriesTitle: _title(data['seriesTitle']),
+      seasons: _seasons(data['seasons']),
+      currentSeason: _optionalInteger(data['seasonNumber']),
+    );
   }
   return MediaDetail(
     item: item,

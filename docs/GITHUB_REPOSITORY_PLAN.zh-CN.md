@@ -1,5 +1,7 @@
 # 映栖 ReelNest：GitHub 仓库与发布规划
 
+2026-10-05 最新范围：第一阶段仅 Windows/macOS/Linux，功能与 UI 对齐原项目，见[项目边界](PROJECT_SCOPE.zh-CN.md)。文内五端工程、构建矩阵及移动签名安排是原远期规划，不作为当前交付要求；iOS/Android 目录保留，当前 `build.yml` 已收敛到三个桌面端，尚未推送触发远程验证。
+
 日期：2026-10-02
 更新：2026-10-03，统一使用 `docs/`，补充应用外壳、播放器模块与结构设计链接。
 分析基线：旧项目 MediaLib `64f8ee2`，旧产品版本 `1.8.0` / build `98`。
@@ -9,11 +11,11 @@
 
 新项目采用独立的 `reelnest` 主仓库，已连接远程 `829304/ReelNest`。采用单仓库多模块的组织方式：一个 Flutter 客户端共享界面与业务代码，通过 Windows、macOS、Linux 构建环境分别生成 Windows、macOS、iOS、Android、Ubuntu 产物。
 
-旧 `829304/MediaLib` 保留为参考项目与兼容服务端来源，不把旧源码整体复制进新仓库。这里保留新旧两个项目，并不表示按平台拆仓库；ReelNest 五端仍在同一个新仓库中维护。
+2026-10-05 范围纠正：旧 `829304/MediaLib` 仅作为源码与行为参考，不是必须部署的服务端。ReelNest 直接接入本地文件夹、移动硬盘、已挂载 NAS 和 Emby/Jellyfin/Plex，五端在同一个仓库维护。
 
-不按操作系统拆仓库，不为五个平台建立长期分支。平台差异放进 Flutter 平台目录与能力适配层。服务端和客户端可以在同一仓库独立构建、独立发布；仓库数量不决定部署方式。
+不按操作系统拆仓库，不为五个平台建立长期分支。平台差异放进 Flutter 平台目录与能力适配层。本次不建设或部署 ReelNest/MediaLib 服务端。
 
-这样可以让一次功能修改、接口调整和测试更新在同一个 PR 中完成，也便于参考旧 Swift 实现。未来只有服务端形成独立团队、独立访问权限或明显不同的维护周期时，再评估拆仓库。
+这样可以让一次功能修改、来源适配和测试更新在同一个 PR 中完成，也便于参考旧 Swift 实现。
 
 “一份代码”指共享主要实现，不是把同一个二进制复制给五个平台。仍然需要平台工程、部分原生代码、对应编译环境和发行签名。
 
@@ -42,12 +44,15 @@ reelnest/
 │       └── pubspec.yaml          # Flutter 客户端版本来源
 ├── packages/                     # 随实际边界建立，不预先创建空包
 │   ├── reelnest_domain/          # Dart 领域模型和纯业务规则
-│   ├── reelnest_api/             # Mlink DTO、协议客户端、契约测试
+│   ├── reelnest_api/             # Emby/Jellyfin/Plex 协议、DTO 与契约测试
 │   ├── reelnest_storage/         # SQLite/Drift、迁移、缓存
 │   ├── reelnest_player/          # 播放引擎接口与实现，不含业务页面
 │   └── reelnest_ui/              # 设计参数和共享组件
 ├── contracts/
-│   └── mlink-v1/                 # 从现有实现整理的契约与脱敏样例
+│   ├── filesystem/              # 文件来源行为样例
+│   ├── emby/                    # 各协议独立契约与脱敏样例
+│   ├── jellyfin/
+│   └── plex/
 ├── tooling/                      # 新客户端的构建、版本校验、测试工具
 ├── docs/
 │   ├── README.md                # 文档索引
@@ -89,7 +94,7 @@ Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `
 
 新客户端以 `apps/client/pubspec.yaml` 的 `version` 为唯一客户端版本来源。标签与其语义版本必须一致。商店版本字符串、整数 build number 和预发布渠道由构建脚本显式映射并校验；构建号必须满足各商店的递增要求，不能把带 `alpha` 的字符串原样用于所有原生版本字段。
 
-产品版本、Mlink API 版本、数据库 schema 版本分别管理。保持 API `v1` 兼容不意味着应用版本也必须相同。
+产品版本、本地数据库 schema 和各来源协议兼容范围分别管理，不把某种服务器 API 版本作为应用版本。
 
 ## 4. GitHub 设置清单
 
@@ -119,7 +124,7 @@ PR 模板要求说明：用户可见变化、涉及平台、验证记录、界�
 
 旧 MediaLib 仓库已有 `swift.yml` 和 `acceptance.yml`，覆盖 Swift 构建与测试、集成自检、真实网络传输、浏览器播放和 DMG 验证。它们继续保留在旧仓库；ReelNest 新仓库当前没有工作流。
 
-旧流水线继续在旧仓库按现状执行。新仓库的真实接口验收可检出固定提交的旧服务端到临时目录独立构建，明确访问权限与网络条件；不要把旧仓库工作流名称当作新仓库已经存在的检查。
+旧流水线留在旧仓库；ReelNest CI 不依赖构建或部署旧服务端。文件来源使用临时目录/测试数据库验收，第三方连接器使用脱敏契约样例和独立测试服务器验证。
 
 ### 5.2 新增工作流及触发
 
@@ -131,14 +136,14 @@ PR 模板要求说明：用户可见变化、涉及平台、验证记录、界�
 
 建立稳定的 `client-ci-gate` 检查作为 Flutter 合并门槛。所在 workflow 对 PR 总是触发，在 job 内判断受影响模块；汇总 job 使用总是执行的条件，逐项检查结果。只有明确不受影响的 job 可以跳过，预期任务失败、取消或意外跳过必须使门槛失败。
 
-不能直接给必需 workflow 加文件路径过滤后就不管：GitHub 文档说明，被路径过滤跳过的 workflow 可能让必需检查一直 Pending。旧 Swift 检查继续由旧仓库管理；新仓库验收应显式执行所需服务端测试，不能把 `needs` 指向另一个仓库或普通 workflow 的 job。[GitHub workflow 语法](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
+不能直接给必需 workflow 加文件路径过滤后就不管：GitHub 文档说明，被路径过滤跳过的 workflow 可能让必需检查一直 Pending。新仓库执行自身的来源、存储、播放与平台验证，不能把 `needs` 指向另一个仓库或普通 workflow 的 job。[GitHub workflow 语法](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
 
 变化影响规则：
 
 - 纯文档变化：文档与引用检查，可跳过客户端编译。
 - 共享 Dart 代码、资源、依赖锁、播放插件变化：五端编译检查。
 - 单个平台工程变化：公共检查加对应平台编译。
-- `contracts/` 或服务端基线版本变化：Dart 契约测试和真实连接验收；若需要修改旧 Swift API 或认证策略，在旧仓库配套提交并执行其测试。
+- 来源适配或 `contracts/` 变化：运行对应扫描/契约测试与真实来源验收；不通过修改旧 MediaLib API 来补齐新应用功能。
 - 播放、存储、原生插件变化：追加相应设备验收；编译成功不代表功能成功。
 
 只有工程与检查实际就绪后才启用对应门槛。原型期允许阶段性支持表，但已声明支持的平台不能长期处于跳过状态。
@@ -211,4 +216,4 @@ R0 已由文档交付，其余未执行。不要先启用指向未来工作流�
 
 ## 8. 与重构计划的关系
 
-后续功能阶段、API 复用边界、原版界面还原和测试策略见 [Flutter 实施计划](FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)。默认先迁移客户端，保留现有 macOS 服务端作为兼容基线；Windows/Ubuntu 独立服务器属于另一项交付，不能用“客户端支持 Linux”代替。
+后续功能阶段、旧源码复用、界面还原和测试策略见 [Flutter 实施计划](FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)。先建立多来源架构和本地库闭环，再完善移动盘/NAS 与 Emby/Jellyfin/Plex 直连；自建服务器不在本次范围内。

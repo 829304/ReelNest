@@ -13,14 +13,11 @@ import 'stored_session.dart';
 
 class ServerRepository {
   ServerRepository({
-    required MlinkClient client,
-    required CredentialStore store,
-    required String platform,
+    required this._client,
+    required this._store,
+    required this._platform,
     DateTime Function()? now,
-  }) : _client = client,
-       _store = store,
-       _platform = platform,
-       _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now;
 
   final MlinkClient _client;
   final CredentialStore _store;
@@ -38,8 +35,13 @@ class ServerRepository {
 
   int get generation => _generation;
   Stream<void> get changes => _changes.stream;
-  void _notify() { if (!_changes.isClosed) _changes.add(null); }
-  void dispose() { unawaited(_changes.close()); }
+  void _notify() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void dispose() {
+    unawaited(_changes.close());
+  }
 
   ServerConnection? get connection => _session?.connection;
   bool get requiresLogin => _requiresLogin;
@@ -79,16 +81,10 @@ class ServerRepository {
     final target = ServerAddress.parse(address);
     final account = username.trim();
     if (account.isEmpty || utf8.encode(account).length > 128) {
-      throw const AppFailure(
-        FailureKind.invalidInput,
-        '请填写用户名，长度不得超过 128 字节。',
-      );
+      throw const AppFailure(FailureKind.invalidInput, '请填写用户名，长度不得超过 128 字节。');
     }
     if (password.isEmpty || utf8.encode(password).length > 1024) {
-      throw const AppFailure(
-        FailureKind.invalidInput,
-        '请填写密码，长度不得超过 1024 字节。',
-      );
+      throw const AppFailure(FailureKind.invalidInput, '请填写密码，长度不得超过 1024 字节。');
     }
     final server = await _client.discover(target);
     final tokens = await _client.login(
@@ -114,7 +110,11 @@ class ServerRepository {
     _requiresLogin = false;
     _generation++;
     _pendingSave = true;
-    try { await _save(); } finally { _notify(); }
+    try {
+      await _save();
+    } finally {
+      _notify();
+    }
   });
 
   Future<void> _save() async {
@@ -128,27 +128,48 @@ class ServerRepository {
     return _read(_generation, _client.categories, verifyServer: true);
   }
 
-  Future<MediaPage> browse(int scope, String type, MediaSort sort, int offset) =>
-      _read(scope, (address, token) => _client.browse(
-        address, token, type: type, sort: sort, offset: offset));
+  Future<MediaPage> browse(
+    int scope,
+    String type,
+    MediaSort sort,
+    int offset,
+  ) => _read(
+    scope,
+    (address, token) =>
+        _client.browse(address, token, type: type, sort: sort, offset: offset),
+  );
 
-  Future<MediaDetail> detail(int scope, String id, bool isSeries) =>
-      _read(scope, (address, token) {
-        if (isSeries && _verifiedServer!.capabilities.contains('series-detail')) {
-          return _client.seriesDetail(address, token, id);
-        }
-        return _client.detail(address, token, id, isSeries: isSeries);
-      }, verifyServer: isSeries);
+  Future<MediaDetail> detail(int scope, String id, bool isSeries) => _read(
+    scope,
+    (address, token) {
+      if (isSeries && _verifiedServer!.capabilities.contains('series-detail')) {
+        return _client.seriesDetail(address, token, id);
+      }
+      return _client.detail(address, token, id, isSeries: isSeries);
+    },
+    verifyServer: isSeries,
+  );
 
   Future<MediaPage> episodes(int scope, String id, String season, int offset) =>
-      _read(scope, (address, token) => _client.episodes(
-        address, token, seriesId: id, season: season, offset: offset));
+      _read(
+        scope,
+        (address, token) => _client.episodes(
+          address,
+          token,
+          seriesId: id,
+          season: season,
+          offset: offset,
+        ),
+      );
 
   Future<Uint8List> artwork(int scope, String id) =>
       _read(scope, (address, token) => _client.artwork(address, token, id));
 
   void _ensureScope(int scope) {
-    if (scope != _generation || _session == null || _requiresLogin || _pendingClear) {
+    if (scope != _generation ||
+        _session == null ||
+        _requiresLogin ||
+        _pendingClear) {
       throw AppFailure.sessionExpired;
     }
   }
@@ -159,40 +180,47 @@ class ServerRepository {
     _notify();
   }
 
-  Future<StoredSession> _prepare(int scope, bool verifyServer) => _exclusive(() async {
-    await _restore();
-    _ensureScope(scope);
-    await _save();
-    _ensureScope(scope);
-    if (verifyServer) {
-      final server = await _client.discover(_session!.connection.address);
-      _ensureScope(scope);
-      if (server.id != _session!.connection.server.id) {
-        _expire();
-        throw const AppFailure(FailureKind.incompatibleServer,
-          '该地址的服务器身份已改变，请重新连接。');
-      }
-      // Re-discover before opening a series so upgrades are visible without
-      // replacing credentials or trusting a descriptor restored from disk.
-      _verifiedServer = server;
-    }
-    if (!_session!.tokens.accessExpiresAt.isAfter(
-      _now().add(const Duration(seconds: 30)),
-    )) {
-      await _refresh();
-    }
-    _ensureScope(scope);
-    return _session!;
-  });
+  Future<StoredSession> _prepare(int scope, bool verifyServer) =>
+      _exclusive(() async {
+        await _restore();
+        _ensureScope(scope);
+        await _save();
+        _ensureScope(scope);
+        if (verifyServer) {
+          final server = await _client.discover(_session!.connection.address);
+          _ensureScope(scope);
+          if (server.id != _session!.connection.server.id) {
+            _expire();
+            throw const AppFailure(
+              FailureKind.incompatibleServer,
+              '该地址的服务器身份已改变，请重新连接。',
+            );
+          }
+          // Re-discover before opening a series so upgrades are visible without
+          // replacing credentials or trusting a descriptor restored from disk.
+          _verifiedServer = server;
+        }
+        if (!_session!.tokens.accessExpiresAt.isAfter(
+          _now().add(const Duration(seconds: 30)),
+        )) {
+          await _refresh();
+        }
+        _ensureScope(scope);
+        return _session!;
+      });
 
-  Future<T> _read<T>(int scope,
+  Future<T> _read<T>(
+    int scope,
     Future<T> Function(ServerAddress, String) request, {
     bool verifyServer = false,
   }) async {
     final session = await _prepare(scope, verifyServer);
     _ensureScope(scope);
     try {
-      final value = await request(session.connection.address, session.tokens.accessToken);
+      final value = await request(
+        session.connection.address,
+        session.tokens.accessToken,
+      );
       _ensureScope(scope);
       return value;
     } on AppFailure catch (error) {
@@ -211,7 +239,10 @@ class ServerRepository {
       });
       _ensureScope(scope);
       try {
-        final value = await request(rotated.connection.address, rotated.tokens.accessToken);
+        final value = await request(
+          rotated.connection.address,
+          rotated.tokens.accessToken,
+        );
         _ensureScope(scope);
         return value;
       } on AppFailure catch (retryError) {
@@ -247,7 +278,9 @@ class ServerRepository {
         throw AppFailure.sessionExpired;
       }
     } on AppFailure catch (error) {
-      if (error.kind == FailureKind.sessionExpired && scope == _generation) _expire();
+      if (error.kind == FailureKind.sessionExpired && scope == _generation) {
+        _expire();
+      }
       if (error.kind == FailureKind.storage) _notify();
       rethrow;
     }

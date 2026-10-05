@@ -51,8 +51,7 @@ class LibraryPage extends ConsumerWidget {
           StatusNotice(message: failure.message),
           const SizedBox(height: 16),
         ],
-        if (!signedIn && !state.busy)
-          const Text('请先在服务器页面登录。'),
+        if (!signedIn && !state.busy) const Text('请先在服务器页面登录。'),
         if (signedIn && catalog == null && !state.busy)
           const Text('尚未读取到分类，请刷新重试。'),
         if (catalog != null && fetchedAt != null) ...[
@@ -79,16 +78,25 @@ class LibraryPage extends ConsumerWidget {
                 key: ValueKey(category.id),
                 child: ListTile(
                   contentPadding: const EdgeInsets.all(20),
-                  leading: Icon(Icons.folder_outlined,
-                    color: Theme.of(context).colorScheme.primary),
+                  leading: Icon(
+                    Icons.folder_outlined,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                   title: Text(category.title),
-                  subtitle: Text(mediaTypes.containsKey(category.id)
-                    ? '${category.itemCount} 项' : '${category.itemCount} 项 · 暂不支持浏览'),
+                  subtitle: Text(
+                    mediaTypes.containsKey(category.id)
+                        ? '${category.itemCount} 项'
+                        : '${category.itemCount} 项 · 暂不支持浏览',
+                  ),
                   trailing: mediaTypes.containsKey(category.id)
-                    ? const Icon(Icons.chevron_right) : null,
+                      ? const Icon(Icons.chevron_right)
+                      : null,
                   onTap: scope == null || !mediaTypes.containsKey(category.id)
-                    ? null : () => context.pushNamed('media-browse',
-                        pathParameters: {'type': category.id}),
+                      ? null
+                      : () => context.pushNamed(
+                          'media-browse',
+                          pathParameters: {'type': category.id},
+                        ),
                 ),
               ),
             ),

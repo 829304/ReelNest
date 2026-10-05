@@ -7,22 +7,47 @@ import '../features/library/presentation/browse_page.dart';
 import '../features/library/presentation/media_detail_page.dart';
 import '../features/servers/presentation/servers_page.dart';
 import '../features/settings/presentation/settings_page.dart';
+import '../features/sources/presentation/sources_page.dart';
+import '../features/sources/presentation/source_library_page.dart';
 import '../shell/app_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final router = GoRouter(
-    initialLocation: '/',
-    routes: [
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, shell) => AppShell(navigationShell: shell),
-        branches: [
-          StatefulShellBranch(
-            routes: [
-              GoRoute(path: '/', builder: (context, state) => const HomePage()),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
+  final router = createRouter();
+  ref.onDispose(router.dispose);
+  return router;
+});
+
+// Legacy routes exist only for regression tests of the isolated Mlink prototype.
+GoRouter createRouter({
+  bool enableLegacyMlink = false,
+  String initialLocation = '/',
+}) => GoRouter(
+  initialLocation: initialLocation,
+  routes: [
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, shell) => AppShell(navigationShell: shell),
+      branches: [
+        StatefulShellBranch(
+          routes: [
+            GoRoute(path: '/', builder: (context, state) => const HomePage()),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/sources',
+              builder: (context, state) => const SourcesPage(),
+              routes: [
+                GoRoute(
+                  path: ':sourceId',
+                  builder: (context, state) => SourceLibraryPage(
+                    key: state.pageKey,
+                    sourceId: state.pathParameters['sourceId']!,
+                  ),
+                ),
+              ],
+            ),
+            if (enableLegacyMlink)
               GoRoute(
                 path: '/servers',
                 builder: (context, state) => const ServersPage(),
@@ -32,37 +57,41 @@ final routerProvider = Provider<GoRouter>((ref) {
                     builder: (context, state) => const LibraryPage(),
                     routes: [
                       GoRoute(
-                        name: 'media-browse', path: 'category/:type',
+                        name: 'media-browse',
+                        path: 'category/:type',
                         builder: (context, state) => BrowsePage(
-                          key: state.pageKey, type: state.pathParameters['type']!),
+                          key: state.pageKey,
+                          type: state.pathParameters['type']!,
+                        ),
                         routes: [
-                          GoRoute(name: 'media-detail', path: 'item/:id',
+                          GoRoute(
+                            name: 'media-detail',
+                            path: 'item/:id',
                             builder: (context, state) => MediaDetailPage(
                               key: state.pageKey,
                               type: state.pathParameters['type']!,
                               id: state.pathParameters['id']!,
-                              isSeries: state.uri.queryParameters['series'] == '1',
-                            )),
+                              isSeries:
+                                  state.uri.queryParameters['series'] == '1',
+                            ),
+                          ),
                         ],
                       ),
                     ],
                   ),
                 ],
               ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/settings',
-                builder: (context, state) => const SettingsPage(),
-              ),
-            ],
-          ),
-        ],
-      ),
-    ],
-  );
-  ref.onDispose(router.dispose);
-  return router;
-});
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/settings',
+              builder: (context, state) => const SettingsPage(),
+            ),
+          ],
+        ),
+      ],
+    ),
+  ],
+);

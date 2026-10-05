@@ -5,7 +5,8 @@ import '../storage/credential_store.dart';
 
 class SecureCredentialStore implements CredentialStore {
   SecureCredentialStore({FlutterSecureStorage? storage})
-    : _storage = storage ??
+    : _storage =
+          storage ??
           const FlutterSecureStorage(
             // No Keychain sharing or app group is needed by the macOS client.
             mOptions: MacOsOptions(usesDataProtectionKeychain: false),

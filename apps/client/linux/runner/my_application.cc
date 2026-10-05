@@ -59,6 +59,8 @@ static void my_application_activate(GApplication* application) {
       project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
+  // Match MediaLib's minimum content size; GTK handles window decorations.
+  gtk_widget_set_size_request(GTK_WIDGET(view), 1088, 720);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.

@@ -44,13 +44,17 @@ class MlinkClient {
   }) async {
     try {
       return MlinkTokens.fromJson(
-        await _request(address, '/api/v1/auth/login', body: {
-          'username': username,
-          'password': password,
-          'deviceName': deviceName,
-          'platform': platform,
-          'delivery': 'token',
-        }),
+        await _request(
+          address,
+          '/api/v1/auth/login',
+          body: {
+            'username': username,
+            'password': password,
+            'deviceName': deviceName,
+            'platform': platform,
+            'delivery': 'token',
+          },
+        ),
       );
     } on AppFailure catch (error) {
       if (error.kind == FailureKind.unauthorized) {
@@ -63,13 +67,17 @@ class MlinkClient {
     }
   }
 
-  Future<MlinkTokens> refresh(ServerAddress address, String refreshToken) async {
+  Future<MlinkTokens> refresh(
+    ServerAddress address,
+    String refreshToken,
+  ) async {
     try {
       return MlinkTokens.fromJson(
-        await _request(address, '/api/v1/auth/refresh', body: {
-          'refreshToken': refreshToken,
-          'delivery': 'token',
-        }),
+        await _request(
+          address,
+          '/api/v1/auth/refresh',
+          body: {'refreshToken': refreshToken, 'delivery': 'token'},
+        ),
       );
     } on AppFailure catch (error) {
       if (error.kind == FailureKind.unauthorized) {
@@ -99,33 +107,67 @@ class MlinkClient {
     Map<String, String>? query,
   }) async {
     try {
-      return jsonObject(jsonDecode(utf8.decode(await _bytes(
-        address, path, body: body, accessToken: accessToken, query: query,
-      ))));
+      return jsonObject(
+        jsonDecode(
+          utf8.decode(
+            await _bytes(
+              address,
+              path,
+              body: body,
+              accessToken: accessToken,
+              query: query,
+            ),
+          ),
+        ),
+      );
     } on FormatException {
       throw AppFailure.invalidResponse;
     }
   }
 
-  Future<MediaPage> browse(ServerAddress address, String token, {
-    required String type, required int offset, required MediaSort sort,
+  Future<MediaPage> browse(
+    ServerAddress address,
+    String token, {
+    required String type,
+    required int offset,
+    required MediaSort sort,
     int limit = 48,
   }) async {
     _validatePage(offset, limit);
     if (!mediaTypes.containsKey(type)) throw AppFailure.invalidResponse;
-    return decodeMediaPage(await _request(address, '/api/v1/library/browse',
-      accessToken: token, query: {
-        'type': type, 'offset': '$offset', 'limit': '$limit', 'sort': sort.name,
-      }), offset: offset, limit: limit);
+    return decodeMediaPage(
+      await _request(
+        address,
+        '/api/v1/library/browse',
+        accessToken: token,
+        query: {
+          'type': type,
+          'offset': '$offset',
+          'limit': '$limit',
+          'sort': sort.name,
+        },
+      ),
+      offset: offset,
+      limit: limit,
+    );
   }
 
-  Future<MediaDetail> detail(ServerAddress address, String token, String id, {
+  Future<MediaDetail> detail(
+    ServerAddress address,
+    String token,
+    String id, {
     required bool isSeries,
   }) async {
     try {
-      return decodeMediaDetail(await _request(address,
-        '/api/v1/items/${Uri.encodeComponent(mediaIdentifier(id))}',
-        accessToken: token), id, isSeries: isSeries);
+      return decodeMediaDetail(
+        await _request(
+          address,
+          '/api/v1/items/${Uri.encodeComponent(mediaIdentifier(id))}',
+          accessToken: token,
+        ),
+        id,
+        isSeries: isSeries,
+      );
     } on AppFailure catch (error) {
       if (error.kind == FailureKind.incompatibleServer) {
         throw const AppFailure(FailureKind.notFound, '该媒体已移除或当前账号无权访问。');
@@ -134,11 +176,20 @@ class MlinkClient {
     }
   }
 
-  Future<MediaDetail> seriesDetail(ServerAddress address, String token, String id) async {
+  Future<MediaDetail> seriesDetail(
+    ServerAddress address,
+    String token,
+    String id,
+  ) async {
     try {
-      return decodeSeriesDetail(await _request(address,
-        '/api/v1/series/${Uri.encodeComponent(mediaIdentifier(id))}',
-        accessToken: token), id);
+      return decodeSeriesDetail(
+        await _request(
+          address,
+          '/api/v1/series/${Uri.encodeComponent(mediaIdentifier(id))}',
+          accessToken: token,
+        ),
+        id,
+      );
     } on AppFailure catch (error) {
       if (error.kind == FailureKind.incompatibleServer) {
         throw const AppFailure(FailureKind.notFound, '该系列已移除或当前账号无权访问。');
@@ -147,8 +198,12 @@ class MlinkClient {
     }
   }
 
-  Future<MediaPage> episodes(ServerAddress address, String token, {
-    required String seriesId, required String season, required int offset,
+  Future<MediaPage> episodes(
+    ServerAddress address,
+    String token, {
+    required String seriesId,
+    required String season,
+    required int offset,
     int limit = 48,
   }) async {
     _validatePage(offset, limit);
@@ -156,18 +211,28 @@ class MlinkClient {
         (!RegExp(r'^\d{1,5}$').hasMatch(season) || int.parse(season) > 10000)) {
       throw AppFailure.invalidResponse;
     }
-    return decodeMediaPage(await _request(address,
-      '/api/v1/series/${Uri.encodeComponent(mediaIdentifier(seriesId))}/episodes',
-      accessToken: token, query: {
-        'season': season, 'offset': '$offset', 'limit': '$limit',
-      }), offset: offset, limit: limit, episodes: true);
+    return decodeMediaPage(
+      await _request(
+        address,
+        '/api/v1/series/${Uri.encodeComponent(mediaIdentifier(seriesId))}/episodes',
+        accessToken: token,
+        query: {'season': season, 'offset': '$offset', 'limit': '$limit'},
+      ),
+      offset: offset,
+      limit: limit,
+      episodes: true,
+    );
   }
 
   Future<Uint8List> artwork(ServerAddress address, String token, String id) =>
-      _bytes(address,
+      _bytes(
+        address,
         '/api/v1/images/${Uri.encodeComponent(mediaIdentifier(id))}/poster',
-        accessToken: token, query: const {'size': '320'}, image: true,
-        maxBytes: 4 * 1024 * 1024);
+        accessToken: token,
+        query: const {'size': '320'},
+        image: true,
+        maxBytes: 4 * 1024 * 1024,
+      );
 
   void _validatePage(int offset, int limit) {
     if (offset < 0 || offset > 1000000 || limit < 1 || limit > 100) {
@@ -176,9 +241,12 @@ class MlinkClient {
   }
 
   Future<Uint8List> _bytes(
-    ServerAddress address, String path, {
-    Map<String, Object>? body, String? accessToken,
-    Map<String, String>? query, int maxBytes = _maxResponseBytes,
+    ServerAddress address,
+    String path, {
+    Map<String, Object>? body,
+    String? accessToken,
+    Map<String, String>? query,
+    int maxBytes = _maxResponseBytes,
     bool image = false,
   }) async {
     final client = _createClient();
@@ -191,8 +259,12 @@ class MlinkClient {
         );
         // Never forward credentials across redirects, even on the same host.
         request.followRedirects = false;
-        request.headers.set(HttpHeaders.acceptHeader,
-          image ? 'image/jpeg,image/png,image/webp,image/gif' : 'application/json');
+        request.headers.set(
+          HttpHeaders.acceptHeader,
+          image
+              ? 'image/jpeg,image/png,image/webp,image/gif'
+              : 'application/json',
+        );
         if (accessToken != null) {
           request.headers.set(
             HttpHeaders.authorizationHeader,
@@ -200,7 +272,10 @@ class MlinkClient {
           );
         }
         if (body != null) {
-          request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+          request.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json',
+          );
           request.headers.set('X-MediaLIB-Client', 'mlink-native/1');
           request.add(utf8.encode(jsonEncode(body)));
         }
@@ -208,8 +283,13 @@ class MlinkClient {
         if (response.statusCode != HttpStatus.ok) {
           throw _statusFailure(response.statusCode);
         }
-        if (image && !{'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-            .contains(response.headers.contentType?.mimeType)) {
+        if (image &&
+            !{
+              'image/jpeg',
+              'image/png',
+              'image/webp',
+              'image/gif',
+            }.contains(response.headers.contentType?.mimeType)) {
           throw AppFailure.invalidResponse;
         }
         if (response.contentLength > maxBytes) {
@@ -232,10 +312,7 @@ class MlinkClient {
         '无法建立受信任的 TLS 连接，请检查服务器证书和本机时间。',
       );
     } on SocketException {
-      throw const AppFailure(
-        FailureKind.network,
-        '无法连接服务器，请检查网络、地址和端口。',
-      );
+      throw const AppFailure(FailureKind.network, '无法连接服务器，请检查网络、地址和端口。');
     } on HttpException {
       throw const AppFailure(FailureKind.network, '连接中断，请稍后重试。');
     } on FormatException {

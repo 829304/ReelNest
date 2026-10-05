@@ -37,7 +37,8 @@ class ServersPage extends ConsumerWidget {
             message: state.pendingClear
                 ? '本机凭据尚未清除，请重试。清除完成前无法添加新的连接。'
                 : failure.message,
-            onRetry: state.busy ||
+            onRetry:
+                state.busy ||
                     state.requiresLogin ||
                     (connection == null &&
                         !state.needsRestore &&
@@ -181,7 +182,9 @@ class _ConnectionFormState extends ConsumerState<_ConnectionForm> {
     FocusScope.of(context).unfocus();
     final password = _password.text;
     _password.clear();
-    await ref.read(connectionControllerProvider.notifier).connect(
+    await ref
+        .read(connectionControllerProvider.notifier)
+        .connect(
           address: _address.text,
           username: _username.text,
           password: password,

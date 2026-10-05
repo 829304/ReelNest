@@ -5,3 +5,13 @@ from MediaLib (https://github.com/829304/MediaLib), revision
 64f8ee258d87389414d5e06740a89f59cd857612, licensed under Apache License 2.0.
 The original SwiftUI implementation has been reimplemented in Dart/Flutter.
 See docs/design/SOURCE_MAPPING.md for the source mapping and current scope.
+
+Source media classifications, scan eligibility rules (extensions and size
+thresholds), successful-scan index pruning, and desktop minimum content sizes
+are also adapted from the same MediaLib revision. See
+docs/design/ORIGINAL_PARITY_AUDIT.zh-CN.md for verified rules and remaining gaps.
+
+Source-page title illustrations, selected linear icon paths, section/header
+layout, directory reachability checks and the local scan queue are translated
+from MediaLib's VividIconLibrary.swift, SourcesView.swift, FileAccessService.swift
+and AppState.swift at the same revision.

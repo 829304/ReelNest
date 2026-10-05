@@ -134,10 +134,16 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  // The requested size is a content size in logical pixels, matching macOS
+  // contentMinSize and GTK's Flutter view size request.
+  RECT window_bounds{0, 0, Scale(size.width < 1088 ? 1088 : size.width, scale_factor),
+                     Scale(size.height < 720 ? 720 : size.height, scale_factor)};
+  AdjustWindowRectExForDpi(&window_bounds, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      window_bounds.right - window_bounds.left,
+      window_bounds.bottom - window_bounds.top,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -179,6 +185,21 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      // ContentView.MainWindowToolbarVisibilityGuard.minimumContentSize.
+      // Convert content DIPs to an outer frame at the window's current DPI.
+      const UINT dpi = GetDpiForWindow(hwnd);
+      RECT minimum{0, 0, MulDiv(1088, dpi, 96), MulDiv(720, dpi, 96)};
+      AdjustWindowRectExForDpi(
+          &minimum, static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE)),
+          GetMenu(hwnd) != nullptr,
+          static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE)), dpi);
+      auto* limits = reinterpret_cast<MINMAXINFO*>(lparam);
+      limits->ptMinTrackSize.x = minimum.right - minimum.left;
+      limits->ptMinTrackSize.y = minimum.bottom - minimum.top;
+      return 0;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -186,6 +207,23 @@ Win32Window::MessageHandler(HWND hwnd,
         PostQuitMessage(0);
       }
       return 0;
+
+    case WM_NCLBUTTONDOWN: {
+      // Wake the native move loop immediately when the title bar is pressed.
+      // Flutter's HostWindow has this workaround, but this runner owns its
+      // top-level HWND and does not use HostWindow.
+      // See https://github.com/flutter/flutter/pull/177597.
+      if (wparam == HTCAPTION) {
+        POINT cursor_position{};
+        if (GetCursorPos(&cursor_position) &&
+            ScreenToClient(hwnd, &cursor_position)) {
+          PostMessage(hwnd, WM_MOUSEMOVE, 0,
+                      MAKELPARAM(cursor_position.x, cursor_position.y));
+        }
+      }
+      // Keep native dragging, snapping, and caption button handling.
+      break;
+    }
 
     case WM_DPICHANGED: {
       auto newRectSize = reinterpret_cast<RECT*>(lparam);

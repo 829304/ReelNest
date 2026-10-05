@@ -50,10 +50,13 @@ class ConnectionController extends Notifier<ServerConnectionState> {
       if (_disposed) return;
       final invalid = _repository.requiresLogin || _repository.pendingClear;
       state = ServerConnectionState(
-        busy: state.busy, activity: state.activity,
+        busy: state.busy,
+        activity: state.activity,
         connection: _repository.connection,
         catalog: invalid ? null : state.catalog,
-        failure: _repository.requiresLogin ? AppFailure.sessionExpired : state.failure,
+        failure: _repository.requiresLogin
+            ? AppFailure.sessionExpired
+            : state.failure,
         requiresLogin: _repository.requiresLogin,
         pendingClear: _repository.pendingClear,
         pendingSave: _repository.pendingSave,

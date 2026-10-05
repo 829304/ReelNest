@@ -6,6 +6,8 @@ import 'package:reelnest/app/service_providers.dart';
 import 'package:reelnest/shell/desktop_shell.dart';
 import 'package:reelnest/shell/mobile_shell.dart';
 import 'package:reelnest/storage/credential_store.dart';
+import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/features/sources/application/source_providers.dart';
 
 void main() {
   Future<void> start(WidgetTester tester, Size size) async {
@@ -17,6 +19,7 @@ void main() {
       ProviderScope(
         overrides: [
           credentialStoreProvider.overrideWithValue(_MemoryCredentialStore()),
+          sourcesProvider.overrideWith((ref) async => <MediaSource>[]),
         ],
         child: const ReelNestApp(),
       ),
@@ -24,23 +27,41 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('desktop navigation retains route when resized', (tester) async {
-    await start(tester, const Size(1280, 800));
-    expect(find.byType(DesktopShell), findsOneWidget);
-    await tester.tap(find.text('管理服务器'));
-    await tester.pumpAndSettle();
-    expect(find.text('还没有服务器'), findsOneWidget);
+  testWidgets(
+    'desktop navigation retains route when resized',
+    (tester) async {
+      await start(tester, const Size(1280, 800));
+      expect(find.byType(DesktopShell), findsOneWidget);
+      await tester.tap(find.text('管理媒体源'));
+      await tester.pumpAndSettle();
+      expect(find.text('媒体源待添加'), findsOneWidget);
 
-    tester.view.physicalSize = const Size(390, 844);
-    await tester.pumpAndSettle();
-    expect(find.byType(MobileShell), findsOneWidget);
-    expect(find.text('还没有服务器'), findsOneWidget);
-    expect(
-      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-      1,
-    );
-    expect(tester.takeException(), isNull);
-  });
+      tester.view.physicalSize = const Size(1088, 720);
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopShell), findsOneWidget);
+      expect(find.byType(MobileShell), findsNothing);
+      expect(find.text('媒体源待添加'), findsOneWidget);
+      expect(
+        tester.widget<DesktopShell>(find.byType(DesktopShell)).selectedIndex,
+        1,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets(
+    'wide mobile template does not select desktop navigation by width',
+    (tester) async {
+      await start(tester, const Size(1280, 800));
+      expect(find.byType(MobileShell), findsOneWidget);
+      expect(find.byType(DesktopShell), findsNothing);
+    },
+  );
 
   testWidgets('mobile appearance changes survive navigation', (tester) async {
     await start(tester, const Size(390, 844));

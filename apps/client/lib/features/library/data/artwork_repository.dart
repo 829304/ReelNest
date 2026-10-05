@@ -10,7 +10,7 @@ class ArtworkRepository {
   ArtworkRepository(this._server, this._scope);
   final ServerRepository _server;
   final int _scope;
-  final _cache = LinkedHashMap<String, Uint8List>();
+  final _cache = <String, Uint8List>{};
   final _inFlight = <String, Future<Uint8List>>{};
   final _queue = Queue<({String id, Completer<Uint8List> result})>();
   int _cacheBytes = 0;
@@ -46,11 +46,14 @@ class ArtworkRepository {
   void cancelQueued(String id) {
     final jobs = _queue.where((job) => job.id == id).toList();
     _queue.removeWhere((job) => job.id == id);
-    if (jobs.isEmpty) return; // A sent request may still fill this session's cache.
+    if (jobs.isEmpty) {
+      return; // A sent request may still fill this session's cache.
+    }
     _inFlight.remove(id);
     for (final job in jobs) {
-      job.result.completeError(const AppFailure(
-        FailureKind.cancelled, '图片请求已取消。'));
+      job.result.completeError(
+        const AppFailure(FailureKind.cancelled, '图片请求已取消。'),
+      );
     }
   }
 
@@ -65,7 +68,9 @@ class ArtworkRepository {
   Future<void> _run(String id, Completer<Uint8List> result) async {
     try {
       final bytes = await _server.artwork(_scope, id);
-      if (_closed || _scope != _server.generation) throw AppFailure.sessionExpired;
+      if (_closed || _scope != _server.generation) {
+        throw AppFailure.sessionExpired;
+      }
       evict(id);
       _cache[id] = bytes;
       _cacheBytes += bytes.length;
