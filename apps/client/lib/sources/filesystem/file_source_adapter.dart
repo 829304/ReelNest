@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/media_source.dart';
 import '../../domain/source_media_type.dart';
 import '../../domain/source_scan.dart';
+import '../../platform/hidden_file_access.dart';
 import '../source_adapter.dart';
 import 'filename_parser.dart';
 import 'local_metadata_service.dart';
@@ -13,6 +14,10 @@ import 'media_file_policy.dart';
 
 /// Read-only enumeration. Never follows directory links or writes media files.
 class FileSourceAdapter implements SourceAdapter {
+  FileSourceAdapter({HiddenPathLookup? hiddenPaths})
+    : _hiddenPaths = hiddenPaths ?? hiddenFilePaths;
+
+  final HiddenPathLookup _hiddenPaths;
   final _parser = FilenameParser();
   final _metadata = LocalMetadataService();
   static final _trackPrefix = RegExp(r'^\d{1,3}\s*[-_.]\s*');
@@ -92,23 +97,39 @@ class FileSourceAdapter implements SourceAdapter {
     final pending = <Directory>[Directory(root)];
     final files = <File>[];
     final seriesMetadata = <String, LocalMetadata>{};
+    Future<void> collect(List<FileSystemEntity> entries) async {
+      cancellation.check();
+      final hidden = source.ignoreHidden
+          ? await _hiddenPaths(entries.map((e) => e.path).toList())
+          : const <String>{};
+      cancellation.check();
+      for (final entity in entries) {
+        if (hidden.contains(entity.path)) continue;
+        if (entity is Directory) {
+          if (source.recursive) pending.add(entity);
+        } else if (entity is File &&
+            MediaFilePolicy.accepts(entity.path, source.mediaType)) {
+          files.add(entity);
+        }
+      }
+    }
+
     try {
       while (pending.isNotEmpty) {
         cancellation.check();
         final directory = pending.removeLast();
+        var entries = <FileSystemEntity>[];
         await for (final entity in directory.list(followLinks: false)) {
           cancellation.check();
-          if (source.ignoreHidden && p.basename(entity.path).startsWith('.')) {
-            continue;
+          // Links remain ignored, including links with inaccessible targets.
+          if (entity is! Directory && entity is! File) continue;
+          entries.add(entity);
+          if (entries.length == 128) {
+            await collect(entries);
+            entries = [];
           }
-          if (entity is Directory) {
-            if (source.recursive) pending.add(entity);
-            continue;
-          }
-          if (entity is! File) continue;
-          if (!MediaFilePolicy.accepts(entity.path, source.mediaType)) continue;
-          files.add(entity);
         }
+        if (entries.isNotEmpty) await collect(entries);
       }
       yield ScanCatalogued(files.length);
       for (final entity in files) {

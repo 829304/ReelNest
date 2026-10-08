@@ -222,6 +222,70 @@ void main() {
     },
   );
 
+  test('batch retains successes around an invalid folder and retries only failures', () async {
+    final a = await folder('batch-a');
+    final b = Directory(p.join(sandbox.path, 'batch-b'));
+    final c = await folder('batch-c');
+    final result = await repository.addFolders(
+      locations: [a.path, b.path, c.path],
+    );
+    expect(result.added.map((s) => s.name), ['batch-a', 'batch-c']);
+    expect(result.failures.single.location, b.path);
+    expect(result.failures.single.error, isA<SourceFailure>());
+    expect(result.skippedLocations, isEmpty);
+    expect(await repository.sources(), hasLength(2));
+
+    await b.create();
+    final retry = await repository.addFolders(
+      locations: [a.path, b.path, c.path],
+    );
+    expect(retry.added.single.name, 'batch-b');
+    expect(retry.skippedLocations, [a.path, c.path]);
+    expect(retry.failures, isEmpty);
+    expect(await repository.sources(), hasLength(3));
+  });
+
+  test(
+    'batch reports database failures and continues saving subsequent folders',
+    () async {
+      final a = await folder('save-a');
+      final b = await folder('save-b');
+      final c = await folder('save-c');
+      await repository.database.customStatement('''
+      CREATE TEMP TRIGGER fail_folder BEFORE INSERT ON sources
+      WHEN NEW.name = 'save-b'
+      BEGIN SELECT RAISE(ABORT, 'injected save failure'); END
+    ''');
+      final result = await repository.addFolders(
+        locations: [a.path, b.path, c.path, b.path],
+      );
+      expect(result.added.map((s) => s.name), ['save-a', 'save-c']);
+      expect(result.failures.map((f) => f.location), [b.path, b.path]);
+      expect(result.skippedLocations, isEmpty);
+      await repository.database.customStatement('DROP TRIGGER fail_folder');
+      final retry = await repository.addFolders(
+        locations: [a.path, b.path, c.path],
+      );
+      expect(retry.added.single.name, 'save-b');
+      expect(retry.failures, isEmpty);
+    },
+  );
+
+  test(
+    'all invalid folders are reported as failures, not duplicates',
+    () async {
+      final paths = [
+        p.join(sandbox.path, 'missing-a'),
+        p.join(sandbox.path, 'missing-b'),
+      ];
+      final result = await repository.addFolders(locations: paths);
+      expect(result.added, isEmpty);
+      expect(result.skippedLocations, isEmpty);
+      expect(result.failures.map((f) => f.location), paths);
+      expect(await repository.sources(), isEmpty);
+    },
+  );
+
   test('batch adds only new directories in selection order with original music defaults', () async {
     final old = await folder('existing');
     final a = await folder('music-a');
@@ -231,9 +295,11 @@ void main() {
       locations: [old.path, b.path, a.path, b.path],
       mediaType: SourceMediaType.music,
     );
-    expect(created.map((s) => s.name), ['music-b', 'music-a']);
+    expect(created.added.map((s) => s.name), ['music-b', 'music-a']);
+    expect(created.skippedLocations, [old.path, b.path]);
+    expect(created.failures, isEmpty);
     expect(
-      created.every(
+      created.added.every(
         (s) =>
             s.mediaType == SourceMediaType.music &&
             s.minimumFileSize == 512 * 1024 &&
@@ -257,7 +323,7 @@ void main() {
         ),
       ),
     );
-    expect(await repository.addFolders(locations: []), isEmpty);
+    expect((await repository.addFolders(locations: [])).added, isEmpty);
   });
 
   test(
@@ -271,10 +337,10 @@ void main() {
         locations: [old.path, album.path],
         mediaType: SourceMediaType.photo,
       );
-      expect(created.single.name, '相册');
-      expect(created.single.options.includeInMetadataFetch, isFalse);
-      expect(created.single.options.preferMetadataWriteToSource, isFalse);
-      expect(created.single.options.includeInHealthCheck, isTrue);
+      expect(created.added.single.name, '相册');
+      expect(created.added.single.options.includeInMetadataFetch, isFalse);
+      expect(created.added.single.options.preferMetadataWriteToSource, isFalse);
+      expect(created.added.single.options.includeInHealthCheck, isTrue);
       expect((await repository.source(original.id)).lastScan, isNull);
       await expectLater(
         repository.addFolders(

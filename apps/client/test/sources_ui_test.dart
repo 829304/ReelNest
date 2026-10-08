@@ -17,6 +17,67 @@ import 'package:reelnest/features/sources/presentation/local_media_detail_page.d
 
 void main() {
   testWidgets(
+    'partial add failure still scans successes and retry only scans the recovered folder',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final files = _Files()..rejected.add('/synthetic/broken');
+      final repository = SourceRepository(
+        database: LibraryDatabase(NativeDatabase.memory()),
+        adapters: {MediaSourceKind.localFolder: files},
+      );
+      addTearDown(repository.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRepositoryProvider.overrideWithValue(repository),
+            directoryAccessProvider.overrideWithValue(
+              _Picker([
+                '/synthetic/local',
+                '/synthetic/broken',
+                '/synthetic/second',
+              ]),
+            ),
+          ],
+          child: const ReelNestApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('管理媒体源'));
+      await tester.pumpAndSettle();
+      Future<void> addSelection() async {
+        await tester.tap(find.byKey(const ValueKey('add-source')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, '选择文件夹'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('添加并扫描'));
+        await tester.pumpAndSettle();
+      }
+
+      await addSelection();
+      expect(files.scanned, ['/synthetic/local', '/synthetic/second']);
+      expect(find.textContaining('已添加 2 个来源，1 个目录添加失败'), findsOneWidget);
+      expect(find.textContaining('broken：目录不可访问'), findsOneWidget);
+      expect(
+        (await repository.sources()).every((s) => s.lastScan != null),
+        isTrue,
+      );
+      files.rejected.clear();
+      await addSelection();
+      expect(files.scanned, [
+        '/synthetic/local',
+        '/synthetic/second',
+        '/synthetic/broken',
+      ]);
+      expect(await repository.sources(), hasLength(3));
+      expect(find.textContaining('目录添加失败'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'add multiple folders, classify, scan in selection order and browse without Mlink',
     (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -112,6 +173,8 @@ void main() {
 }
 
 class _Picker implements DirectoryAccess {
+  _Picker([this.locations = const ['/synthetic/local', '/synthetic/second']]);
+  final List<String> locations;
   @override
   bool get supported => true;
   @override
@@ -119,18 +182,20 @@ class _Picker implements DirectoryAccess {
   @override
   Future<String?> choose() async => '/synthetic/local';
   @override
-  Future<List<String>> chooseMany() async => [
-    '/synthetic/local',
-    '/synthetic/second',
-  ];
+  Future<List<String>> chooseMany() async => locations;
 }
 
 class _Files implements SourceAdapter {
   final scanned = <String>[];
+  final rejected = <String>{};
   @override
   Future<bool> isReachable(String location) async => true;
   @override
-  Future<String> validateLocation(String location) async => location;
+  Future<String> validateLocation(String location) async {
+    if (rejected.contains(location)) throw const SourceFailure('目录不可访问');
+    return location;
+  }
+
   @override
   Stream<SourceScanEvent> scan(
     MediaSource source,

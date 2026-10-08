@@ -11,6 +11,7 @@ import '../../../domain/library_health.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/source_options.dart';
 import '../../../domain/source_scan.dart';
+import '../../../domain/source_add_result.dart';
 import '../../../sources/source_adapter.dart';
 import '../../../storage/library_database.dart';
 
@@ -159,24 +160,31 @@ class SourceRepository {
 
   /// AppState.addSources: skip existing directories, name from the directory,
   /// save in selection order, then let the controller enqueue only new sources.
-  Future<List<MediaSource>> addFolders({
+  Future<FolderAddResult> addFolders({
     required List<String> locations,
     SourceMediaType mediaType = SourceMediaType.auto,
   }) async {
-    if (locations.isEmpty) return [];
     final existing = (await sources())
         .map((s) => _locationKey(s.location))
         .toSet();
     final saved = <MediaSource>[];
+    final skipped = <String>[];
+    final failures = <FolderAddFailure>[];
     for (final location in locations) {
       // A disconnected directory that is already in the library is still a
       // duplicate; don't require a new access grant just to skip it.
-      if (existing.contains(_locationKey(p.normalize(location)))) continue;
-      final root = await _adapter(MediaSourceKind.localFolder)
-          .validateLocation(location);
-      if (!existing.add(_locationKey(root))) continue;
-      saved.add(
-        await add(
+      if (existing.contains(_locationKey(p.normalize(location)))) {
+        skipped.add(location);
+        continue;
+      }
+      try {
+        final root = await _adapter(MediaSourceKind.localFolder)
+            .validateLocation(location);
+        if (existing.contains(_locationKey(root))) {
+          skipped.add(location);
+          continue;
+        }
+        final created = await add(
           kind: MediaSourceKind.localFolder,
           name: p.basename(location).isEmpty ? location : p.basename(location),
           location: root,
@@ -186,10 +194,15 @@ class SourceRepository {
                 mediaType != SourceMediaType.photo &&
                 mediaType != SourceMediaType.homeVideo,
           ),
-        ),
-      );
+        );
+        saved.add(created);
+        // Failed saves must remain retryable within this batch and later ones.
+        existing.add(_locationKey(root));
+      } on Exception catch (error) {
+        failures.add((location: location, error: error));
+      }
     }
-    if (saved.isEmpty) {
+    if (saved.isEmpty && failures.isEmpty && locations.isNotEmpty) {
       final private = mediaType == SourceMediaType.privateCollection;
       throw SourceFailure(
         private
@@ -199,7 +212,11 @@ class SourceRepository {
                   : '所选目录均已添加为媒体源。'),
       );
     }
-    return saved;
+    return FolderAddResult(
+      added: saved,
+      skippedLocations: skipped,
+      failures: failures,
+    );
   }
 
   /// Storage operation. SourceScans coordinates AppState's save/restart sequence.

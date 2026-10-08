@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
 import '../../../domain/source_media_type.dart';
@@ -67,11 +68,26 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (draft == null || !mounted) return;
     await _perform(() async {
-      final sources = await ref
+      final scans = ref.read(sourceScansProvider.notifier);
+      final result = await ref
           .read(sourceRepositoryProvider)
           .addFolders(locations: draft.locations, mediaType: draft.mediaType);
-      if (mounted) {
-        unawaited(ref.read(sourceScansProvider.notifier).scanAll(sources));
+      if (result.added.isNotEmpty) {
+        unawaited(scans.scanAll(result.added));
+      }
+      if (mounted && result.failures.isNotEmpty) {
+        final private = draft.mediaType == SourceMediaType.privateCollection;
+        final details = result.failures
+            .map((failure) {
+              final name = private ? '保险库目录' : p.basename(failure.location);
+              return '$name：${sourceErrorMessage(failure.error)}';
+            })
+            .join('\n');
+        setState(() {
+          _error =
+              '已添加 ${result.added.length} 个来源，'
+              '${result.failures.length} 个目录添加失败。\n$details';
+        });
       }
     });
   }
