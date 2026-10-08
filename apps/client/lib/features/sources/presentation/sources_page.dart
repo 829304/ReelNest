@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../domain/source_media_type.dart';
+import '../../../domain/source_settings_draft.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../application/source_providers.dart';
 import 'add_source_dialog.dart';
 import 'source_page_sections.dart';
+import 'source_settings_sheet.dart';
 
 class SourcesPage extends ConsumerStatefulWidget {
   const SourcesPage({super.key});
@@ -62,16 +67,12 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (draft == null || !mounted) return;
     await _perform(() async {
-      final source = await ref
+      final sources = await ref
           .read(sourceRepositoryProvider)
-          .add(
-            kind: draft.kind,
-            name: draft.name,
-            location: draft.location,
-            recursive: draft.recursive,
-            ignoreHidden: draft.ignoreHidden,
-          );
-      if (mounted) await ref.read(sourceScansProvider.notifier).scan(source.id);
+          .addFolders(locations: draft.locations, mediaType: draft.mediaType);
+      if (mounted) {
+        unawaited(ref.read(sourceScansProvider.notifier).scanAll(sources));
+      }
     });
   }
 
@@ -100,8 +101,26 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (confirmed != true || !mounted) return;
     await ref.read(sourceRepositoryProvider).relocate(source.id, location);
-    if (mounted) await ref.read(sourceScansProvider.notifier).scan(source.id);
+    if (mounted) {
+      unawaited(ref.read(sourceScansProvider.notifier).scan(source.id));
+    }
   });
+
+  Future<void> _settings(MediaSource source) async {
+    final draft = await showDialog<SourceSettingsDraft>(
+      context: context,
+      builder: (_) => SourceSettingsSheet(source: source),
+    );
+    if (draft == null || !mounted) return;
+    await _perform(() async {
+      await ref
+          .read(sourceScansProvider.notifier)
+          .saveSettings(source.id, draft);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('媒体源设置已保存')));
+    });
+  }
 
   Future<void> _remove(MediaSource source) async {
     final confirmed = await showDialog<bool>(
@@ -234,7 +253,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   }
 
   // This remains the transitional index card. The original compact SourceRow
-  // depends on its settings sheet; don't add a non-functional settings button.
+  // and full original SourceRow layout still needs visual parity work.
   Widget _sourceCard(
     MediaSource source,
     SourceScanState scan, {
@@ -308,8 +327,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               ),
             if (scan.running) ...[
               const SizedBox(height: 12),
-              const LinearProgressIndicator(),
-              Text('已发现 ${scan.count} 个媒体文件'),
+              LinearProgressIndicator(
+                value: scan.progress.totalFiles > 0
+                    ? scan.progress.fraction
+                    : null,
+              ),
+              Text(
+                '已处理 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个文件',
+              ),
             ],
             if (scan.message != null)
               Padding(
@@ -325,12 +350,26 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                   onPressed: () => context.go('/sources/${source.id}'),
                   child: const Text('浏览媒体'),
                 ),
+                IconButton(
+                  tooltip: '设置',
+                  constraints: const BoxConstraints(
+                    minWidth: 34,
+                    minHeight: 34,
+                  ),
+                  onPressed:
+                      _busy ||
+                          !source.kind.isFileSource ||
+                          source.mediaType == SourceMediaType.privateCollection
+                      ? null
+                      : () => _settings(source),
+                  icon: const SourceLineIcon(SourceGlyph.sliders, size: 20),
+                ),
                 OutlinedButton(
                   onPressed: scan.busy
                       ? () => ref
                             .read(sourceScansProvider.notifier)
                             .cancel(source.id)
-                      : isScanning || !connected
+                      : _busy || isScanning || !connected
                       ? null
                       : () => ref
                             .read(sourceScansProvider.notifier)

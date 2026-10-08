@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/widgets/page_content.dart';
+import '../../health/presentation/ignored_health_settings.dart';
 import '../application/appearance_controller.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -14,6 +15,8 @@ class SettingsPage extends ConsumerWidget {
       title: '设置',
       subtitle: '让映栖适合你的使用习惯。',
       children: [
+        const IgnoredHealthSettings(),
+        const SizedBox(height: 22),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(24),

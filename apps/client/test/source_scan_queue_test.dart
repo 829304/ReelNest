@@ -4,6 +4,9 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/domain/source_scan.dart';
+import 'package:reelnest/domain/source_media_type.dart';
+import 'package:reelnest/domain/source_settings_draft.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/sources/source_adapter.dart';
@@ -101,6 +104,80 @@ void main() {
       expect(files.started, isEmpty);
     },
   );
+
+  SourceSettingsDraft settings() => const SourceSettingsDraft(
+    mediaType: SourceMediaType.music,
+    includeInMetadataFetch: true,
+    includeInHealthCheck: false,
+    preferMetadataWriteToSource: false,
+  );
+
+  test('idle settings save persists without starting a scan', () async {
+    await container
+        .read(sourceScansProvider.notifier)
+        .saveSettings(sources.first.id, settings());
+    final saved = await repository.source(sources.first.id);
+    expect(saved.mediaType, SourceMediaType.music);
+    expect(saved.minimumFileSize, 512 * 1024);
+    expect(saved.options.includeInHealthCheck, isFalse);
+    expect(files.started, isEmpty);
+  });
+
+  test('save retires original batch, restarts edited source and preserves appended request', () async {
+    files.gates['/a'] = Completer<void>();
+    final controller = container.read(sourceScansProvider.notifier);
+    final original = controller.scanAll(sources.take(2));
+    await _until(() => files.started.isNotEmpty);
+    final appended = controller.scan(sources[2].id);
+    final save = controller.saveSettings(sources[3].id, settings());
+    await _until(
+      () =>
+          container.read(sourceScansProvider)[sources.first.id]?.message ==
+          '正在取消扫描…',
+    );
+    files.gates['/a']!.complete();
+    await save;
+    await Future.wait([original, appended, controller.scan(sources[3].id)]);
+    expect(files.started, ['/a', '/d', '/c']);
+    expect(files.maximumParallel, 1);
+    expect((await repository.browse(sources[1].id)).total, 0);
+    expect(
+      container.read(sourceScansProvider).values.every((state) => !state.busy),
+      isTrue,
+    );
+  });
+
+  test(
+    'failed settings save leaves running scan and original queue intact',
+    () async {
+      files.gates['/a'] = Completer<void>();
+      final controller = container.read(sourceScansProvider.notifier);
+      final original = controller.scanAll(sources.take(2));
+      await _until(() => files.started.isNotEmpty);
+      await repository.database.customStatement(
+        "CREATE TRIGGER reject_settings BEFORE UPDATE OF media_type ON sources BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+      );
+      await expectLater(
+        controller.saveSettings(sources.first.id, settings()),
+        throwsA(anything),
+      );
+      expect(
+        container.read(sourceScansProvider)[sources.first.id]!.running,
+        isTrue,
+      );
+      expect(
+        container.read(sourceScansProvider)[sources[1].id]!.queued,
+        isTrue,
+      );
+      files.gates['/a']!.complete();
+      await original;
+      expect(files.started, ['/a', '/b']);
+      expect(
+        (await repository.source(sources.first.id)).mediaType,
+        SourceMediaType.auto,
+      );
+    },
+  );
 }
 
 Future<void> _until(bool Function() condition) async {
@@ -130,7 +207,7 @@ class _ControlledFiles implements SourceAdapter {
   }
 
   @override
-  Stream<IndexedMedia> scan(
+  Stream<SourceScanEvent> scan(
     MediaSource source,
     ScanCancellation cancellation,
   ) async* {
@@ -143,12 +220,16 @@ class _ControlledFiles implements SourceAdapter {
       if (failures.contains(source.location)) {
         throw const SourceFailure('模拟扫描失败');
       }
-      yield IndexedMedia(
-        identity: (sourceId: source.id, localId: 'film.mp4'),
-        title: source.name,
-        type: 'homeVideo',
-        bytes: 52428800,
-        modified: DateTime.utc(2026),
+      yield const ScanCatalogued(1);
+      yield ScanFileProcessed(
+        path: 'film.mp4',
+        item: IndexedMedia(
+          identity: (sourceId: source.id, localId: 'film.mp4'),
+          title: source.name,
+          type: 'homeVideo',
+          bytes: 52428800,
+          modified: DateTime.utc(2026),
+        ),
       );
     } finally {
       parallel--;

@@ -45,7 +45,7 @@ reelnest/
 ├── packages/                     # 随实际边界建立，不预先创建空包
 │   ├── reelnest_domain/          # Dart 领域模型和纯业务规则
 │   ├── reelnest_api/             # Emby/Jellyfin/Plex 协议、DTO 与契约测试
-│   ├── reelnest_storage/         # SQLite/Drift、迁移、缓存
+│   ├── reelnest_storage/         # SQLite/Drift、当前表结构、缓存
 │   ├── reelnest_player/          # 播放引擎接口与实现，不含业务页面
 │   └── reelnest_ui/              # 设计参数和共享组件
 ├── contracts/
@@ -75,7 +75,7 @@ reelnest/
 
 多包阶段优先用 Dart 官方 Pub workspaces，统一解析依赖、提交根目录锁文件，不同时维护互相冲突的子包锁文件。暂不引入额外的仓库编排工具。[Pub workspaces 文档](https://dart.dev/tools/pub/workspaces)
 
-新仓库独立维护 `.gitignore`，不直接照搬旧 MediaLib 的规则。建立 Flutter 工程时保留平台工程、资源、锁文件和数据库迁移文件；排除构建缓存、证书、真实媒体库和用户数据。`docs/` 与 `apps/client/assets/` 应正常纳入版本控制。
+新仓库独立维护 `.gitignore`，不直接照搬旧 MediaLib 的规则。建立 Flutter 工程时保留平台工程、资源、锁文件和当前数据库表结构；排除构建缓存、证书、真实媒体库和用户数据。`docs/` 与 `apps/client/assets/` 应正常纳入版本控制。
 
 ## 3. 分支、PR 与版本
 
@@ -95,6 +95,8 @@ Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `
 新客户端以 `apps/client/pubspec.yaml` 的 `version` 为唯一客户端版本来源。标签与其语义版本必须一致。商店版本字符串、整数 build number 和预发布渠道由构建脚本显式映射并校验；构建号必须满足各商店的递增要求，不能把带 `alpha` 的字符串原样用于所有原生版本字段。
 
 产品版本、本地数据库 schema 和各来源协议兼容范围分别管理，不把某种服务器 API 版本作为应用版本。
+
+当前尚未发布，只维护一份初始数据库结构，不添加开发中间版本的兼容迁移或历史 schema 测试。正式发布后有实际需要再设计升级。
 
 ## 4. GitHub 设置清单
 

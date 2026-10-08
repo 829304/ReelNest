@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../domain/source_scan.dart';
+import '../../../domain/source_settings_draft.dart';
 import '../../../platform/directory_access.dart';
 import '../../../sources/filesystem/file_source_adapter.dart';
 import '../../../storage/library_database.dart';
@@ -55,20 +57,46 @@ final sourceMediaProvider = FutureProvider.autoDispose
       ref.watch(_sourceChangesProvider);
       return ref
           .watch(sourceRepositoryProvider)
-          .browse(key.sourceId, offset: key.offset);
+          .browse(key.sourceId, offset: key.offset, topLevelOnly: true);
+    });
+
+final sourceMediaDetailProvider = FutureProvider.autoDispose
+    .family<IndexedMedia, MediaIdentity>((ref, identity) {
+      ref.watch(_sourceChangesProvider);
+      return ref.watch(sourceRepositoryProvider).media(identity);
+    });
+
+final sourceSeasonsProvider = FutureProvider.autoDispose
+    .family<List<IndexedSeason>, MediaIdentity>((ref, identity) {
+      ref.watch(_sourceChangesProvider);
+      return ref.watch(sourceRepositoryProvider).seasons(identity);
+    });
+
+typedef SourceEpisodePageKey = ({
+  MediaIdentity series,
+  int? season,
+  int offset,
+});
+final sourceEpisodesProvider = FutureProvider.autoDispose
+    .family<IndexedMediaPage, SourceEpisodePageKey>((ref, key) {
+      ref.watch(_sourceChangesProvider);
+      return ref
+          .watch(sourceRepositoryProvider)
+          .episodes(key.series, seasonNumber: key.season, offset: key.offset);
     });
 
 class SourceScanState {
   const SourceScanState({
     this.running = false,
     this.queued = false,
-    this.count = 0,
+    this.progress = const SourceScanProgress(),
     this.message,
   });
   final bool running;
   final bool queued;
   bool get busy => running || queued;
-  final int count;
+  final SourceScanProgress progress;
+  int get count => progress.importedItems;
   final String? message;
 }
 
@@ -83,6 +111,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
   late SourceRepository _repository;
   bool _disposed = false;
   bool _draining = false;
+  bool _updatingSettings = false;
 
   @override
   Map<String, SourceScanState> build() {
@@ -120,7 +149,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
       id,
       SourceScanState(
         running: true,
-        count: state[id]?.count ?? 0,
+        progress: state[id]?.progress ?? const SourceScanProgress(),
         message: '正在取消扫描…',
       ),
     );
@@ -134,27 +163,107 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     for (final request in _queue) {
       if (request.id == id) return request.done.future;
     }
-    final request = _ScanRequest(id);
+    final request = _ScanRequest(
+      id,
+      inCurrentRun: _active == null && !_updatingSettings,
+    );
     _queue.add(request);
     _set(id, const SourceScanState(queued: true, message: '等待扫描'));
-    if (_active == null) unawaited(_drain());
+    if (_active == null && !_updatingSettings) unawaited(_drain());
     return request.done.future;
   }
 
-  Future<void> scanAll(Iterable<MediaSource> sources) => Future.wait(
-    sources.where((s) => s.kind.isFileSource).map((s) => scan(s.id)),
-  );
+  Future<void> scanAll(Iterable<MediaSource> sources) {
+    // Original runScanQueue keeps the initial batch separate from requests
+    // appended while running; restartScanIfNeeded discards the former.
+    final initialBatch = _active == null && !_updatingSettings;
+    final futures = <Future<void>>[];
+    for (final source in sources.where((s) => s.kind.isFileSource)) {
+      futures.add(scan(source.id));
+      if (initialBatch) {
+        for (final request in _queue.where((r) => r.id == source.id)) {
+          request.inCurrentRun = true;
+        }
+      }
+    }
+    return Future.wait(futures);
+  }
+
+  /// AppState.updateSource -> restartScanIfNeeded. Idle saves do not scan.
+  /// When scanning, persist first, retire the old run, then restart this source.
+  /// A failed save neither cancels scans nor discards queued work.
+  Future<MediaSource> saveSettings(String id, SourceSettingsDraft draft) async {
+    if (_disposed) throw const SourceFailure('媒体库已关闭。');
+    if (_updatingSettings) throw const SourceFailure('媒体源设置正在保存，请稍后重试。');
+    _updatingSettings = true;
+    try {
+      final current = await _repository.source(id);
+      if (!current.kind.isFileSource) throw const SourceFailure('此来源的设置尚未接入。');
+      final saved = await _repository.updateSettings(
+        id,
+        mediaType: draft.mediaType,
+        options: draft.applyTo(current.options),
+        allowDuringScan: true,
+      );
+      if (_disposed) return saved;
+      if (_active != null) {
+        final active = _active;
+        for (final request in _queue.toList()) {
+          if (request.inCurrentRun || request.id == id) {
+            _queue.remove(request);
+            request.cancelled = true;
+            if (!request.done.isCompleted) request.done.complete();
+            _set(request.id, const SourceScanState(message: '设置已更新，原扫描任务已取消。'));
+          }
+        }
+        if (active != null) {
+          cancel(active.id);
+          await active.done.future;
+        }
+        if (!_disposed) {
+          // A request may arrive while awaiting cancellation. Reuse its future
+          // so the restart and that caller share one scan.
+          final existing = _queue
+              .where((request) => request.id == id)
+              .firstOrNull;
+          final restart = existing ?? _ScanRequest(id, inCurrentRun: true);
+          _queue.remove(restart);
+          restart.inCurrentRun = true;
+          _queue.insert(0, restart);
+          _set(
+            id,
+            const SourceScanState(queued: true, message: '设置已更新，等待重新扫描'),
+          );
+        }
+      }
+      // Repository change stream refreshes sources, artwork and detail data.
+      // Health evaluation subscribes to the same stream and discards old runs.
+      return saved;
+    } finally {
+      _updatingSettings = false;
+      if (!_disposed && _active == null && _queue.isNotEmpty) {
+        unawaited(_drain());
+      }
+    }
+  }
 
   Future<void> _drain() async {
     if (_draining) return;
     _draining = true;
     try {
-      while (!_disposed && _queue.isNotEmpty) {
+      while (!_disposed && !_updatingSettings && _queue.isNotEmpty) {
         final request = _queue.removeAt(0);
         _active = request;
         await _run(request);
         if (!request.done.isCompleted) request.done.complete();
         _active = null;
+        // runScanQueue appends pendingScanSources after each completed source.
+        // During a save retain that distinction until restart is coordinated.
+        if (!_updatingSettings) {
+          for (final pending in _queue) {
+            pending.inCurrentRun = true;
+          }
+        }
       }
     } finally {
       _draining = false;
@@ -164,7 +273,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
   Future<void> _run(_ScanRequest request) async {
     final id = request.id;
     _set(id, const SourceScanState(running: true));
-    var count = 0;
+    var progress = const SourceScanProgress();
     try {
       final source = await _repository.source(id);
       final reachable = await _repository.isReachable(source);
@@ -172,18 +281,32 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
       if (!reachable) {
         throw const SourceFailure('所选媒体源不可访问，请确认磁盘或 NAS 已挂载。');
       }
-      await _repository.scan(
+      final summary = await _repository.scan(
         id,
         onProgress: (value) {
-          count = value;
-          _set(id, SourceScanState(running: true, count: value));
+          progress = value;
+          _set(id, SourceScanState(running: true, progress: value));
         },
       );
-      _set(id, SourceScanState(count: count, message: '扫描完成：$count 个媒体文件'));
+      _set(
+        id,
+        SourceScanState(
+          progress: progress,
+          message: summary.errors.isEmpty
+              ? '扫描完成：${summary.importedItems} 个媒体文件'
+              : '扫描结束：${summary.importedItems} 个媒体文件，${summary.errors.length} 个错误。${summary.errors.first}',
+        ),
+      );
     } on ScanCancelled {
-      _set(id, const SourceScanState(message: '扫描已取消，保留上次索引。'));
+      _set(
+        id,
+        SourceScanState(progress: progress, message: '扫描已取消，已导入的文件和原有索引均已保留。'),
+      );
     } catch (error) {
-      _set(id, SourceScanState(message: sourceErrorMessage(error)));
+      _set(
+        id,
+        SourceScanState(progress: progress, message: sourceErrorMessage(error)),
+      );
     } finally {
       if (!_disposed && ref.mounted) ref.invalidate(sourceReachabilityProvider);
     }
@@ -191,8 +314,9 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
 }
 
 class _ScanRequest {
-  _ScanRequest(this.id);
+  _ScanRequest(this.id, {required this.inCurrentRun});
   final String id;
+  bool inCurrentRun;
   final done = Completer<void>();
   bool cancelled = false;
 }

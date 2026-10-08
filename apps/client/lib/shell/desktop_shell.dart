@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../ui/theme/design_tokens.dart';
+import '../ui/widgets/source_icons.dart';
 import 'destinations.dart';
 
 class DesktopShell extends StatelessWidget {
@@ -102,7 +103,12 @@ class DesktopShell extends StatelessWidget {
                                 DesignTokens.controlRadius,
                               ),
                             ),
-                            leading: Icon(appDestinations[index].icon),
+                            leading: appDestinations[index].label == '仪表盘'
+                                ? const SourceLineIcon(
+                                    SourceGlyph.dashboard,
+                                    size: 24,
+                                  )
+                                : Icon(appDestinations[index].icon),
                             title: Text(appDestinations[index].label),
                             selected: selectedIndex == index,
                             onTap: () => onSelected(index),

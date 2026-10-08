@@ -1,4 +1,5 @@
 import 'source_media_type.dart';
+import 'source_options.dart';
 
 enum MediaSourceKind {
   localFolder('本地文件夹'),
@@ -26,6 +27,9 @@ class MediaSource {
     this.ignoreHidden = true,
     this.mediaType = SourceMediaType.auto,
     this.minimumFileSize = 50 * 1024 * 1024,
+    this.options = const SourceOptions.defaults(),
+    required this.createdAt,
+    required this.updatedAt,
     this.lastScan,
     this.itemCount = 0,
     this.missingCount = 0,
@@ -39,6 +43,9 @@ class MediaSource {
   final bool ignoreHidden;
   final SourceMediaType mediaType;
   final int minimumFileSize;
+  final SourceOptions options;
+  final DateTime createdAt;
+  final DateTime updatedAt;
   final DateTime? lastScan;
   final int itemCount;
   final int missingCount;
@@ -55,6 +62,16 @@ class IndexedMedia {
     required this.bytes,
     required this.modified,
     this.missing = false,
+    this.year,
+    this.seasonNumber,
+    this.episodeNumber,
+    this.seriesDirectory,
+    this.isSeries = false,
+    this.parentId,
+    this.originalTitle,
+    this.overview,
+    this.posterPath,
+    this.backdropPath,
   });
 
   final MediaIdentity identity;
@@ -63,6 +80,44 @@ class IndexedMedia {
   final int bytes;
   final DateTime modified;
   final bool missing;
+  final int? year;
+  final int? seasonNumber;
+  final int? episodeNumber;
+
+  /// Portable paths relative to the source root, so remounts preserve artwork.
+  final String? seriesDirectory;
+  final bool isSeries;
+  final String? parentId;
+  final String? originalTitle;
+  final String? overview;
+  final String? posterPath;
+  final String? backdropPath;
+
+  String? get filePath => isSeries ? null : identity.localId;
+
+  String get episodeLabel {
+    if (seasonNumber != null && episodeNumber != null) {
+      return 'S${seasonNumber.toString().padLeft(2, '0')}E${episodeNumber.toString().padLeft(2, '0')}';
+    }
+    if (episodeNumber != null) {
+      return '第 ${episodeNumber.toString().padLeft(2, '0')} 集';
+    }
+    return '剧集';
+  }
+
+  String get cardTitle => type == 'episode' ? '$episodeLabel  $title' : title;
+}
+
+class IndexedSeason {
+  const IndexedSeason({required this.number, required this.episodeCount});
+  final int? number;
+  final int episodeCount;
+  String get key => number?.toString() ?? 'unspecified';
+  String get title => number == null
+      ? '未分季'
+      : number == 0
+      ? '特别篇'
+      : '第 $number 季';
 }
 
 class IndexedMediaPage {

@@ -1,138 +1,155 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../domain/media.dart';
 import '../../../domain/media_source.dart';
-import '../../../ui/widgets/page_content.dart';
 import '../application/source_providers.dart';
+import 'local_media_artwork.dart';
 
-class SourceLibraryPage extends ConsumerStatefulWidget {
+class SourceLibraryPage extends ConsumerWidget {
   const SourceLibraryPage({required this.sourceId, super.key});
   final String sourceId;
+
   @override
-  ConsumerState<SourceLibraryPage> createState() => _SourceLibraryPageState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sources = ref.watch(sourcesProvider);
+    final source = sources.asData?.value
+        .where((s) => s.id == sourceId)
+        .firstOrNull;
+    final firstPage = ref.watch(
+      sourceMediaProvider((sourceId: sourceId, offset: 0)),
+    );
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(32, 28, 32, 16),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  source?.name ?? '媒体库',
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (firstPage.asData case final data?)
+                      Text('共 ${data.value.total} 项'),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => context.go('/sources'),
+                      child: const Text('管理媒体源'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (sources.hasError)
+          _message(sourceErrorMessage(sources.error!))
+        else if (sources.hasValue && source == null)
+          _message('此媒体源已移除。')
+        else if (source == null)
+          const SliverToBoxAdapter(child: LinearProgressIndicator())
+        else
+          firstPage.when(
+            loading: () =>
+                const SliverToBoxAdapter(child: LinearProgressIndicator()),
+            error: (error, stack) => SliverToBoxAdapter(
+              child: TextButton(
+                onPressed: () => ref.invalidate(sourceMediaProvider),
+                child: Text('${sourceErrorMessage(error)} 重试'),
+              ),
+            ),
+            data: (page) => page.total == 0
+                ? _message('没有可显示的媒体。请检查来源或重新扫描。')
+                : SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(32, 8, 32, 28),
+                    sliver: SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        // PosterGridList: default minimum width 150; 20/30 column/row gap.
+                        final columns =
+                            ((constraints.crossAxisExtent + 20) / 170)
+                                .floor()
+                                .clamp(1, 100);
+                        return SliverGrid.builder(
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                crossAxisSpacing: 20,
+                                mainAxisSpacing: 30,
+                                childAspectRatio: 2 / 3,
+                              ),
+                          itemCount: page.total,
+                          itemBuilder: (context, index) =>
+                              _LibraryItemAtIndex(source: source, index: index),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+      ],
+    );
+  }
+
+  Widget _message(String text) => SliverPadding(
+    padding: const EdgeInsets.all(32),
+    sliver: SliverToBoxAdapter(child: Text(text)),
+  );
 }
 
-class _SourceLibraryPageState extends ConsumerState<SourceLibraryPage> {
-  int _offset = 0;
-
-  void _details(IndexedMedia item) => showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Text(item.title),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(mediaTypes[item.type] ?? item.type),
-            const SizedBox(height: 12),
-            SelectableText(item.identity.localId),
-            const SizedBox(height: 12),
-            Text('${(item.bytes / 1024 / 1024).toStringAsFixed(2)} MiB'),
-            Text('文件修改：${item.modified.toLocal().toString().split('.').first}'),
-            const SizedBox(height: 12),
-            Text(item.missing ? '上次完整扫描未找到此文件，索引仍保留。' : '此处显示上次扫描的索引信息。'),
-            const SizedBox(height: 12),
-            const Text('内置播放和元数据读取将在下一阶段接入。'),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
-  );
+class _LibraryItemAtIndex extends ConsumerWidget {
+  const _LibraryItemAtIndex({required this.source, required this.index});
+  final MediaSource source;
+  final int index;
 
   @override
-  Widget build(BuildContext context) {
-    final sources = ref.watch(sourcesProvider);
-    final matches = sources.asData?.value
-        .where((s) => s.id == widget.sourceId)
-        .toList();
-    final source = matches == null || matches.isEmpty ? null : matches.first;
-    final items = ref.watch(
-      sourceMediaProvider((sourceId: widget.sourceId, offset: _offset)),
-    );
-    return PageContent(
-      title: source?.name ?? '媒体库',
-      subtitle: '本机索引 · 无需服务器登录',
-      children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () => context.go('/sources'),
-            icon: const Icon(Icons.folder_outlined),
-            label: const Text('管理媒体源'),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = (sourceId: source.id, offset: (index ~/ 60) * 60);
+    return ref
+        .watch(sourceMediaProvider(key))
+        .when(
+          loading: () => const Center(
+            child: SizedBox.square(
+              dimension: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        if (sources.hasError)
-          Text(sourceErrorMessage(sources.error!))
-        else if (matches != null && matches.isEmpty)
-          const Text('此媒体源已移除。')
-        else
-          ...items.when(
-            loading: () => [const LinearProgressIndicator()],
-            error: (error, stack) => [
-              Text(sourceErrorMessage(error)),
-              TextButton(
-                onPressed: () => ref.invalidate(sourceMediaProvider),
-                child: const Text('重试'),
-              ),
-            ],
-            data: (page) => [
-              Text(
-                '共 ${page.total} 项${source?.lastScan == null ? ' · 尚未完成扫描' : ''}',
-              ),
-              const SizedBox(height: 12),
-              if (page.items.isEmpty) const Text('没有可显示的媒体文件。请检查来源或重新扫描。'),
-              for (final item in page.items)
-                Card(
-                  child: ListTile(
-                    key: ValueKey(item.identity),
-                    leading: Icon(
-                      item.type == 'music'
-                          ? Icons.music_note_outlined
-                          : item.type == 'photo'
-                          ? Icons.image_outlined
-                          : Icons.movie_outlined,
-                    ),
-                    title: Text(item.title),
-                    subtitle: Text(
-                      '${mediaTypes[item.type]} · ${item.identity.localId}${item.missing ? ' · 待找回' : ''}',
-                    ),
-                    isThreeLine: false,
-                    onTap: () => _details(item),
+          error: (error, stack) => TextButton(
+            onPressed: () => ref.invalidate(sourceMediaProvider(key)),
+            child: const Text('重试'),
+          ),
+          data: (page) {
+            final position = index % 60;
+            if (position >= page.items.length) return const SizedBox.shrink();
+            final item = page.items[position];
+            return Align(
+              alignment: Alignment.topCenter,
+              child: AspectRatio(
+                aspectRatio: item.type == 'music' ? 1 : 2 / 3,
+                child: LocalMediaCard(
+                  key: ValueKey(item.identity),
+                  source: source,
+                  item: item,
+                  onOpen: () => context.pushNamed(
+                    'local-media-detail',
+                    pathParameters: {
+                      'sourceId': source.id,
+                      // Opaque token keeps slash-containing and Unicode file keys out
+                      // of URL path parsing; source scope is still checked in SQL.
+                      'mediaKey': base64Url
+                          .encode(utf8.encode(item.identity.localId))
+                          .replaceAll('=', ''),
+                    },
                   ),
                 ),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  OutlinedButton(
-                    onPressed: _offset == 0
-                        ? null
-                        : () => setState(
-                            () => _offset = (_offset - 60).clamp(0, _offset),
-                          ),
-                    child: const Text('上一页'),
-                  ),
-                  OutlinedButton(
-                    onPressed: _offset + 60 >= page.total
-                        ? null
-                        : () => setState(() => _offset += 60),
-                    child: const Text('下一页'),
-                  ),
-                ],
               ),
-            ],
-          ),
-      ],
-    );
+            );
+          },
+        );
   }
 }

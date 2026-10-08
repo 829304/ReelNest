@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/app/reelnest_app.dart';
@@ -8,6 +9,8 @@ import 'package:reelnest/shell/mobile_shell.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
+import 'package:reelnest/features/sources/data/source_repository.dart';
+import 'package:reelnest/storage/library_database.dart';
 
 void main() {
   Future<void> start(WidgetTester tester, Size size) async {
@@ -15,9 +18,15 @@ void main() {
     tester.view.physicalSize = size;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = SourceRepository(
+      database: LibraryDatabase(NativeDatabase.memory()),
+      adapters: {},
+    );
+    addTearDown(repository.close);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          sourceRepositoryProvider.overrideWithValue(repository),
           credentialStoreProvider.overrideWithValue(_MemoryCredentialStore()),
           sourcesProvider.overrideWith((ref) async => <MediaSource>[]),
         ],

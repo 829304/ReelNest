@@ -8,6 +8,7 @@ abstract interface class DirectoryAccess {
   bool get supported;
   String get unavailableReason;
   Future<String?> choose();
+  Future<List<String>> chooseMany();
 }
 
 class DesktopDirectoryAccess implements DirectoryAccess {
@@ -22,5 +23,12 @@ class DesktopDirectoryAccess implements DirectoryAccess {
   Future<String?> choose() async {
     if (!supported) throw SourceFailure(unavailableReason);
     return getDirectoryPath(confirmButtonText: '选择媒体目录');
+  }
+
+  @override
+  Future<List<String>> chooseMany() async {
+    if (!supported) throw SourceFailure(unavailableReason);
+    final paths = await getDirectoryPaths(confirmButtonText: '选择');
+    return paths.whereType<String>().toList();
   }
 }

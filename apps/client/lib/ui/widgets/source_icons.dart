@@ -1,10 +1,25 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 /// Paths and colors translated from MediaLib VividIconLibrary.swift.
 /// No SF Symbols font or Material glyph substitution is used here.
-enum SourceGlyph { drive, plus, refresh, checkCircle, warning }
+enum SourceGlyph {
+  drive,
+  plus,
+  refresh,
+  checkCircle,
+  warning,
+  folder,
+  grid,
+  sliders,
+  info,
+  search,
+  chevronDown,
+  eyeOff,
+  dashboard,
+}
 
 class SourceLineIcon extends StatelessWidget {
   const SourceLineIcon(
@@ -42,6 +57,105 @@ class _LinePainter extends CustomPainter {
     canvas.scale(size.width / 24);
     final path = Path();
     switch (glyph) {
+      case SourceGlyph.dashboard:
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(3, 4, 18, 16),
+            const Radius.circular(2.5),
+          ),
+        );
+        path.moveTo(7, 16);
+        path.lineTo(7, 12);
+        path.moveTo(12, 16);
+        path.lineTo(12, 8);
+        path.moveTo(17, 16);
+        path.lineTo(17, 6);
+        path.moveTo(7, 16);
+        path.lineTo(17, 16);
+      case SourceGlyph.info:
+        path.addOval(Rect.fromCircle(center: const Offset(12, 12), radius: 9));
+        path.moveTo(12, 16);
+        path.lineTo(12, 12);
+        path.moveTo(12, 8);
+        path.lineTo(12.01, 8);
+      case SourceGlyph.search:
+        path.addOval(Rect.fromCircle(center: const Offset(11, 11), radius: 7));
+        path.moveTo(20, 20);
+        path.lineTo(17, 17);
+      case SourceGlyph.chevronDown:
+        path.moveTo(6, 9);
+        path.lineTo(12, 15);
+        path.lineTo(18, 9);
+      case SourceGlyph.eyeOff:
+        path.moveTo(3, 3);
+        path.lineTo(21, 21);
+        path.moveTo(10.5, 6.2);
+        path.arcToPoint(
+          const Offset(12, 5),
+          radius: const Radius.circular(10.6),
+        );
+        path.cubicTo(18.5, 5, 22, 12, 22, 12);
+        path.arcToPoint(
+          const Offset(18.7, 16),
+          radius: const Radius.circular(17),
+        );
+        path.moveTo(6.5, 8.2);
+        path.arcToPoint(
+          const Offset(2, 12),
+          radius: const Radius.circular(17),
+          clockwise: false,
+        );
+        path.cubicTo(2, 12, 5.5, 19, 12, 19);
+        path.arcToPoint(
+          const Offset(15.5, 18.4),
+          radius: const Radius.circular(10.6),
+          clockwise: false,
+        );
+      case SourceGlyph.sliders:
+        for (final row in [(7.0, 10.0), (12.0, 16.0), (17.0, 13.0)]) {
+          path.moveTo(4, row.$1);
+          path.lineTo(row.$2 - 2, row.$1);
+          path.addOval(
+            Rect.fromCircle(center: Offset(row.$2, row.$1), radius: 2),
+          );
+          path.moveTo(row.$2 + 2, row.$1);
+          path.lineTo(20, row.$1);
+        }
+      case SourceGlyph.folder:
+        path.moveTo(3, 7.5);
+        path.arcToPoint(
+          const Offset(4.5, 6),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(9, 6);
+        path.lineTo(11, 8.5);
+        path.lineTo(19.5, 8.5);
+        path.arcToPoint(
+          const Offset(21, 10),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(21, 18);
+        path.arcToPoint(
+          const Offset(19.5, 19.5),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(4.5, 19.5);
+        path.arcToPoint(
+          const Offset(3, 18),
+          radius: const Radius.circular(1.5),
+        );
+        path.close();
+      case SourceGlyph.grid:
+        for (final x in [3.5, 13.5]) {
+          for (final y in [3.5, 13.5]) {
+            path.addRRect(
+              RRect.fromRectAndRadius(
+                Rect.fromLTWH(x, y, 7, 7),
+                const Radius.circular(1.5),
+              ),
+            );
+          }
+        }
       case SourceGlyph.drive:
         path.addRRect(
           RRect.fromRectAndRadius(
@@ -120,9 +234,15 @@ class _LinePainter extends CustomPainter {
       old.glyph != glyph || old.color != color || old.lineWidth != lineWidth;
 }
 
-enum SourceTitleIconKind { sources, connected, disconnected }
+enum SourceTitleIconKind {
+  sources,
+  connected,
+  disconnected,
+  settings,
+  dashboard,
+}
 
-/// VividTitleIcon.sourcesObj/sourceOnObj/sourceOffObj, on the original 48 grid.
+/// VividTitleIcon.sourcesObj/sourceOnObj/sourceOffObj/gearObj on the 48 grid.
 class SourceTitleIcon extends StatelessWidget {
   const SourceTitleIcon({
     this.kind = SourceTitleIconKind.sources,
@@ -137,6 +257,8 @@ class SourceTitleIcon extends StatelessWidget {
       SourceTitleIconKind.sources => const Color(0xFF0EA5E9),
       SourceTitleIconKind.connected => const Color(0xFF10B981),
       SourceTitleIconKind.disconnected => const Color(0xFFF97316),
+      SourceTitleIconKind.settings => const Color(0xFF0EA5E9),
+      SourceTitleIconKind.dashboard => const Color(0xFF10B981),
     };
     Widget shape() =>
         CustomPaint(size: Size.square(size), painter: _TitlePainter(kind));
@@ -201,7 +323,69 @@ class _TitlePainter extends CustomPainter {
     );
     void dot(double x, double y, double radius, Color color) =>
         canvas.drawCircle(Offset(x, y), radius, Paint()..color = color);
-    if (kind == SourceTitleIconKind.sources) {
+    if (kind == SourceTitleIconKind.dashboard) {
+      stroke(
+        Path()
+          ..addOval(Rect.fromCircle(center: const Offset(24, 24), radius: 15)),
+        const Color(0xFFA7F3D0),
+        6,
+      );
+      final arc = Path()
+        ..moveTo(24, 9)
+        ..arcToPoint(
+          const Offset(10.5, 32),
+          radius: const Radius.circular(15),
+          largeArc: true,
+        );
+      canvas.drawPath(
+        arc,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6
+          ..strokeCap = StrokeCap.round
+          ..shader = const LinearGradient(
+            colors: [Color(0xFF34D399), Color(0xFF059669)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ).createShader(const Rect.fromLTWH(0, 0, 48, 48)),
+      );
+      stroke(
+        Path()
+          ..moveTo(14, 25)
+          ..lineTo(19, 25)
+          ..lineTo(21.5, 19)
+          ..lineTo(25, 31)
+          ..lineTo(27, 25)
+          ..lineTo(34, 25),
+        const Color(0xFF047857),
+        2.6,
+      );
+      dot(24, 9, 3, const Color(0xFFFDE047));
+    } else if (kind == SourceTitleIconKind.settings) {
+      final paint = Paint()
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ).createShader(const Rect.fromLTWH(0, 0, 48, 48));
+      for (var i = 0; i < 8; i++) {
+        canvas.save();
+        canvas.translate(24, 24);
+        canvas.rotate(i * math.pi / 4);
+        canvas.translate(-24, -24);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(21, 5, 6, 10),
+            const Radius.circular(2),
+          ),
+          paint,
+        );
+        canvas.restore();
+      }
+      canvas.drawCircle(const Offset(24, 24), 13, paint);
+      dot(24, 24, 5.5, Colors.white);
+      canvas.drawCircle(const Offset(24, 24), 2.4, paint);
+    } else if (kind == SourceTitleIconKind.sources) {
       stroke(
         Path()
           ..moveTo(16, 8)

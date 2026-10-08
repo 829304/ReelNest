@@ -10,6 +10,8 @@ void main() {
         kind: MediaSourceKind.localFolder,
         name: 'Fixture',
         location: '/fixture',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
         mediaType: type,
         minimumFileSize: size,
       );

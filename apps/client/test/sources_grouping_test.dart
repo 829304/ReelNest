@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/domain/source_scan.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/sources/presentation/sources_page.dart';
@@ -90,17 +91,21 @@ class _Files implements SourceAdapter {
   @override
   Future<String> validateLocation(String location) async => location;
   @override
-  Stream<IndexedMedia> scan(
+  Stream<SourceScanEvent> scan(
     MediaSource source,
     ScanCancellation cancellation,
   ) async* {
     scanned.add(source.location);
-    yield IndexedMedia(
-      identity: (sourceId: source.id, localId: 'film.mp4'),
-      title: 'Film',
-      type: 'homeVideo',
-      bytes: 52428800,
-      modified: DateTime.utc(2026),
+    yield const ScanCatalogued(1);
+    yield ScanFileProcessed(
+      path: 'film.mp4',
+      item: IndexedMedia(
+        identity: (sourceId: source.id, localId: 'film.mp4'),
+        title: 'Film',
+        type: 'homeVideo',
+        bytes: 52428800,
+        modified: DateTime.utc(2026),
+      ),
     );
   }
 }
