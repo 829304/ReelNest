@@ -321,5 +321,8 @@ class _ScanRequest {
   bool cancelled = false;
 }
 
-String sourceErrorMessage(Object error) =>
-    error is SourceFailure ? error.message : '媒体库操作失败，请检查目录权限、磁盘空间后重试。';
+String sourceErrorMessage(Object error) => error is SourceFailure
+    ? error.message
+    : LibrarySchemaMismatch.isCause(error)
+    ? LibrarySchemaMismatch.message
+    : '无法读取或更新本地媒体索引，请重试。';

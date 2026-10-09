@@ -103,3 +103,17 @@ Linux 构建工作流已声明 `libsecret-1-dev`，但没有触发工作流或�
 后续补充系列入口：旧 MediaLib 在独立分支 `codex/series-summary-api` 增加系列摘要只读路由及 `series-detail` 能力声明，共修改三个服务端文件。ReelNest 在原 `codex/flutter-bootstrap` 分支实现能力协商、摘要解析、季选择和当前单集标记。两边分别提交，均未编译或测试，服务端没有部署；现有未跟踪的旧工程 docs 目录未改动、未纳入提交。协议和待验证项见[系列摘要接口](SERIES_API.zh-CN.md)。
 
 以上两节保留当时的静态迭代记录。迁移后的客户端验证结果以 [WINDOWS_SMOKE.zh-CN.md](WINDOWS_SMOKE.zh-CN.md) 为准；MediaLib 服务端仍未编译或部署。
+
+## 每轮可运行功能的本地产物
+
+2026-10-08 用户明确要求功能完成后同步更新 Windows EXE。早期“只静态写代码、不编译”的限制已解除。后续默认在适当测试和静态检查通过后执行 Windows Release 构建，并报告产物位置；构建失败需说明原因，不能以旧 EXE 作为新功能产物。构建通过不等于启动冒烟、真实媒体源或三平台 UI 验收通过。
+
+产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；分享或移动时需携带整个 Release 目录中的 DLL 和 data 等文件。
+
+2026-10-09 的实际启动检查发现增量 Release 曾产生旧表结构，而单元测试与新业务快照包含当前代码；本轮清理项目构建缓存后完整重建，启动器也更新。以后若运行行为与已验证源码不符，应核查实际运行路径与产物，并进行完整重建；不能只依据构建命令返回成功声明实际应用正确。
+
+## 本地视频原生验证（2026-10-09）
+
+播放器依赖已锁定；Linux 构建需 libmpv-dev 和 mpv（构建工作流已补齐）。Windows 独立窗口测试使用 `fvm flutter drive --driver test_driver/integration_test.dart --target integration_test/local_playback_test.dart -d windows`。不能以 `flutter test -d windows` 替代：它生成的 listener 会让子引擎等待测试调度而无法启动播放入口。普通 `fvm flutter test` 继续执行全部单元/组件回归。
+
+样本和数据库由测试自行生成，不访问或改写用户媒体库。基础播放范围、原生测试警告和未完成事项见 [本地视频播放](LOCAL_PLAYBACK.zh-CN.md)与[当日测试记录](TEST_REPORT_2026-10-09.zh-CN.md)。

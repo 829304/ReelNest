@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/app/reelnest_app.dart';
+import 'package:reelnest/features/playback/application/playback_providers.dart';
 import 'package:reelnest/app/service_providers.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/domain/source_scan.dart';
@@ -85,6 +86,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
       final files = _Files();
+      final player = _Player();
       final repository = SourceRepository(
         database: LibraryDatabase(NativeDatabase.memory()),
         adapters: {MediaSourceKind.localFolder: files},
@@ -94,6 +96,7 @@ void main() {
         ProviderScope(
           overrides: [
             sourceRepositoryProvider.overrideWithValue(repository),
+            playbackLauncherProvider.overrideWithValue(player),
             directoryAccessProvider.overrideWithValue(_Picker()),
             serverRepositoryProvider.overrideWith(
               (ref) => throw StateError(
@@ -161,6 +164,14 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.ensureVisible(find.text('播放'));
+      await tester.tap(find.text('播放'));
+      await tester.pumpAndSettle();
+      expect(player.opened.single.localId, 'movies/local.mp4');
+      expect(
+        player.opened.single.sourceId,
+        (await repository.sources()).first.id,
+      );
       await tester.tap(find.text('返回'));
       await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(320, 640);
@@ -215,4 +226,10 @@ class _Files implements SourceAdapter {
       ),
     );
   }
+}
+
+class _Player implements PlaybackLauncher {
+  final opened = <MediaIdentity>[];
+  @override
+  Future<void> open(MediaIdentity identity) async => opened.add(identity);
 }

@@ -9,11 +9,16 @@ import 'package:path/path.dart' as p;
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/source_icons.dart';
+import '../../../ui/widgets/source_sheet_button.dart';
+import '../../playback/application/playback_providers.dart';
+import '../../playback/presentation/video_player_page.dart'
+    show formatVideoTime;
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
 
 /// Local-data counterpart of DetailView.swift / EpisodeListView.swift.
-/// Playback, watched state, extras and native material remain separate ports.
+/// Playback delegates to the independent window; extras and native material
+/// remain separate ports.
 class LocalMediaDetailPage extends ConsumerStatefulWidget {
   const LocalMediaDetailPage({required this.identity, super.key});
   final MediaIdentity identity;
@@ -278,6 +283,10 @@ class _DetailHero extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: palette.secondary),
                   ),
+                  if (item.type != 'music' && item.type != 'photo') ...[
+                    const SizedBox(height: 16),
+                    _PlaybackButton(item: item),
+                  ],
                 ],
               ),
             ),
@@ -401,7 +410,7 @@ class _EpisodeAtIndex extends ConsumerWidget {
   }
 }
 
-class _EpisodeRow extends StatelessWidget {
+class _EpisodeRow extends ConsumerWidget {
   const _EpisodeRow({
     required this.source,
     required this.item,
@@ -413,95 +422,182 @@ class _EpisodeRow extends StatelessWidget {
   final bool selected;
   final VoidCallback onSelect;
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return TextButton(
-      onPressed: onSelect,
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.all(10),
-        foregroundColor: palette.text,
-        backgroundColor: selected
-            ? palette.selectedTint.withValues(alpha: .08)
-            : palette.card,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: selected
-                ? palette.selectedTint.withValues(alpha: .42)
-                : Colors.transparent,
-            width: 1.2,
+    Future<void> play() async {
+      try {
+        await ref.read(playbackLauncherProvider).open(item.identity);
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('无法打开播放器，请重试。')));
+        }
+      }
+    }
+
+    return GestureDetector(
+      onDoubleTap: () {
+        onSelect();
+        play();
+      },
+      child: TextButton(
+        onPressed: onSelect,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.all(10),
+          foregroundColor: palette.text,
+          backgroundColor: selected
+              ? palette.selectedTint.withValues(alpha: .08)
+              : palette.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected
+                  ? palette.selectedTint.withValues(alpha: .42)
+                  : Colors.transparent,
+              width: 1.2,
+            ),
           ),
         ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 120,
-            height: 68,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LocalMediaArtwork(source: source, item: item),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.cardTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Stack(
-                  alignment: Alignment.topLeft,
-                  children: [
-                    const ExcludeSemantics(
-                      child: Opacity(
-                        opacity: 0,
-                        child: Text('占位\n占位', style: TextStyle(fontSize: 11)),
-                      ),
-                    ),
-                    if (item.overview != null)
-                      Text(
-                        item.overview!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: palette.secondary,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          if (selected)
-            SourceLineIcon(
-              SourceGlyph.checkCircle,
-              size: 20,
-              color: palette.selectedTint,
-            )
-          else
-            Container(
-              width: 18,
-              height: 18,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: palette.secondary),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 120,
+              height: 68,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LocalMediaArtwork(source: source, item: item),
               ),
             ),
-        ],
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.cardTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Stack(
+                    alignment: Alignment.topLeft,
+                    children: [
+                      const ExcludeSemantics(
+                        child: Opacity(
+                          opacity: 0,
+                          child: Text('占位\n占位', style: TextStyle(fontSize: 11)),
+                        ),
+                      ),
+                      if (item.overview != null)
+                        Text(
+                          item.overview!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: palette.secondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            if (selected)
+              SourceLineIcon(
+                SourceGlyph.checkCircle,
+                size: 20,
+                color: palette.selectedTint,
+              )
+            else
+              Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: palette.secondary),
+                ),
+              ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _PlaybackButton extends ConsumerStatefulWidget {
+  const _PlaybackButton({required this.item});
+  final IndexedMedia item;
+  @override
+  ConsumerState<_PlaybackButton> createState() => _PlaybackButtonState();
+}
+
+class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
+  bool _opening = false;
+  Future<void> _play() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      var identity = widget.item.identity;
+      if (widget.item.isSeries) {
+        final repository = ref.read(sourceRepositoryProvider);
+        final seasons = await repository.seasons(identity);
+        if (seasons.isEmpty) throw const SourceFailure('此媒体没有可播放文件。');
+        final episodes = await repository.episodes(
+          identity,
+          seasonNumber: seasons.first.number,
+          limit: 1,
+        );
+        if (episodes.items.isEmpty) throw const SourceFailure('此媒体没有可播放文件。');
+        identity = episodes.items.first.identity;
+      }
+      await ref.read(playbackLauncherProvider).open(identity);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is SourceFailure ? error.message : '无法打开播放器，请重试。',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final record = widget.item.isSeries
+        ? null
+        : ref.watch(playbackRecordProvider(widget.item.identity)).asData?.value;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SourceSheetButton(
+          label: '播放',
+          icon: const Icon(Icons.play_arrow, size: 15),
+          prominent: true,
+          height: 34,
+          horizontalPadding: 14,
+          onPressed: _opening ? null : _play,
+        ),
+        if (record?.lastPlayedAt != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            record!.watched ? '已看' : '观看至 ${formatVideoTime(record.position)}',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ],
     );
   }
 }

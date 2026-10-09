@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +11,7 @@ import 'package:reelnest/domain/source_media_type.dart';
 import 'package:reelnest/domain/source_scan.dart';
 import 'package:reelnest/domain/source_settings_draft.dart';
 import 'package:reelnest/features/health/application/health_providers.dart';
+import 'package:reelnest/features/health/application/missing_index_cleanup.dart';
 import 'package:reelnest/features/health/domain/local_health_evaluator.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
@@ -80,6 +83,170 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('缺封面等 3 项'), findsOneWidget);
       expect(probes, count);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets(
+    'missing index confirmation cancels and then removes only the index',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1088, 720);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final root = await tester.runAsync(
+        () => Directory.systemTemp.createTemp('reelnest-cleanup-ui-'),
+      );
+      addTearDown(() async {
+        if (root != null &&
+            p.isWithin(Directory.systemTemp.path, root.path) &&
+            p.basename(root.path).startsWith('reelnest-cleanup-ui-')) {
+          await root.delete(recursive: true);
+        }
+      });
+      final repository = SourceRepository(
+        database: LibraryDatabase(NativeDatabase.memory()),
+        adapters: {MediaSourceKind.localFolder: _Files()},
+        identityLookup: (_) async => 'ui-test-volume',
+      );
+      addTearDown(repository.close);
+      final source = await repository.add(
+        kind: MediaSourceKind.localFolder,
+        name: '电影目录',
+        location: root!.path,
+      );
+      await repository.scan(source.id);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRepositoryProvider.overrideWithValue(repository),
+            localHealthEvaluatorProvider.overrideWithValue(
+              LocalHealthEvaluator(
+                paths: p.context,
+                exists: (path) async => path == root.path,
+                sourceAvailable: repository.isSafeDirectory,
+              ),
+            ),
+            missingIndexCleanupProvider.overrideWithValue(
+              MissingIndexCleanup(repository),
+            ),
+          ],
+          child: const ReelNestApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('移出索引'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('移出索引'));
+      await tester.pumpAndSettle();
+      expect(find.text('确认从索引移除“Film”？'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect((await repository.browse(source.id)).total, 1);
+      await tester.ensureVisible(find.text('清理失效索引'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清理失效索引'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('仅从 ReelNest 索引移除'));
+      // Real filesystem probes complete outside the widget test's virtual clock.
+      for (var i = 0; i < 30; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+        if ((await repository.browse(source.id)).total == 0) break;
+      }
+      await tester.pumpAndSettle();
+      expect((await repository.browse(source.id)).total, 0);
+      expect(await tester.runAsync(root.exists), isTrue);
+      expect(find.textContaining('已移除 1 个失效条目'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets(
+    'empty database shows empty states without probes or endless progress',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1088, 720);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final repository = SourceRepository(
+        database: LibraryDatabase(NativeDatabase.memory()),
+        adapters: {},
+      );
+      addTearDown(repository.close);
+      var probes = 0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRepositoryProvider.overrideWithValue(repository),
+            localHealthEvaluatorProvider.overrideWithValue(
+              LocalHealthEvaluator(
+                paths: p.context,
+                exists: (_) async {
+                  probes++;
+                  return false;
+                },
+              ),
+            ),
+          ],
+          child: const ReelNestApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-媒体源')));
+      await tester.pumpAndSettle();
+      expect(find.text('媒体源待添加'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+      await tester.pumpAndSettle();
+      expect(find.text('尚未添加媒体源'), findsOneWidget);
+      expect(find.text('暂无媒体库'), findsOneWidget);
+      expect(find.text('全部在线'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(probes, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets(
+    'database failure is explicit on both pages and never pretends to be empty',
+    (tester) async {
+      final repository = SourceRepository(
+        database: LibraryDatabase(NativeDatabase.memory()),
+        adapters: {},
+      );
+      addTearDown(repository.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRepositoryProvider.overrideWithValue(repository),
+            sourcesProvider.overrideWith(
+              (_) async => throw const LibrarySchemaMismatch(),
+            ),
+            rawLibraryHealthProvider.overrideWith(
+              (_) async => throw const LibrarySchemaMismatch(),
+            ),
+          ],
+          child: const ReelNestApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-媒体源')));
+      await tester.pumpAndSettle();
+      expect(find.text(LibrarySchemaMismatch.message), findsOneWidget);
+      expect(find.text('媒体源待添加'), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+      await tester.pumpAndSettle();
+      expect(find.text(LibrarySchemaMismatch.message), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({TargetPlatform.windows}),

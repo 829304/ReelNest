@@ -33,6 +33,7 @@ class MediaSource {
     this.lastScan,
     this.itemCount = 0,
     this.missingCount = 0,
+    this.accessIdentity,
   });
 
   final String id;
@@ -49,6 +50,7 @@ class MediaSource {
   final DateTime? lastScan;
   final int itemCount;
   final int missingCount;
+  final String? accessIdentity;
 }
 
 /// A source-scoped identity. A path/remote ID alone is not globally unique.

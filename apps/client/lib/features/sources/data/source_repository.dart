@@ -13,6 +13,8 @@ import '../../../domain/source_options.dart';
 import '../../../domain/source_scan.dart';
 import '../../../domain/source_add_result.dart';
 import '../../../sources/source_adapter.dart';
+import '../../../sources/filesystem/file_source_adapter.dart';
+import '../../../platform/directory_safety.dart';
 import '../../../storage/library_database.dart';
 
 String _newId() {
@@ -24,10 +26,19 @@ String _newId() {
 }
 
 class SourceRepository {
-  SourceRepository({required this.database, required this.adapters});
+  SourceRepository({
+    required this.database,
+    required this.adapters,
+    DirectoryIdentityLookup? identityLookup,
+  }) : identityLookup = identityLookup ?? directoryIdentity,
+       _explicitIdentityLookup = identityLookup != null;
 
   final LibraryDatabase database;
   final Map<MediaSourceKind, SourceAdapter> adapters;
+  final DirectoryIdentityLookup identityLookup;
+  final bool _explicitIdentityLookup;
+  bool _indexMaintenance = false;
+  Completer<void>? _maintenanceDone;
   final _changes = StreamController<void>.broadcast();
   final _scans = <String, ScanCancellation>{};
   final _pendingScans = <Future<SourceScanSummary>>{};
@@ -58,6 +69,7 @@ class SourceRepository {
             kind: MediaSourceKind.values.byName(r.read<String>('kind')),
             name: r.read<String>('name'),
             location: r.read<String>('location'),
+            accessIdentity: r.readNullable<String>('access_identity'),
             recursive: r.read<int>('recursive') != 0,
             ignoreHidden: r.read<int>('ignore_hidden') != 0,
             mediaType: SourceMediaType.fromStorage(
@@ -106,8 +118,21 @@ class SourceRepository {
   DateTime _date(int milliseconds) =>
       DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
 
-  Future<bool> isReachable(MediaSource source) =>
-      _adapter(source.kind).isReachable(source.location);
+  Future<bool> isReachable(MediaSource source) async {
+    if (!await _adapter(source.kind).isReachable(source.location)) return false;
+    return !_tracksIdentity(source.kind) || await isSafeDirectory(source);
+  }
+
+  Future<bool> isSafeDirectory(MediaSource source) async =>
+      source.accessIdentity != null &&
+      await identityLookup(source.location) == source.accessIdentity;
+
+  bool _tracksIdentity(MediaSourceKind kind) =>
+      _explicitIdentityLookup || _adapter(kind) is FileSourceAdapter;
+
+  void _requireNoMaintenance() {
+    if (_indexMaintenance) throw const SourceFailure('正在清理索引，请稍后再试。');
+  }
 
   Future<MediaSource> add({
     required MediaSourceKind kind,
@@ -119,6 +144,7 @@ class SourceRepository {
     int? minimumFileSize,
     SourceOptions options = const SourceOptions.defaults(),
   }) async {
+    _requireNoMaintenance();
     final minimumBytes = minimumFileSize ?? mediaType.newSourceMinimumFileSize;
     if (minimumBytes < 0) {
       throw const SourceFailure('最小文件大小不能为负数。');
@@ -128,15 +154,17 @@ class SourceRepository {
       throw const SourceFailure('请输入来源名称。');
     }
     final root = await _adapter(kind).validateLocation(location);
+    final identity = _tracksIdentity(kind) ? await identityLookup(root) : null;
     final id = _newId();
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     await database.transaction(() async {
+      _requireNoMaintenance();
       await _checkDuplicate(root);
       await database.customStatement(
         '''
         INSERT INTO sources(id, kind, name, location, location_key, recursive, ignore_hidden,
-          media_type, minimum_file_size, options, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          media_type, minimum_file_size, options, created_at, updated_at, access_identity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ''',
         [
           id,
@@ -151,6 +179,7 @@ class SourceRepository {
           jsonEncode(options.toJson()),
           now,
           now,
+          identity,
         ],
       );
     });
@@ -232,8 +261,10 @@ class SourceRepository {
     SourceOptions? options,
     bool allowDuringScan = false,
   }) async {
+    _requireNoMaintenance();
     if (!allowDuringScan) _requireIdle(id);
     await database.transaction(() async {
+      _requireNoMaintenance();
       if (!allowDuringScan) _requireIdle(id);
       final current = await source(id);
       final title = (name ?? current.name).trim();
@@ -281,6 +312,7 @@ class SourceRepository {
   }
 
   void _requireIdle(String id) {
+    _requireNoMaintenance();
     if (_scans.containsKey(id)) {
       throw const SourceFailure('请先取消扫描并等待结束。');
     }
@@ -290,14 +322,18 @@ class SourceRepository {
     _requireIdle(id);
     final existing = await source(id);
     final root = await _adapter(existing.kind).validateLocation(location);
+    final identity = _tracksIdentity(existing.kind)
+        ? await identityLookup(root)
+        : null;
     await database.transaction(() async {
       _requireIdle(id);
       await _checkDuplicate(root, except: id);
       await database.customStatement(
-        'UPDATE sources SET location = ?, location_key = ?, last_scan = NULL, updated_at = ? WHERE id = ?',
+        'UPDATE sources SET location = ?, location_key = ?, access_identity = ?, last_scan = NULL, updated_at = ? WHERE id = ?',
         [
           root,
           _locationKey(root),
+          identity,
           DateTime.now().toUtc().millisecondsSinceEpoch,
           id,
         ],
@@ -314,6 +350,96 @@ class SourceRepository {
       await database.customStatement('DELETE FROM sources WHERE id = ?', [id]);
     });
     _changed();
+  }
+
+  /// Validation runs outside SQL transactions. Gate mutations/scans until the
+  /// fresh filesystem checks and atomic index commit finish.
+  Future<({int removed, int retained})> removeRevalidatedMissing(
+    Set<MediaIdentity> requested,
+    Future<Set<MediaIdentity>> Function(LibraryInventory) revalidate,
+  ) async {
+    if (_closed) throw const SourceFailure('媒体库已关闭。');
+    _requireNoMaintenance();
+    if (_scans.isNotEmpty) throw const SourceFailure('请先取消扫描并等待结束。');
+    if (requested.isEmpty) return (removed: 0, retained: 0);
+    _indexMaintenance = true;
+    final done = _maintenanceDone = Completer<void>();
+    try {
+      final before = await database.transaction(
+        () async => (
+          inventory: await inventory(),
+          fingerprint: await _cleanupFingerprint(requested),
+        ),
+      );
+      final safe = (await revalidate(before.inventory)).intersection(requested);
+      if (safe.isEmpty) return (removed: 0, retained: requested.length);
+      var removed = 0;
+      await database.transaction(() async {
+        if (_closed ||
+            await _cleanupFingerprint(requested) != before.fingerprint) {
+          throw const SourceFailure('媒体库状态已变化，请重新检测后再清理。');
+        }
+        final parents = <MediaIdentity>{};
+        for (final item in before.inventory.items) {
+          if (!safe.contains(item.identity) || item.isSeries) continue;
+          removed += await database.customUpdate(
+            'DELETE FROM media WHERE source_id = ? AND local_id = ? AND is_series = 0',
+            variables: [
+              Variable(item.identity.sourceId),
+              Variable(item.identity.localId),
+            ],
+          );
+          if (item.parentId != null) {
+            parents.add((
+              sourceId: item.identity.sourceId,
+              localId: item.parentId!,
+            ));
+          }
+        }
+        for (final parent in parents) {
+          await database.customStatement(
+            '''
+            DELETE FROM media WHERE source_id = ? AND local_id = ? AND is_series = 1
+              AND NOT EXISTS (SELECT 1 FROM media child
+                WHERE child.source_id = media.source_id AND child.parent_id = media.local_id)
+          ''',
+            [parent.sourceId, parent.localId],
+          );
+        }
+      });
+      if (removed > 0) _changed();
+      return (removed: removed, retained: requested.length - removed);
+    } finally {
+      _indexMaintenance = false;
+      _maintenanceDone = null;
+      done.complete();
+    }
+  }
+
+  Future<String> _cleanupFingerprint(Set<MediaIdentity> requested) async {
+    final sources = await database
+        .customSelect('SELECT * FROM sources ORDER BY id')
+        .get();
+    final ids = requested.toList()
+      ..sort((a, b) {
+        final source = a.sourceId.compareTo(b.sourceId);
+        return source == 0 ? a.localId.compareTo(b.localId) : source;
+      });
+    final records = <Map<String, Object?>>[];
+    for (var offset = 0; offset < ids.length; offset += 200) {
+      final chunk = ids.skip(offset).take(200).toList();
+      final rows = await database
+          .customSelect(
+            'SELECT * FROM media WHERE (source_id, local_id) IN '
+            '(${List.filled(chunk.length, '(?, ?)').join(',')}) ORDER BY source_id, local_id',
+            variables: chunk
+                .expand((id) => [Variable(id.sourceId), Variable(id.localId)])
+                .toList(),
+          )
+          .get();
+      records.addAll(rows.map((row) => row.data));
+    }
+    return jsonEncode([sources.map((row) => row.data).toList(), records]);
   }
 
   Future<IndexedMediaPage> browse(
@@ -477,6 +603,9 @@ class SourceRepository {
     final errors = <String>[];
     try {
       final current = await source(id);
+      if (_tracksIdentity(current.kind) && !await isSafeDirectory(current)) {
+        throw const SourceFailure('无法确认原媒体来源的挂载状态或读取权限，已保留索引。请恢复挂载或重新定位来源。');
+      }
       void publish(String? path) => progress?.call(
         SourceScanProgress(
           totalFiles: total,
@@ -527,6 +656,9 @@ class SourceRepository {
       // Original MediaScanner commits each import immediately, and prunes
       // missing items only after an uninterrupted run with no file errors.
       if (errors.isEmpty) {
+        if (_tracksIdentity(current.kind) && !await isSafeDirectory(current)) {
+          throw const SourceFailure('扫描结束时来源状态发生变化，已保留索引。');
+        }
         await database.transaction(() async {
           token.check();
           await database.customStatement(
@@ -591,6 +723,20 @@ class SourceRepository {
     IndexedMedia item, {
     required String identityKind,
   }) async {
+    await database.customStatement(
+      '''
+      DELETE FROM playback_states WHERE source_id = ? AND local_id = ?
+        AND EXISTS (SELECT 1 FROM media WHERE source_id = ? AND local_id = ?
+          AND identity_kind != ?)
+    ''',
+      [
+        item.identity.sourceId,
+        item.identity.localId,
+        item.identity.sourceId,
+        item.identity.localId,
+        identityKind,
+      ],
+    );
     // MediaRepository.upsert retains missing descriptive fields. The original
     // scanner uses different ID prefixes for movie/episode/albumvideo/etc.; our
     // relative file key stays stable, so a kind change explicitly resets them.
@@ -652,6 +798,7 @@ class SourceRepository {
         }
       }),
     );
+    await _maintenanceDone?.future;
     await _changes.close();
     await database.close();
   }

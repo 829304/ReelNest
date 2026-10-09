@@ -26,6 +26,7 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     with WidgetsBindingObserver {
   bool _expanded = true;
   bool _saving = false;
+  bool _cleaning = false;
   String? _error;
   @override
   void initState() {
@@ -62,6 +63,60 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
       if (mounted) setState(() => _error = '健康项保存失败，请重试。');
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _removeMissing(
+    LibraryHealthSnapshot snapshot,
+    List<IndexedMedia> items,
+  ) async {
+    if (_cleaning || items.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          items.length == 1
+              ? '确认从索引移除“${items.single.title}”？'
+              : '确认从索引移除 ${items.length} 个失效条目？',
+        ),
+        content: const Text('仅移除 ReelNest 内部索引，不会修改媒体文件；离线来源中的条目会保留。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('仅从 ReelNest 索引移除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _cleaning) return;
+    setState(() {
+      _cleaning = true;
+      _error = null;
+    });
+    try {
+      final result = await ref
+          .read(missingIndexCleanupProvider)
+          .remove(snapshot, items.map((item) => item.identity).toSet());
+      ref.invalidate(rawLibraryHealthProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.removed == 0
+                  ? '没有可清理条目。离线、已恢复或状态不明的条目已保留。'
+                  : '索引已清理：已移除 ${result.removed} 个失效条目，保留 ${result.retained} 个条目。媒体文件没有被修改。',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = sourceErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _cleaning = false);
     }
   }
 
@@ -165,6 +220,7 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                 icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
                 onPressed:
                     scanning ||
+                        _cleaning ||
                         health.asData?.value.inventory.sources.isNotEmpty !=
                             true
                     ? null
@@ -172,6 +228,25 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                           .read(sourceScansProvider.notifier)
                           .scanAll(health.requireValue.inventory.sources),
               ),
+              if (health.asData?.value.safeMissing.isNotEmpty == true)
+                SourceSheetButton(
+                  label: '清理失效索引',
+                  onPressed: scanning || _cleaning
+                      ? null
+                      : () {
+                          final snapshot = health.requireValue;
+                          _removeMissing(
+                            snapshot,
+                            snapshot.missingItems
+                                .where(
+                                  (item) => snapshot.safeMissing.contains(
+                                    item.identity,
+                                  ),
+                                )
+                                .toList(),
+                          );
+                        },
+                ),
               SourceSheetButton(
                 label: '重新检测',
                 icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
@@ -193,9 +268,9 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
           loading: () => [
             const LinearProgressIndicator(),
             const SizedBox(height: 12),
-            const Text('正在检测片库健康…'),
+            const Text('正在读取媒体库状态…'),
           ],
-          error: (_, _) => [const Text('片库健康检测失败，请重新检测。')],
+          error: (error, _) => [Text(sourceErrorMessage(error))],
           data: (snapshot) => _sections(snapshot, palette, scanning),
         ),
       ],
@@ -207,6 +282,23 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     SourceSheetPalette palette,
     bool scanning,
   ) {
+    if (snapshot.inventory.sources.isEmpty) {
+      return [
+        _HealthCard(
+          title: '尚未添加媒体源',
+          status: '暂无媒体库',
+          accent: const Color(0xFF0EA5E9),
+          children: [
+            const Text('添加媒体源后，可在这里查看片库健康状态。'),
+            const SizedBox(height: 12),
+            SourceSheetButton(
+              label: '管理媒体源',
+              onPressed: () => context.go('/sources'),
+            ),
+          ],
+        ),
+      ];
+    }
     final sources = snapshot.localSources;
     final missing = snapshot.missingItems;
     final gaps = snapshot.metadataGapItems;
@@ -419,14 +511,13 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                                   )),
                           ),
                           if (snapshot.safeMissing.contains(item.identity))
-                            const Tooltip(
-                              message: '索引清理尚未接入',
-                              child: SourceSheetButton(
-                                label: '移出索引',
-                                height: 30,
-                                horizontalPadding: 9,
-                                onPressed: null,
-                              ),
+                            SourceSheetButton(
+                              label: '移出索引',
+                              height: 30,
+                              horizontalPadding: 9,
+                              onPressed: scanning || _cleaning
+                                  ? null
+                                  : () => _removeMissing(snapshot, [item]),
                             ),
                         ],
                       ),

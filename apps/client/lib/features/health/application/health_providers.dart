@@ -9,6 +9,11 @@ import '../../../domain/media_source.dart';
 import '../../sources/application/source_providers.dart';
 import '../data/health_repository.dart';
 import '../domain/local_health_evaluator.dart';
+import 'missing_index_cleanup.dart';
+
+final missingIndexCleanupProvider = Provider<MissingIndexCleanup>(
+  (ref) => MissingIndexCleanup(ref.watch(sourceRepositoryProvider)),
+);
 
 final healthRepositoryProvider = Provider<HealthRepository>((ref) {
   final repository = HealthRepository(
@@ -22,6 +27,7 @@ final localHealthEvaluatorProvider = Provider<LocalHealthEvaluator>(
     paths: p.context,
     exists: (path) async =>
         await FileSystemEntity.type(path) != FileSystemEntityType.notFound,
+    sourceAvailable: ref.watch(sourceRepositoryProvider).isSafeDirectory,
   ),
 );
 

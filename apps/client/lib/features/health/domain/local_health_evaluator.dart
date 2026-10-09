@@ -7,9 +7,14 @@ import '../../../domain/source_media_type.dart';
 /// Local branch of FileHealthEvaluator / SourcePathPolicy and
 /// AppState.rebuildDerivedItemCaches. Remote evaluation belongs to its connector.
 class LocalHealthEvaluator {
-  LocalHealthEvaluator({required this.exists, required this.paths});
+  LocalHealthEvaluator({
+    required this.exists,
+    required this.paths,
+    this.sourceAvailable,
+  });
   final Future<bool> Function(String) exists;
   final p.Context paths;
+  final Future<bool> Function(MediaSource)? sourceAvailable;
 
   String _key(String path) {
     final key = paths.normalize(path);
@@ -63,9 +68,11 @@ class LocalHealthEvaluator {
 
     for (final source in sources) {
       if (source.options.includeInHealthCheck &&
-          !await probe(source.location)) {
+          (!await probe(source.location) ||
+              (sourceAvailable != null && !await sourceAvailable!(source)))) {
         offline.add(source.id);
       }
+      cancellation.check();
     }
     var processed = 0;
     for (final item in inventory.items) {
