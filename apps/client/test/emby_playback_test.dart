@@ -538,11 +538,11 @@ void main() {
       'queued report times out before predecessor ends, never sends later (failed=$predecessorFails)',
       () async {
         final entered = Completer<void>(), release = Completer<void>();
-        server.artworkHandler = (request) async {
+        server.viewsHandler = (request) async {
           entered.complete();
           await release.future;
           request.response.statusCode = predecessorFails ? 500 : 200;
-          request.response.add([1, 2, 3]);
+          request.response.write(jsonEncode(server.views));
           await request.response.close();
         };
         final bounded = EmbyConnectionRepository(
@@ -552,7 +552,7 @@ void main() {
           playbackReportTimeout: const Duration(milliseconds: 50),
         );
         final preceding = bounded
-            .artwork(source.id, 'film')
+            .libraries(source.id)
             .then<Object?>((_) => null, onError: (Object e) => e);
         try {
           await entered.future;
@@ -605,13 +605,14 @@ void main() {
     try {
       await session.open(id('film'));
       await waitFor(() => reports().isNotEmpty);
-      server.artworkHandler = (request) async {
+      server.viewsHandler = (request) async {
         entered.complete();
         await release.future;
+        request.response.write(jsonEncode(server.views));
         await request.response.close();
       };
       preceding = bounded
-          .artwork(source.id, 'film')
+          .libraries(source.id)
           .then<Object?>((_) => null, onError: (Object e) => e);
       await entered.future;
       final elapsed = Stopwatch()..start();

@@ -8,6 +8,8 @@ import 'emby_item.dart';
 import 'emby_playback.dart';
 import 'emby_subtitle.dart';
 import 'emby_detail.dart';
+import 'emby_quality.dart';
+import 'emby_download.dart';
 import '../../domain/remote_media_metadata.dart';
 
 enum EmbyError {
@@ -102,7 +104,7 @@ class EmbyClient {
     HttpClient? http,
     this.timeout = const Duration(seconds: 15),
     this.maxResponseBytes = 4 * 1024 * 1024,
-    this.maxArtworkBytes = 16 * 1024 * 1024,
+    this.maxArtworkBytes = 24 * 1024 * 1024,
   }) : _http = http ?? HttpClient() {
     _http.connectionTimeout = timeout;
   }
@@ -186,18 +188,36 @@ class EmbyClient {
     return List.unmodifiable(result);
   }
 
-  Future<void> validate(EmbySession session) async {
-    await _request(session.server, [
-      'Users',
-      session.userId,
-    ], token: session.token);
+  Future<void> validate(
+    EmbySession session, {
+    ScanCancellation? cancellation,
+  }) async {
+    await _request(
+      session.server,
+      ['Users', session.userId],
+      token: session.token,
+      cancellation: cancellation,
+    );
   }
 
   EmbyPlaybackResource playbackResource(
     EmbySession session,
     RemoteMediaMetadata item, {
     bool audio = false,
+    EmbyVideoQuality quality = EmbyVideoQuality.source,
+    Duration start = Duration.zero,
+    String? playSessionId,
   }) {
+    if (!quality.original &&
+        (quality.width == null ||
+            quality.height == null ||
+            quality.bitrate == null ||
+            quality.width! <= 0 ||
+            quality.height! <= 0 ||
+            quality.bitrate! <= 0 ||
+            audio)) {
+      throw const SourceFailure('无效的视频画质。');
+    }
     final container = item.container?.trim().toLowerCase();
     // A container is an extension, never an arbitrary server path.
     final extension =
@@ -210,14 +230,31 @@ class EmbyClient {
           ...session.server.pathSegments.where((s) => s.isNotEmpty),
           audio ? 'Audio' : 'Videos',
           item.externalId,
-          'stream$extension',
+          quality.original ? 'stream$extension' : 'stream.mp4',
         ],
         queryParameters: {
-          'Static': 'true',
+          'Static': quality.original ? 'true' : 'false',
           'DeviceId': deviceId,
           'api_key': session.token,
           if (item.mediaSourceId?.isNotEmpty == true)
             'MediaSourceId': item.mediaSourceId!,
+          if (!quality.original) ...{
+            'PlaySessionId':
+                playSessionId ??
+                'ReelNest${DateTime.now().microsecondsSinceEpoch}',
+            'VideoCodec': 'h264',
+            'AudioCodec': 'aac',
+            'AudioBitrate': '192000',
+            'MaxAudioChannels': '2',
+            'VideoBitrate': '${quality.bitrate}',
+            'MaxStreamingBitrate': '${quality.bitrate! + 192000}',
+            'MaxWidth': '${quality.width}',
+            'MaxHeight': '${quality.height}',
+            'TranscodingContainer': 'mp4',
+            'TranscodingProtocol': 'http',
+            if (start.inMilliseconds > 1000)
+              'StartTimeTicks': '${start.inMicroseconds * 10}',
+          },
         },
       ),
       item.mediaSourceId,
@@ -232,6 +269,7 @@ class EmbyClient {
     required Duration position,
     required Duration duration,
     required bool paused,
+    bool transcoding = false,
     String? mediaSourceId,
     ScanCancellation? cancellation,
   }) async {
@@ -255,7 +293,7 @@ class EmbyClient {
         if (duration > Duration.zero)
           'RunTimeTicks': duration.inMicroseconds * 10,
         'IsPaused': paused,
-        'PlayMethod': 'DirectStream',
+        'PlayMethod': transcoding ? 'Transcode' : 'DirectStream',
       },
     );
     // Emby normally responds with 204; do not attempt JSON decoding here.
@@ -591,4 +629,18 @@ class EmbyClient {
   }
 
   void close() => _http.close(force: true);
+  Future<EmbyDownloadProgress> download(
+    EmbyPlaybackResource resource,
+    File destination,
+    ScanCancellation cancellation, {
+    String? etag,
+    void Function(EmbyDownloadProgress)? onProgress,
+  }) => streamEmbyDownload(
+    _http,
+    resource.uri,
+    destination,
+    cancellation,
+    etag: etag,
+    onProgress: onProgress,
+  );
 }

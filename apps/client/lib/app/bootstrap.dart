@@ -10,7 +10,9 @@ import 'package:window_manager/window_manager.dart';
 import '../features/playback/application/playback_providers.dart';
 import '../features/playback/presentation/player_window_app.dart';
 import '../features/sources/application/source_providers.dart';
+import '../features/sources/application/emby_library_providers.dart';
 import 'reelnest_app.dart';
+import '../features/sources/application/emby_providers.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +38,10 @@ Future<void> bootstrap() async {
   windowManager.addListener(_MainWindowClose(container));
   await window.setWindowMethodHandler((call) async {
     if (call.method == 'playbackChanged') {
-      container.invalidate(playbackRecordProvider);
+      refreshPlaybackViews(
+        container,
+        List<String>.from((call.arguments as Map)['sourceIds'] as List),
+      );
       return null;
     }
     throw UnsupportedError('Unknown main window method');
@@ -44,6 +49,19 @@ Future<void> bootstrap() async {
   runApp(
     UncontrolledProviderScope(container: container, child: const ReelNestApp()),
   );
+}
+
+/// Player windows commit to the shared database through their own engine.
+/// Reload the affected source snapshots as well as individual resume records.
+void refreshPlaybackViews(
+  ProviderContainer container,
+  Iterable<String> sourceIds,
+) {
+  container.invalidate(playbackRecordProvider);
+  container.read(embyOfflineProvider).request();
+  for (final id in sourceIds.toSet()) {
+    container.invalidate(embyVideoSnapshotProvider(id));
+  }
 }
 
 class _MainWindowClose with WindowListener {
@@ -73,6 +91,8 @@ class _MainWindowClose with WindowListener {
           return; // User kept the player open after a checkpoint failure.
         }
       }
+      await container.read(embyOfflineProvider).dispose();
+      await container.read(embyCacheProvider).dispose();
       await container.read(sourceRepositoryProvider).close();
       container.dispose();
       // Request a native close after the channel reply has returned. Posting

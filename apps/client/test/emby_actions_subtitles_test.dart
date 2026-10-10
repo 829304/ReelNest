@@ -408,10 +408,10 @@ void main() {
     'closing cancels queued subtitle request; expired task never sends',
     () async {
       final entered = Completer<void>(), release = Completer<void>();
-      server.artworkHandler = (r) async {
+      server.viewsHandler = (r) async {
         entered.complete();
         await release.future;
-        r.response.add([1]);
+        r.response.write(jsonEncode(server.views));
         await r.response.close();
       };
       final player = PlaybackSession(
@@ -421,7 +421,7 @@ void main() {
         createEngine: FakeVideoEngine.new,
       );
       await player.open(id('film'));
-      final blocker = connections.artwork(source.id, 'film');
+      final blocker = connections.libraries(source.id);
       await entered.future;
       final reading = player.refreshServerSubtitles();
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -562,7 +562,15 @@ void main() {
       () =>
           tester.widget<TextButton>(find.byType(TextButton)).onPressed !=
               null &&
-          tester.widget<IconButton>(find.byType(IconButton)).onPressed != null,
+          tester
+                  .widget<IconButton>(
+                    find.byWidgetPredicate(
+                      (widget) =>
+                          widget is IconButton && widget.tooltip == '取消喜欢',
+                    ),
+                  )
+                  .onPressed !=
+              null,
     );
     expect((await records.read(id('film'))).watched, isTrue);
     // HttpClient idle connection timers belong to this real HTTP fixture;

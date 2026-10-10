@@ -26,3 +26,10 @@
 首页与分类页已接入浏览导航。海报墙、列表和详情已按上述源码编写，Windows 构建及部分导航/布局冒烟通过，但尚未完成原版视觉对照。原版的 3D 悬停、批量选择、完整玻璃材质、右键操作尚未迁移；列表接口不含社区评分，因此卡片不显示伪造评分。详情仅在响应包含 communityRating 时显示 10 分制评分，不能用 5 分制 userPreference.rating 代替。设置页仍只有会话内主题选择，平台启动图标保留模板。
 
 后续每个页面先阅读对应 SwiftUI View、子组件、状态和事件处理，再迁移成 Dart；在本表记录来源及有意调整，最后使用截图和交互验证对照。玻璃材质、原生窗口效果不能仅靠颜色近似即宣称等价。
+
+2026-10-10 Emby 视频导航增量：`ContentView.embySourceGroup/SidebarMetrics` → `features/sources/presentation/emby_sidebar.dart`；`LibraryView.LibrarySnapshotBuilder/availableSortModes/selectSortMode` → `features/sources/domain/emby_library.dart`、`presentation/emby_video_library_page.dart`；`AppState.items/searchFields/toggleWatchlist` → `data/emby_library_repository.dart`。库目录与同步索引共同提交，原排序/阈值/目的地隔离规则已接入。常用中文拼音/英文首字母、数字自然排序已验证；CFStringTransform 的全部文字转写、地区排序、完整分类、批量操作以及系统菜单/符号/材质仍待等效迁移和视觉验收，详见 [本批边界](../EMBY_NAVIGATION.zh-CN.md)。
+
+2026-10-10 画质与缓存增量：`RemoteVideoQualityPlanner` → `api/emby/emby_quality.dart`；`PlayerQualityPopover/qualityButton` → `player_track_popovers.dart` / `video_player_page.dart`；`MpvPlayerController.switchVideoQuality/seek` → `PlaybackSession`；远程图片缓存和手动视频缓存 → `emby_cache_repository.dart` / `emby_download.dart`，原离线菜单及设置 → `emby_cache_actions.dart` / `video_cache_settings.dart`。保留原默认预算与清理规则，避免旧项目 D1/D2/D3。自动离线订阅已在下一批接入；完整图片内存/预解码协调、公共菜单及图标/材质的像素验收仍待迁移，见 [本批说明](../EMBY_QUALITY_CACHE.zh-CN.md)。
+
+
+2026-10-10 自动离线订阅增量：`VideoOfflineSubscription/VideoOfflinePolicy` → `domain/emby_offline_subscription.dart`；原订阅仓储和 AppState 维护 → `emby_offline_repository.dart`；`VideoCacheMenuItems/VideoOfflineSubscriptionLimitSheet` → `emby_offline_menu.dart`；`BackgroundTaskCenterView/LibraryHealthCenterView.storageCard` → `emby_task_center.dart`。Wi-Fi 出口条件由 `platform/network_status.dart` 适配，未知状态不放行。保留原选集窗口、暂停/到期及文件保留规则；不声称其他后台作业、完整视觉或三系统网络环境已验收，见 [订阅说明](../EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md)。

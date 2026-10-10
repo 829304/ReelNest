@@ -18,11 +18,13 @@ class LocalMediaArtwork extends ConsumerWidget {
     required this.source,
     required this.item,
     this.fit = BoxFit.cover,
+    this.revision,
     super.key,
   });
   final MediaSource source;
   final IndexedMedia item;
   final BoxFit fit;
+  final int? revision;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +41,10 @@ class LocalMediaArtwork extends ConsumerWidget {
               sourceId: source.id,
               itemId: relative,
               backdrop: false,
-              revision: source.lastScan?.millisecondsSinceEpoch ?? 0,
+              revision: math.max(
+                revision ?? 0,
+                source.lastScan?.millisecondsSinceEpoch ?? 0,
+              ),
             )),
           )
           .when(

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 
 import 'package:drift/drift.dart';
 
@@ -9,6 +10,8 @@ import '../../../api/emby/emby_item.dart';
 import '../../../api/emby/emby_playback.dart';
 import '../../../api/emby/emby_subtitle.dart';
 import '../../../api/emby/emby_detail.dart';
+import '../../../api/emby/emby_quality.dart';
+import '../../../api/emby/emby_download.dart';
 import '../../playback/data/playback_repository.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_options.dart';
@@ -272,21 +275,36 @@ class EmbyConnectionRepository {
     int index = 0,
     int? maxWidth,
     ScanCancellation? cancellation,
-  }) => _serial(id, () async {
-    cancellation?.check();
-    await _requireSource(id);
-    return _authenticated(
-      id,
-      (api, session) => api.artwork(
-        session,
-        itemId,
-        backdrop: backdrop,
-        index: index,
-        maxWidth: maxWidth,
-        cancellation: cancellation,
-      ),
+  }) async {
+    final credential = await _serial(id, () async {
+      cancellation?.check();
+      await _requireSource(id);
+      return _load(id);
+    });
+    final api = await client;
+    Future<Uint8List> fetch(EmbyClient api, EmbySession session) => api.artwork(
+      session,
+      itemId,
+      backdrop: backdrop,
+      index: index,
+      maxWidth: maxWidth,
+      cancellation: cancellation,
     );
-  });
+    try {
+      cancellation?.check();
+      final result = await fetch(api, credential.session);
+      _check();
+      return result;
+    } on EmbyFailure catch (error) {
+      if (error.kind != EmbyError.authentication) rethrow;
+      return _serial(id, () async {
+        cancellation?.check();
+        await _requireSource(id);
+        return _authenticated(id, fetch, cancellation: cancellation);
+      });
+    }
+  }
+
   Future<EmbyDetail> detail(
     IndexedMedia item, {
     ScanCancellation? cancellation,
@@ -418,22 +436,77 @@ class EmbyConnectionRepository {
     });
   }
 
-  Future<EmbyPlaybackResource> preparePlayback(IndexedMedia item) =>
-      _serial(item.identity.sourceId, () async {
-        final id = item.identity.sourceId;
-        await _requireSource(id);
-        if (item.remote == null || item.isSeries) {
-          throw const SourceFailure('此媒体没有可播放资源。');
-        }
-        return _authenticated(id, (api, session) async {
-          await api.validate(session);
-          return api.playbackResource(
-            session,
-            item.remote!,
-            audio: item.type == 'music',
+  Future<EmbyPlaybackResource> preparePlayback(
+    IndexedMedia item, {
+    EmbyVideoQuality quality = EmbyVideoQuality.source,
+    Duration start = Duration.zero,
+    String? playSessionId,
+    ScanCancellation? cancellation,
+  }) => _serial(item.identity.sourceId, () async {
+    final id = item.identity.sourceId;
+    cancellation?.check();
+    await _requireSource(id);
+    if (item.remote == null || item.isSeries) {
+      throw const SourceFailure('此媒体没有可播放资源。');
+    }
+    final selected = quality.original
+        ? EmbyVideoQuality.source
+        : EmbyVideoQuality.options(item)
+              .where((q) => q.id == quality.id)
+              .firstOrNull;
+    if (selected == null) {
+      throw const SourceFailure('此片源不支持所选画质。');
+    }
+    return _authenticated(id, (api, session) async {
+      await api.validate(session, cancellation: cancellation);
+      return api.playbackResource(
+        session,
+        item.remote!,
+        audio: item.type == 'music',
+        quality: selected,
+        start: start,
+        playSessionId: playSessionId ?? newEmbyIdentity(),
+      );
+    }, cancellation: cancellation);
+  });
+
+  Future<EmbyDownloadProgress> downloadVideo(
+    IndexedMedia item,
+    File destination,
+    ScanCancellation cancellation, {
+    EmbyVideoQuality quality = EmbyVideoQuality.source,
+    String? etag,
+    void Function(EmbyDownloadProgress)? onProgress,
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      cancellation.check();
+      final resource =
+          await preparePlayback(
+            item,
+            quality: quality,
+            cancellation: cancellation,
+          ).timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              cancellation.cancel();
+              throw const SourceFailure('视频缓存准备超时。');
+            },
           );
-        });
-      });
+      cancellation.check();
+      try {
+        return await (await client).download(
+          resource,
+          destination,
+          cancellation,
+          etag: etag,
+          onProgress: onProgress,
+        );
+      } on EmbyFailure catch (error) {
+        if (error.kind != EmbyError.authentication || attempt > 0) rethrow;
+        await session(item.identity.sourceId);
+      }
+    }
+  }
 
   Future<void> reportPlayback(
     IndexedMedia item, {
@@ -442,6 +515,7 @@ class EmbyConnectionRepository {
     required Duration position,
     required Duration duration,
     required bool paused,
+    bool transcoding = false,
   }) async {
     // Bound the caller's wait as well as the HTTP operation. Cancelling only
     // the token would leave a queued Future waiting on its predecessor.
@@ -466,6 +540,7 @@ class EmbyConnectionRepository {
           position: position,
           duration: duration,
           paused: paused,
+          transcoding: transcoding,
           mediaSourceId: remote.mediaSourceId,
           cancellation: cancellation,
         ),

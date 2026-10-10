@@ -33,6 +33,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   late final MediaIdentity _initial;
   bool _destroyed = false;
   MediaIdentity? _notifiedIdentity;
+  final _playedSourceIds = <String>{};
   @override
   void initState() {
     super.initState();
@@ -42,6 +43,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       records: ref.read(playbackRepositoryProvider),
       createEngine: MediaKitVideoEngine.new,
       emby: ref.read(embyConnectionProvider),
+      cache: ref.read(embyCacheProvider),
     );
     _session.addListener(_onPlaybackChanged);
     windowManager.addListener(this);
@@ -50,6 +52,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
 
   void _onPlaybackChanged() {
     final identity = _session.item?.identity;
+    if (identity != null) _playedSourceIds.add(identity.sourceId);
     if (!_session.loading &&
         _session.error == null &&
         identity != null &&
@@ -110,8 +113,13 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   Future<void> _notifyMain() async {
     try {
       await WindowController.fromWindowId(
-        widget.arguments['mainWindowId'] as String,
-      ).invokeMethod('playbackChanged').timeout(const Duration(seconds: 3));
+            widget.arguments['mainWindowId'] as String,
+          )
+          .invokeMethod('playbackChanged', {
+            // Include previous sources when reusing the player across libraries.
+            'sourceIds': _playedSourceIds.toList(),
+          })
+          .timeout(const Duration(seconds: 3));
     } catch (_) {
       /* Main may already be closing. Progress is on disk. */
     }

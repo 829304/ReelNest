@@ -7,7 +7,9 @@ import 'package:path/path.dart' as p;
 import '../../../domain/media_source.dart';
 import '../../../api/emby/emby_playback.dart';
 import '../../../api/emby/emby_subtitle.dart';
+import '../../../api/emby/emby_quality.dart';
 import '../../sources/data/emby_connection_repository.dart';
+import '../../sources/data/emby_cache_repository.dart';
 import '../../../player/video_engine.dart';
 import '../../../player/video_tracks.dart';
 import '../../sources/data/source_repository.dart';
@@ -29,6 +31,7 @@ class PlaybackSession extends ChangeNotifier {
     this.checkpointInterval = const Duration(seconds: 5),
     PlayerPreferencesRepository? preferences,
     this.emby,
+    this.cache,
     this.remoteReportInterval = const Duration(seconds: 15),
     this.waitForSurface,
   }) : preferences =
@@ -39,6 +42,10 @@ class PlaybackSession extends ChangeNotifier {
   final Duration checkpointInterval;
   final PlayerPreferencesRepository preferences;
   final EmbyConnectionRepository? emby;
+  final EmbyCacheRepository? cache;
+  String? cacheWarning;
+  String? _cacheLease;
+  Timer? _cacheHeartbeat;
   final Duration remoteReportInterval;
 
   /// Installed by the player page; headless sessions need no rendering barrier.
@@ -50,6 +57,22 @@ class PlaybackSession extends ChangeNotifier {
   VideoClock? _pendingForcedProgress;
   DateTime? _lastReport;
   String? syncError;
+  EmbyVideoQuality quality = EmbyVideoQuality.source;
+  Duration _streamOffset = Duration.zero;
+  List<EmbyVideoQuality> get qualityOptions =>
+      item == null || filePath != null ? [] : EmbyVideoQuality.options(item!);
+  Future<void> selectQuality(EmbyVideoQuality value) => _serialize(() async {
+    if (_closed || loading || item == null || value.id == quality.id) return;
+    final selected = qualityOptions.where((q) => q.id == value.id).firstOrNull;
+    if (selected == null) return;
+    await _open(
+      item!.identity,
+      targetQuality: selected,
+      at: clock.position,
+      force: true,
+      autoplay: clock.playing,
+    );
+  });
   VideoEngine? engine;
   IndexedMedia? item;
   VideoClock clock = const VideoClock();
@@ -99,12 +122,24 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> open(MediaIdentity identity) =>
       _serialize(() => _open(identity));
 
-  Future<void> _open(MediaIdentity identity) async {
+  Future<void> _open(
+    MediaIdentity identity, {
+    EmbyVideoQuality targetQuality = EmbyVideoQuality.source,
+    Duration? at,
+    bool force = false,
+    bool autoplay = true,
+  }) async {
     if (_closed || _closing != null) return;
-    if (item?.identity == identity && error == null && engine != null) return;
+    if (!force &&
+        item?.identity == identity &&
+        error == null &&
+        engine != null) {
+      return;
+    }
     final previous = engine;
     final wasPlaying = clock.playing;
     VideoEngine? candidate;
+    String? candidateLease;
     _checkpoint?.cancel();
     loading = true;
     transitionMessage = null;
@@ -119,6 +154,17 @@ class PlaybackSession extends ChangeNotifier {
       }
       String resource;
       String? localPath;
+      String? nextCacheWarning;
+      final record = await records.read(identity);
+      final nextOptions = await preferences.options;
+      final resume =
+          at ??
+          record.resume(
+            remember: nextOptions.rememberPosition,
+            rewindSeconds: nextOptions.rewindSeconds,
+          );
+      var streamOffset = Duration.zero;
+      String? playSessionId;
       if (source.kind.isFileSource) {
         localPath = p.normalize(
           p.joinAll([source.location, ...p.posix.split(identity.localId)]),
@@ -130,11 +176,34 @@ class PlaybackSession extends ChangeNotifier {
         }
         resource = localPath;
       } else if (source.kind == MediaSourceKind.emby && emby != null) {
-        resource = (await emby!.preparePlayback(selected)).uri.toString();
+        ({String path, String lease})? cached;
+        if (!force) {
+          try {
+            cached = await cache?.acquire(identity);
+          } catch (_) {
+            // A disconnected cache volume must not prevent online playback.
+            // Keep its manifest intact so reconnecting the disk restores it.
+            nextCacheWarning = '本地缓存读取失败，已尝试在线播放。请检查缓存目录或磁盘连接。';
+          }
+        }
+        if (cached != null) {
+          candidateLease = cached.lease;
+          resource = localPath = cached.path;
+        } else {
+          playSessionId = newEmbyIdentity();
+          resource = (await emby!.preparePlayback(
+            selected,
+            quality: targetQuality,
+            start: resume,
+            playSessionId: playSessionId,
+          )).uri.toString();
+          if (!targetQuality.original && resume.inMilliseconds > 1000) {
+            streamOffset = resume;
+          }
+        }
       } else {
         throw const SourceFailure('此媒体源尚不支持播放。');
       }
-      final record = await records.read(identity);
       final sidecars = localPath == null
           ? <SidecarSubtitle>[]
           : await SidecarSubtitle.find(localPath);
@@ -142,7 +211,6 @@ class PlaybackSession extends ChangeNotifier {
       final subtitlePreference = await preferences.subtitle(selected);
       final subtitleLanguage = await preferences.subtitleLanguage;
       final action = await preferences.endAction;
-      final nextOptions = await preferences.options;
       final rate = nextOptions.rememberRate
           ? await preferences.rate(selected)
           : null;
@@ -160,22 +228,20 @@ class PlaybackSession extends ChangeNotifier {
       if (_closed || _closing != null) return;
       final current = candidate = createEngine();
       await current
-          .open(
-            resource,
-            record.resume(
-              remember: nextOptions.rememberPosition,
-              rewindSeconds: nextOptions.rewindSeconds,
-            ),
-          )
+          .open(resource, streamOffset > Duration.zero ? Duration.zero : resume)
           .timeout(const Duration(seconds: 25));
       if (current.clock.error != null) throw StateError(current.clock.error!);
       await current.setVolume(
-        nextOptions.useLaunchVolume
+        force
+            ? clock.volume
+            : nextOptions.useLaunchVolume
             ? nextOptions.launchVolume
             : (await preferences.number('videoVolume', 80)).clamp(0, 100),
       );
       await current.setPitchCorrection(nextOptions.pitchCorrection);
-      await current.setRate(rate ?? nextOptions.defaultRate);
+      await current.setRate(
+        force ? clock.rate : rate ?? nextOptions.defaultRate,
+      );
       await current.setVolumeBoost(
         (await preferences.number('videoVolumeBoost', 1)).clamp(1, 2),
       );
@@ -190,9 +256,18 @@ class PlaybackSession extends ChangeNotifier {
       candidate = null;
       item = selected;
       filePath = localPath;
-      _playSessionId = source.kind == MediaSourceKind.emby
-          ? newEmbyIdentity()
-          : null;
+      cacheWarning = nextCacheWarning;
+      _cacheLease = candidateLease;
+      candidateLease = null;
+      if (_cacheLease != null) {
+        final lease = _cacheLease!;
+        _cacheHeartbeat = Timer.periodic(const Duration(seconds: 30), (_) {
+          unawaited(cache!.renew(lease).catchError((Object _) {}));
+        });
+      }
+      quality = targetQuality;
+      _streamOffset = streamOffset;
+      _playSessionId = playSessionId;
       _reportedStart = false;
       _lastReport = null;
       syncError = null;
@@ -241,7 +316,7 @@ class PlaybackSession extends ChangeNotifier {
       // and track preferences to be applied before allowing audio/time to run.
       await waitForSurface?.call();
       if (_closed || _closing != null) return;
-      await current.play();
+      if (autoplay) await current.play();
       loading = false;
       _observe(current.clock);
       try {
@@ -266,6 +341,7 @@ class PlaybackSession extends ChangeNotifier {
       }
     } finally {
       if (candidate != null) await candidate.dispose();
+      if (candidateLease != null) await cache?.release(candidateLease);
       loading = false;
       if (!_closed && engine != null && _hasClock && error == null) {
         _startCheckpoints();
@@ -352,6 +428,23 @@ class PlaybackSession extends ChangeNotifier {
 
   void _observe(VideoClock value) {
     if (_closed) return;
+    if (!quality.original && filePath == null) {
+      value = VideoClock(
+        position: value.position + _streamOffset,
+        duration: Duration(
+          milliseconds: (item?.remote?.durationMs ?? 0) > 0
+              ? item!.remote!.durationMs!
+              : (value.duration + _streamOffset).inMilliseconds,
+        ),
+        playing: value.playing,
+        buffering: value.buffering,
+        completed: value.completed,
+        volume: value.volume,
+        rate: value.rate,
+        warning: value.warning,
+        error: value.error,
+      );
+    }
     clock = value;
     timeline.value = value;
     if (volumeLevel.value != value.volume) volumeLevel.value = value.volume;
@@ -440,6 +533,7 @@ class PlaybackSession extends ChangeNotifier {
         await emby!.reportPlayback(
           selected,
           playSessionId: sessionId,
+          transcoding: !quality.original,
           phase: phase,
           position: value.completed ? value.duration : value.position,
           duration: value.duration,
@@ -535,7 +629,28 @@ class PlaybackSession extends ChangeNotifier {
       0,
       clock.duration.inMilliseconds,
     );
-    await engine!.seek(Duration(milliseconds: clamped));
+    if (!quality.original &&
+        item != null &&
+        filePath == null &&
+        _streamOffset > Duration.zero &&
+        clamped < _streamOffset.inMilliseconds - 500) {
+      await _open(
+        item!.identity,
+        targetQuality: quality,
+        at: Duration(milliseconds: clamped),
+        force: true,
+        autoplay: clock.playing,
+      );
+      return;
+    }
+    await engine!.seek(
+      Duration(
+        milliseconds: (clamped - _streamOffset.inMilliseconds).clamp(
+          0,
+          clamped,
+        ),
+      ),
+    );
     unawaited(_reportRemote(EmbyPlaybackPhase.progress, force: true));
   });
   Future<void> volume(double value, {bool remember = true}) => _controls(
@@ -671,7 +786,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> _readServerSubtitles() async {
-    if (item?.remote == null || emby == null) return;
+    if (item?.remote == null || emby == null || _cacheLease != null) return;
     try {
       serverSubtitles = await _subtitleWork(
         (token) => emby!.subtitles(item!, cancellation: token),
@@ -828,6 +943,17 @@ class PlaybackSession extends ChangeNotifier {
       await current.dispose();
     } finally {
       engine = null;
+      _cacheHeartbeat?.cancel();
+      _cacheHeartbeat = null;
+      final lease = _cacheLease;
+      _cacheLease = null;
+      if (lease != null) {
+        try {
+          await cache?.release(lease);
+        } catch (_) {
+          /* Lease expires if storage is unavailable. */
+        }
+      }
       final directory = _subtitleDirectory;
       _subtitleDirectory = null;
       serverSubtitlePaths.clear();
@@ -882,6 +1008,7 @@ class PlaybackSession extends ChangeNotifier {
   @override
   void dispose() {
     _checkpoint?.cancel();
+    _cacheHeartbeat?.cancel();
     timeline.dispose();
     volumeLevel.dispose();
     playbackRate.dispose();

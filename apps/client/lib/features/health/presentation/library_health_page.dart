@@ -13,6 +13,7 @@ import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../sources/application/source_providers.dart';
 import '../application/health_providers.dart';
+import '../../sources/presentation/emby_task_center.dart';
 
 /// LibraryHealthCenterView's local source / video metadata / missing file
 /// sections. Other dashboard sections remain separate, unfinished ports.
@@ -248,6 +249,10 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                         },
                 ),
               SourceSheetButton(
+                label: '任务中心',
+                onPressed: () => context.go('/health/tasks'),
+              ),
+              SourceSheetButton(
                 label: '重新检测',
                 icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
                 onPressed: () => ref.invalidate(rawLibraryHealthProvider),
@@ -262,6 +267,7 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
             _error!,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
+        const EmbyCacheDashboard(),
         ...health.when(
           skipLoadingOnRefresh: false,
           skipLoadingOnReload: false,

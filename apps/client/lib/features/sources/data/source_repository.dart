@@ -512,6 +512,21 @@ class SourceRepository {
     });
   }
 
+  Future<List<IndexedMedia>> indexedSource(String id) async =>
+      (await database
+              .customSelect(
+                '''
+    SELECT media.*, r.value AS remote_metadata, a.updated_at AS activity_updated_at
+    FROM media LEFT JOIN remote_media_metadata r USING(source_id, local_id)
+    LEFT JOIN media_activity a USING(source_id, local_id)
+    WHERE media.source_id = ? ORDER BY media.title COLLATE NOCASE, media.local_id
+  ''',
+                variables: [Variable(id)],
+              )
+              .get())
+          .map(_media)
+          .toList();
+
   IndexedMedia _media(QueryRow r) => IndexedMedia(
     updatedAt: r.data['activity_updated_at'] == null
         ? null
@@ -643,12 +658,19 @@ class SourceRepository {
     String id,
     Future<List<IndexedMedia>> Function(MediaSource, ScanCancellation) fetch, {
     void Function(SourceScanProgress)? onProgress,
+    Future<void> Function()? commitSnapshot,
   }) {
     _requireIdle(id);
     if (_closed) throw const SourceFailure('媒体库已关闭。');
     final cancellation = ScanCancellation();
     _scans[id] = cancellation;
-    final work = _syncRemote(id, cancellation, fetch, onProgress);
+    final work = _syncRemote(
+      id,
+      cancellation,
+      fetch,
+      onProgress,
+      commitSnapshot,
+    );
     _pendingScans.add(work);
     return work.whenComplete(() {
       _pendingScans.remove(work);
@@ -661,6 +683,7 @@ class SourceRepository {
     ScanCancellation cancellation,
     Future<List<IndexedMedia>> Function(MediaSource, ScanCancellation) fetch,
     void Function(SourceScanProgress)? onProgress,
+    Future<void> Function()? commitSnapshot,
   ) async {
     final runId = _newId();
     try {
@@ -738,6 +761,7 @@ class SourceRepository {
             );
           }
         }
+        await commitSnapshot?.call();
         await database.customStatement(
           'DELETE FROM media WHERE source_id = ? AND local_id NOT IN (SELECT local_id FROM scan_stage WHERE run_id = ?)',
           [id, runId],
@@ -962,6 +986,15 @@ class SourceRepository {
     await database.customStatement(
       'INSERT OR IGNORE INTO scan_stage(run_id, local_id) VALUES (?, ?)',
       [runId, item.identity.localId],
+    );
+    await database.customStatement(
+      'INSERT OR IGNORE INTO media_library_preferences(source_id, local_id, user_rating, created_at) VALUES (?, ?, ?, ?)',
+      [
+        item.identity.sourceId,
+        item.identity.localId,
+        item.remote?.rating,
+        DateTime.now().toUtc().millisecondsSinceEpoch,
+      ],
     );
     await database.customStatement(
       '''INSERT INTO media_activity(source_id, local_id, updated_at) VALUES (?, ?, ?)

@@ -329,13 +329,13 @@ void main() {
     'queued cancellation exits promptly and never sends or caches later',
     () async {
       final entered = Completer<void>(), release = Completer<void>();
-      server.artworkHandler = (r) async {
+      server.viewsHandler = (r) async {
         entered.complete();
         await release.future;
-        r.response.add([1]);
+        r.response.write(jsonEncode(server.views));
         await r.response.close();
       };
-      final blocker = connections.artwork(source.id, 'film');
+      final blocker = connections.libraries(source.id);
       await entered.future;
       final token = ScanCancellation();
       final request = details.load(id('film'), cancellation: token);
@@ -354,13 +354,13 @@ void main() {
     () async {
       await details.load(id('film'));
       final entered = Completer<void>(), release = Completer<void>();
-      server.artworkHandler = (r) async {
+      server.viewsHandler = (r) async {
         entered.complete();
         await release.future;
-        r.response.add([1]);
+        r.response.write(jsonEncode(server.views));
         await r.response.close();
       };
-      final blocker = connections.artwork(source.id, 'film');
+      final blocker = connections.libraries(source.id);
       await entered.future;
       final bounded = EmbyDetailRepository(
         sources: sources,

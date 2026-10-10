@@ -148,8 +148,61 @@ class LibraryDatabase extends GeneratedDatabase {
             ON DELETE CASCADE
         )
       ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS remote_library_views (
+          source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+          library_id TEXT NOT NULL, name TEXT NOT NULL, collection_type TEXT,
+          PRIMARY KEY(source_id, library_id)
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS media_library_preferences (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL,
+          watchlist INTEGER NOT NULL DEFAULT 0, user_rating REAL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id, local_id),
+          FOREIGN KEY(source_id, local_id) REFERENCES media(source_id, local_id)
+            ON DELETE CASCADE
+        )
+      ''');
 
       // Track this run's imported identities for successful-scan pruning.
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS artwork_disk_cache (
+          cache_key TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+          filename TEXT NOT NULL, bytes INTEGER NOT NULL, accessed_at INTEGER NOT NULL
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS video_disk_cache (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, bundle TEXT NOT NULL, root TEXT NOT NULL,
+          filename TEXT NOT NULL, bytes INTEGER NOT NULL, quality_id TEXT NOT NULL,
+          quality_label TEXT NOT NULL, created_at INTEGER NOT NULL, accessed_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id, local_id),
+          FOREIGN KEY(source_id, local_id) REFERENCES media(source_id, local_id) ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS video_cache_leases (
+          owner TEXT PRIMARY KEY, bundle TEXT NOT NULL, expires_at INTEGER NOT NULL
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS video_cache_staging (
+          token TEXT PRIMARY KEY, root TEXT NOT NULL, touched_at INTEGER NOT NULL
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS video_offline_subscriptions (
+          id TEXT NOT NULL UNIQUE, source_id TEXT NOT NULL, series_id TEXT NOT NULL,
+          title TEXT NOT NULL, mode TEXT NOT NULL, episode_limit INTEGER NOT NULL,
+          season INTEGER, quality_id TEXT, enabled INTEGER NOT NULL,
+          paused_until INTEGER, expires_at INTEGER, network TEXT NOT NULL,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id,series_id),
+          FOREIGN KEY(source_id,series_id) REFERENCES media(source_id,local_id) ON DELETE CASCADE
+        )
+      ''');
       // Imported media are committed per file, as in the original scanner.
       await customStatement('''
         CREATE TEMP TABLE scan_stage (

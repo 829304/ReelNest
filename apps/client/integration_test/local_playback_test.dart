@@ -25,8 +25,12 @@ import 'package:reelnest/features/playback/domain/video_queue.dart';
 import 'package:reelnest/features/playback/presentation/video_player_page.dart';
 import 'package:reelnest/api/emby/emby_client.dart';
 import 'package:reelnest/features/sources/data/emby_connection_repository.dart';
+import 'package:reelnest/features/sources/data/emby_cache_repository.dart';
+import 'package:reelnest/api/emby/emby_quality.dart';
 import 'package:reelnest/features/sources/data/emby_sync_repository.dart';
 import 'package:reelnest/features/sources/data/emby_detail_repository.dart';
+import 'package:reelnest/features/sources/data/emby_library_repository.dart';
+import 'package:reelnest/features/sources/domain/emby_library.dart';
 import 'package:reelnest/platform/secure_credential_store.dart';
 
 import '../test/support/video_fixture.dart';
@@ -184,6 +188,25 @@ void main(List<String> entryArguments) {
           );
           final snapshot = await details.load(imported.identity);
           expect(snapshot.detail.cast.single.name, '测试演员');
+          final browser = EmbyLibraryRepository(sources);
+          final requestsBeforeBrowsing = fixture.requests.length;
+          await browser.setWatchlist(imported.identity, true);
+          final cachedBrowser = await browser.snapshot(source.id);
+          expect(cachedBrowser.libraries.map((v) => v.id), contains('movies'));
+          final listed = cachedBrowser.scope((
+            sourceId: source.id,
+            section: EmbyVideoSection.watchlist,
+            libraryId: null,
+          ));
+          expect(
+            filterVideoLibrary(
+              listed,
+              const VideoLibrarySettings(search: 'csyy'),
+              .9,
+            ).single.item.identity,
+            imported.identity,
+          );
+          expect(fixture.requests.length, requestsBeforeBrowsing);
           expect(snapshot.detail.technical.resolution, '64x64');
           expect(
             (await details.read(imported.identity))!.detail.contentRating,
@@ -339,6 +362,78 @@ void main(List<String> entryArguments) {
             await session.close(discardProgress: true);
             await tester.pumpWidget(const SizedBox());
             session.dispose();
+          }
+          final cache = EmbyCacheRepository(
+            sources: sources,
+            connections: restored,
+            cacheDirectory: () async =>
+                Directory(p.join(sandbox.path, 'cache')),
+          );
+          final offline = PlaybackSession(
+            sources: sources,
+            records: PlaybackRepository(sources.database),
+            emby: restored,
+            cache: cache,
+            createEngine: MediaKitVideoEngine.new,
+          );
+          try {
+            await cache.artwork(source.id, imported.posterPath!);
+            await cache.enqueue(imported, EmbyVideoQuality.source);
+            final task = cache.tasks.value[imported.identity]!;
+            final deadline = DateTime.now().add(const Duration(seconds: 20));
+            while (![
+                  VideoCacheTaskState.complete,
+                  VideoCacheTaskState.failed,
+                ].contains(task.state) &&
+                DateTime.now().isBefore(deadline)) {
+              await tester.pump();
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+            }
+            await task.work;
+            expect(
+              task.state,
+              VideoCacheTaskState.complete,
+              reason: task.error,
+            );
+            expect(await cache.entries(), hasLength(1));
+            final requestsBeforeOffline = fixture.requests.length;
+            await cache.artwork(source.id, imported.posterPath!);
+            await tester.pumpWidget(
+              MaterialApp(
+                home: VideoPlayerPage(
+                  identity: imported.identity,
+                  session: offline,
+                  closeWindow: () async {},
+                  setFullscreen: (_) async {},
+                ),
+              ),
+            );
+            for (
+              var n = 0;
+              n < 200 && (offline.loading || offline.engine == null);
+              n++
+            ) {
+              await tester.pump();
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+              if (offline.error != null) break;
+            }
+            expect(offline.error, isNull);
+            expect(offline.loading, isFalse);
+            expect(offline.filePath, isNotNull);
+            expect(offline.sidecarSubtitles, hasLength(1));
+            expect(offline.clock.duration.inSeconds, 24);
+            await offline.refreshTracks();
+            expect(fixture.requests.length, requestsBeforeOffline);
+            await cache.maintenance(clear: true);
+            expect(await cache.entries(), hasLength(1));
+            await offline.close();
+            await cache.maintenance(clear: true);
+            expect(await cache.entries(), isEmpty);
+          } finally {
+            await offline.close(discardProgress: true);
+            await tester.pumpWidget(const SizedBox());
+            offline.dispose();
+            await cache.dispose();
           }
           await restored.remove(source.id);
           expect(await store(source.id).read(), isNull);
@@ -648,7 +743,15 @@ void main(List<String> entryArguments) {
   ) async {
     await windowManager.ensureInitialized();
     final current = await WindowController.fromCurrentEngine();
-    await current.setWindowMethodHandler((_) async => null);
+    final playbackNotices = <List<String>>[];
+    await current.setWindowMethodHandler((call) async {
+      if (call.method == 'playbackChanged') {
+        playbackNotices.add(
+          List<String>.from((call.arguments as Map)['sourceIds'] as List),
+        );
+      }
+      return null;
+    });
     final sandbox = await Directory.systemTemp.createTemp(
       'reelnest-native-playback-',
     );
@@ -743,6 +846,8 @@ void main(List<String> entryArguments) {
         (await record.read(episode)).position.inMilliseconds,
         greaterThanOrEqualTo(1000),
       );
+      expect(playbackNotices, isNotEmpty);
+      expect(playbackNotices.every((ids) => ids.contains(source.id)), isTrue);
       expect(
         (await WindowController.getAll()).any(
           (w) => w.windowId == player!.windowId,

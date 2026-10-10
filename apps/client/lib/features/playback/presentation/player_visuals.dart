@@ -119,6 +119,7 @@ enum PlayerSymbol {
   circle,
   episodes,
   settings,
+  quality,
 }
 
 class PlayerSymbolIcon extends StatelessWidget {
@@ -153,6 +154,23 @@ class _SymbolPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
     final path = Path();
     switch (symbol) {
+      case PlayerSymbol.quality:
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(2, 2, 20, 20),
+            const Radius.circular(4),
+          ),
+        );
+        path.moveTo(6, 8);
+        path.lineTo(8, 8);
+        path.moveTo(13, 8);
+        path.lineTo(18, 8);
+        path.addOval(const Rect.fromLTWH(8, 6, 4, 4));
+        path.moveTo(6, 16);
+        path.lineTo(12, 16);
+        path.moveTo(17, 16);
+        path.lineTo(18, 16);
+        path.addOval(const Rect.fromLTWH(13, 14, 4, 4));
       case PlayerSymbol.episodes:
         for (final y in [5.0, 12.0, 19.0]) {
           path.moveTo(3, y);

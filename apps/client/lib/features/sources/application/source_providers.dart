@@ -99,9 +99,12 @@ class SourceScanState {
     this.queued = false,
     this.progress = const SourceScanProgress(),
     this.message,
+    this.failed = false,
+    this.cancelled = false,
   });
   final bool running;
   final bool queued;
+  final bool failed, cancelled;
   bool get busy => running || queued;
   final SourceScanProgress progress;
   int get count => progress.importedItems;
@@ -140,6 +143,10 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     if (ref.mounted) state = {...state, id: value};
   }
 
+  void clearFinished() {
+    state = Map.fromEntries(state.entries.where((e) => e.value.busy));
+  }
+
   void cancel(String id) {
     final queued = _queue.where((request) => request.id == id).toList();
     for (final request in queued) {
@@ -148,7 +155,10 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
       request.done.complete();
     }
     if (_active?.id != id) {
-      _set(id, const SourceScanState(message: '扫描已取消，保留上次索引。'));
+      _set(
+        id,
+        const SourceScanState(message: '扫描已取消，保留上次索引。', cancelled: true),
+      );
       return;
     }
     _active!.cancelled = true;
@@ -307,6 +317,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
         id,
         SourceScanState(
           progress: progress,
+          failed: summary.errors.isNotEmpty,
           message: summary.errors.isEmpty
               ? (source.kind == MediaSourceKind.emby
                     ? '同步完成：${summary.importedItems} 个媒体条目'
@@ -315,11 +326,22 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
         ),
       );
     } on ScanCancelled {
-      _set(id, SourceScanState(progress: progress, message: '操作已取消，原有索引已保留。'));
+      _set(
+        id,
+        SourceScanState(
+          progress: progress,
+          message: '操作已取消，原有索引已保留。',
+          cancelled: true,
+        ),
+      );
     } catch (error) {
       _set(
         id,
-        SourceScanState(progress: progress, message: sourceErrorMessage(error)),
+        SourceScanState(
+          progress: progress,
+          message: sourceErrorMessage(error),
+          failed: true,
+        ),
       );
     } finally {
       if (!_disposed && ref.mounted) ref.invalidate(sourceReachabilityProvider);

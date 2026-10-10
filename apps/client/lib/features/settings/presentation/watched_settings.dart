@@ -5,6 +5,7 @@ import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/app_sheet.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../../sources/application/source_providers.dart';
+import 'video_cache_settings.dart';
 
 /// SettingsView.videoSettings: watched threshold remains in general settings.
 class WatchedSettings extends ConsumerStatefulWidget {
@@ -42,12 +43,14 @@ class _WatchedSettingsState extends ConsumerState<WatchedSettings> {
 
   Future<void> _save(double value) async {
     if (_busy) return;
+    final sources = ref.read(sourceRepositoryProvider);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       await _preferences.rememberWatchedThreshold(value);
+      sources.traceChanged();
       if (mounted) setState(() => _threshold = value);
     } catch (_) {
       if (mounted) setState(() => _error = '已看判定保存失败，请重试。');
@@ -108,6 +111,8 @@ class _WatchedSettingsState extends ConsumerState<WatchedSettings> {
                 ),
               ],
             ),
+          const SizedBox(height: 16),
+          const VideoCacheSettings(),
         ],
       ),
     );

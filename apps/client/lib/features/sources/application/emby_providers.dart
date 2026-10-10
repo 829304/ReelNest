@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,8 @@ import '../../../platform/secure_credential_store.dart';
 import '../data/emby_connection_repository.dart';
 import '../data/emby_sync_repository.dart';
 import '../data/emby_detail_repository.dart';
+import '../data/emby_cache_repository.dart';
+import '../data/emby_offline_repository.dart';
 import '../../../domain/media_source.dart';
 import 'source_providers.dart';
 
@@ -47,8 +50,58 @@ final embySyncProvider = Provider<EmbySyncRepository>(
   (ref) => EmbySyncRepository(
     sources: ref.watch(sourceRepositoryProvider),
     connections: ref.watch(embyConnectionProvider),
+    onSynced: (id) async {
+      final repository = ref.read(sourceRepositoryProvider);
+      final items = await repository.indexedSource(id);
+      final source = await repository.source(id);
+      if (ref.mounted) {
+        await ref
+            .read(embyCacheProvider)
+            .prewarm(
+              items,
+              revision: source.lastScan?.millisecondsSinceEpoch ?? 0,
+            );
+      }
+    },
   ),
 );
+
+final embyCacheProvider = Provider<EmbyCacheRepository>((ref) {
+  final cache = EmbyCacheRepository(
+    sources: ref.watch(sourceRepositoryProvider),
+    connections: ref.watch(embyConnectionProvider),
+  );
+  ref.onDispose(() => unawaited(cache.dispose()));
+  return cache;
+});
+final embyOfflineProvider = Provider<EmbyOfflineRepository>((ref) {
+  final repository = EmbyOfflineRepository(
+    sources: ref.watch(sourceRepositoryProvider),
+    cache: ref.watch(embyCacheProvider),
+  );
+  ref.onDispose(() => unawaited(repository.dispose()));
+  return repository;
+});
+final embyCacheStorageProvider = FutureProvider((ref) {
+  ref.watch(sourceChangesProvider);
+  return ref.watch(embyCacheProvider).storageSummary();
+});
+
+final embyCachedVideosProvider = FutureProvider<List<CachedVideo>>((ref) {
+  ref.watch(sourceChangesProvider);
+  return ref.watch(embyCacheProvider).entries();
+});
+final embyCacheCandidatesProvider = FutureProvider.autoDispose
+    .family<List<IndexedMedia>, MediaIdentity>((ref, id) async {
+      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      final item = await sources.media(id);
+      return item.isSeries
+          ? (await sources.indexedSource(id.sourceId))
+                .where((i) => i.parentId == id.localId)
+                .toList()
+          : [item];
+    });
 
 final embyDetailRepositoryProvider = Provider<EmbyDetailRepository>(
   (ref) => EmbyDetailRepository(
@@ -90,17 +143,15 @@ typedef EmbyDetailImageKey = ({
 });
 final embyDetailImageProvider = FutureProvider.autoDispose
     .family<Uint8List, EmbyDetailImageKey>((ref, key) {
-      final cancellation = ScanCancellation();
-      ref.onDispose(cancellation.cancel);
       return ref
-          .watch(embyConnectionProvider)
+          .watch(embyCacheProvider)
           .artwork(
             key.sourceId,
             key.itemId,
             backdrop: key.backdrop,
             index: key.index,
-            maxWidth: key.width,
-            cancellation: cancellation,
+            width: key.width,
+            revision: key.revision,
           );
     });
 
@@ -112,14 +163,12 @@ typedef EmbyArtworkKey = ({
 });
 final embyArtworkProvider = FutureProvider.autoDispose
     .family<Uint8List, EmbyArtworkKey>((ref, key) async {
-      final cancellation = ScanCancellation();
-      ref.onDispose(cancellation.cancel);
       return ref
-          .watch(embyConnectionProvider)
+          .watch(embyCacheProvider)
           .artwork(
             key.sourceId,
             key.itemId,
             backdrop: key.backdrop,
-            cancellation: cancellation,
+            revision: key.revision,
           );
     });

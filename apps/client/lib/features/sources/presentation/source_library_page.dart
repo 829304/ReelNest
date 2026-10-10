@@ -7,10 +7,19 @@ import 'package:go_router/go_router.dart';
 import '../../../domain/media_source.dart';
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
+import 'emby_video_library_page.dart';
+import '../domain/emby_library.dart';
 
 class SourceLibraryPage extends ConsumerWidget {
-  const SourceLibraryPage({required this.sourceId, super.key});
+  const SourceLibraryPage({
+    required this.sourceId,
+    this.libraryId,
+    this.section = EmbyVideoSection.videos,
+    super.key,
+  });
   final String sourceId;
+  final String? libraryId;
+  final EmbyVideoSection section;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -18,6 +27,15 @@ class SourceLibraryPage extends ConsumerWidget {
     final source = sources.asData?.value
         .where((s) => s.id == sourceId)
         .firstOrNull;
+    if (source?.kind == MediaSourceKind.emby) {
+      return EmbyVideoLibraryPage(
+        destination: (
+          sourceId: sourceId,
+          section: section,
+          libraryId: libraryId,
+        ),
+      );
+    }
     final firstPage = ref.watch(
       sourceMediaProvider((sourceId: sourceId, offset: 0)),
     );

@@ -19,6 +19,7 @@ import 'emby_media_actions.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
 import 'emby_detail_extras.dart';
+import 'emby_cache_actions.dart';
 
 /// Local-data counterpart of DetailView.swift / EpisodeListView.swift.
 /// Playback delegates to the independent window; extras and native material
@@ -132,6 +133,11 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                           source: source,
                           item: item,
                           detail: extras?.asData?.value.detail,
+                          artworkRevision: extras
+                              ?.asData
+                              ?.value
+                              .fetchedAt
+                              .millisecondsSinceEpoch,
                         ),
                       ),
                       if (extras != null)
@@ -269,10 +275,16 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
 }
 
 class _DetailHero extends StatelessWidget {
-  const _DetailHero({required this.source, required this.item, this.detail});
+  const _DetailHero({
+    required this.source,
+    required this.item,
+    this.detail,
+    this.artworkRevision,
+  });
   final MediaSource source;
   final IndexedMedia item;
   final EmbyDetail? detail;
+  final int? artworkRevision;
   @override
   Widget build(BuildContext context) {
     final palette = SourceSheetPalette(
@@ -300,6 +312,7 @@ class _DetailHero extends StatelessWidget {
                     source: source,
                     item: item,
                     fit: BoxFit.contain,
+                    revision: artworkRevision,
                   ),
                 ),
               ),
@@ -425,6 +438,8 @@ class _DetailHero extends StatelessWidget {
                     ),
                     if (source.kind == MediaSourceKind.emby && !item.isSeries)
                       EmbyMediaActions(item: item),
+                    if (source.kind == MediaSourceKind.emby)
+                      EmbyCacheActions(item: item),
                   ],
                 ],
               ),
@@ -682,6 +697,8 @@ class _EpisodeRow extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 14),
+            if (source.kind == MediaSourceKind.emby)
+              EmbyCacheActions(item: item, compact: true),
             if (selected)
               SourceLineIcon(
                 SourceGlyph.checkCircle,

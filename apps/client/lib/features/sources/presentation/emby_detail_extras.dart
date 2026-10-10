@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,7 +48,10 @@ class _EmbyDetailExtrasState extends ConsumerState<EmbyDetailExtras> {
   @override
   Widget build(BuildContext context) {
     final detail = widget.snapshot.detail;
-    final revision = widget.snapshot.fetchedAt.millisecondsSinceEpoch;
+    final revision = math.max(
+      widget.snapshot.fetchedAt.millisecondsSinceEpoch,
+      widget.source.lastScan?.millisecondsSinceEpoch ?? 0,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

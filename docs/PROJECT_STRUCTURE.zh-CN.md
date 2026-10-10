@@ -1,5 +1,7 @@
 # ReelNest 项目结构与模块设计
 
+2026-10-10 补充：Emby 画质规划与流式下载位于 `api/emby/emby_quality.dart` / `emby_download.dart`；图片及视频缓存清单、下载协调和清理保护位于 `features/sources/data/emby_cache_repository.dart`，UI 为 `emby_cache_actions.dart` 与设置中的 `video_cache_settings.dart`。播放会话仅获取/释放缓存租约，不直接下载或维护目录。实现范围见 [画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)。
+
 更新：2026-10-09。正常入口为独立目录来源管理；用户确认本地媒体完成后优先接入 Emby。第一阶段仅 Windows/macOS/Linux，完整目标结构仍在逐步实现。
 
 状态：已有 `apps/client`、平台工程、外壳、CI、文件来源/索引、本地基础播放及字幕/音轨面板、Emby E1 连接与选库、E2 同步/浏览及 E3 电影/剧集播放闭环。下文仍含目标布局；独立 packages、完整播放器和正式远程连接器尚未完成。实际范围见[本地媒体源与索引](LOCAL_SOURCES.zh-CN.md)、[播放与续播](LOCAL_PLAYBACK.zh-CN.md)、[字幕/音轨](PLAYER_TRACKS.zh-CN.md)。
@@ -249,3 +251,7 @@ E3 实际装配：播放资源准备与凭据刷新由 `EmbyConnectionRepository
 - `platform/external_links.dart`：三桌面端系统浏览器入口，可注入替身验证链接操作。
 
 当前初始表 `remote_media_details` 与媒体索引建立复合外键，随条目删除；没有历史数据库迁移。字段/缓存规则与未迁移差异见 [详情记录](EMBY_DETAILS.zh-CN.md)。
+
+### Emby 视频导航与浏览
+
+`features/sources/domain/emby_library.dart` 保存来源/目的地模型和纯筛选/排序，`data/emby_library_repository.dart` 联合读取本机索引、观看记录和详情缓存，并保存想看和浏览状态。`application/emby_library_providers.dart` 负责变更刷新与大库 isolate；`presentation/emby_sidebar.dart` 和 `emby_video_library_page.dart` 承载来源树及分库页面，路由只传来源/库标识。同步仓储将 `remote_library_views` 和媒体快照一同事务提交；本地偏好随媒体级联删除。不增加空 Dart package、远程服务依赖或历史升级链。范围和一致性缺口见 [导航说明](EMBY_NAVIGATION.zh-CN.md)。

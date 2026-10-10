@@ -44,6 +44,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   final _volumeButton = GlobalKey();
   final _episodeButton = GlobalKey();
   final _settingsButton = GlobalKey();
+  final _qualityButton = GlobalKey();
   PlaybackSession get session => widget.session;
   @override
   void initState() {
@@ -109,7 +110,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     _show();
     if (panel == PlayerPanel.episodes) {
       unawaited(session.refreshQueue());
-    } else if (panel != PlayerPanel.settings) {
+    } else if (panel != PlayerPanel.settings && panel != PlayerPanel.quality) {
       unawaited(session.refreshTracks());
     }
     try {
@@ -417,6 +418,14 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         fontSize: 11,
                       ),
                     ),
+                  if (session.cacheWarning != null)
+                    Text(
+                      session.cacheWarning!,
+                      style: const TextStyle(
+                        color: Colors.orange,
+                        fontSize: 11,
+                      ),
+                    ),
                   if (session.controlError != null)
                     Text(
                       session.controlError!,
@@ -504,6 +513,49 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         width: 200,
                         child: Row(
                           children: [
+                            if (session.qualityOptions.length > 1) ...[
+                              SizedBox(
+                                key: _qualityButton,
+                                width: 58,
+                                height: 28,
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    foregroundColor: _palette.primary,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                  onPressed: can
+                                      ? () => unawaited(
+                                          _panel(
+                                            PlayerPanel.quality,
+                                            _qualityButton,
+                                          ),
+                                        )
+                                      : null,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      PlayerSymbolIcon(
+                                        PlayerSymbol.quality,
+                                        color: _palette.primary,
+                                        size: 12,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      const Text(
+                                        '画质',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                            ],
                             if (session.queue.items.length > 1) ...[
                               _panelButton(
                                 '剧集列表',

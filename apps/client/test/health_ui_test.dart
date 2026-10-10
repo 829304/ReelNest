@@ -138,7 +138,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('移出索引'));
+      await tester.scrollUntilVisible(
+        find.text('移出索引'),
+        180,
+        scrollable: find.byType(Scrollable).last,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('移出索引'));
       await tester.pumpAndSettle();
@@ -146,7 +150,11 @@ void main() {
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
       expect((await repository.browse(source.id)).total, 1);
-      await tester.ensureVisible(find.text('清理失效索引'));
+      await tester.scrollUntilVisible(
+        find.text('清理失效索引'),
+        -180,
+        scrollable: find.byType(Scrollable).last,
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('清理失效索引'));
       await tester.pumpAndSettle();

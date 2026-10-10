@@ -35,3 +35,5 @@
 ## 完成记录
 
 四项均为待迁移验收。对应模块交付时，在此补充 ReelNest 实现路径、回归用例及实际运行平台；静态检查、测试替身或单平台通过不能代替未执行的平台验收。当前仍按本地媒体闭环后优先 Emby 的顺序推进。
+
+2026-10-10 Emby 客户端缓存：`api/emby/emby_client.dart` / `emby_download.dart` 与 `features/sources/data/emby_cache_repository.dart` 已接入增量上限、受保护暂存、SQL 写锁发布/替换、播放租约及废弃暂存回收。`test/emby_quality_cache_test.dart` 验证超限前缀未读完整正文即返回，字幕保存后的并发清理、网络/HTTP/取消/SQL 提交失败保留旧视频和字幕；Windows 原生还验证真实 mpv 离线播放及清理保护。本记录针对已迁移 Emby 客户端通道，不代表 ReelNest Server 资源代理已实现，也不代表 D4 所有外部进程模块或三平台已验收。详细范围见 [画质与缓存](../EMBY_QUALITY_CACHE.zh-CN.md)。

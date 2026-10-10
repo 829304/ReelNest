@@ -12,7 +12,7 @@ import 'player_behavior_settings.dart';
 import 'player_basic_settings.dart';
 import 'player_visuals.dart';
 
-enum PlayerPanel { subtitles, audio, volume, episodes, settings }
+enum PlayerPanel { subtitles, audio, volume, episodes, settings, quality }
 
 Future<void> showPlayerPanel(
   BuildContext context, {
@@ -34,6 +34,7 @@ Future<void> showPlayerPanel(
       PlayerPanel.volume => 338.0,
       PlayerPanel.episodes => 320.0,
       PlayerPanel.settings => 420.0,
+      PlayerPanel.quality => 300.0,
     }).clamp(0, screen.width - 16).toDouble();
     final bottom = (screen.height - anchor.top + 6)
         .clamp(8, screen.height - 80)
@@ -167,6 +168,7 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
                   PlayerPanel.volume => _volume(),
                   PlayerPanel.episodes => _episodes(),
                   PlayerPanel.settings => _settings(),
+                  PlayerPanel.quality => _quality(),
                 },
                 if (session.controlError != null)
                   Text(
@@ -186,6 +188,20 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
       ),
     ),
   );
+  List<Widget> _quality() => [
+    _header('清晰度', '根据片源能力切换播放质量', PlayerSymbol.quality, session.quality.label),
+    for (final option in session.qualityOptions)
+      _row(
+        option.id,
+        option.label,
+        option.detail,
+        option.id == session.quality.id,
+        () async {
+          Navigator.pop(context);
+          unawaited(session.selectQuality(option));
+        },
+      ),
+  ];
   List<Widget> _episodes() => [
     _header(
       '剧集列表',

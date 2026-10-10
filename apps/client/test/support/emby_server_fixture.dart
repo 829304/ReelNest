@@ -20,6 +20,7 @@ class EmbyServerFixture {
   int itemPageSize = 2;
   bool includeTotal = true;
   Future<void> Function(HttpRequest)? itemsHandler,
+      viewsHandler,
       detailHandler,
       userFlagHandler,
       artworkHandler,
@@ -58,6 +59,11 @@ class EmbyServerFixture {
         );
       } else if (request.uri.path == '/proxy/emby/Users/$userId/Views') {
         viewsCount++;
+        if (viewsHandler != null &&
+            request.uri.queryParameters['api_key'] == validToken) {
+          await viewsHandler!(request);
+          return;
+        }
         request.response.statusCode =
             request.uri.queryParameters['api_key'] == validToken
             ? viewsStatus

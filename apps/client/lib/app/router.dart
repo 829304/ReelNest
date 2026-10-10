@@ -15,6 +15,8 @@ import '../features/sources/presentation/sources_page.dart';
 import '../features/sources/presentation/source_library_page.dart';
 import '../features/sources/presentation/local_media_detail_page.dart';
 import '../shell/app_shell.dart';
+import '../features/sources/presentation/emby_task_center.dart';
+import '../features/sources/domain/emby_library.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final router = createRouter();
@@ -48,6 +50,16 @@ GoRouter createRouter({
                   builder: (context, state) => SourceLibraryPage(
                     key: state.pageKey,
                     sourceId: state.pathParameters['sourceId']!,
+                    libraryId: state.uri.queryParameters['library'],
+                    section:
+                        EmbyVideoSection.values
+                            .where(
+                              (s) =>
+                                  s.name ==
+                                  state.uri.queryParameters['section'],
+                            )
+                            .firstOrNull ??
+                        EmbyVideoSection.videos,
                   ),
                   routes: [
                     GoRoute(
@@ -119,6 +131,12 @@ GoRouter createRouter({
             GoRoute(
               path: '/health',
               builder: (context, state) => const LibraryHealthPage(),
+              routes: [
+                GoRoute(
+                  path: 'tasks',
+                  builder: (context, state) => const EmbyTaskCenterPage(),
+                ),
+              ],
             ),
           ],
         ),

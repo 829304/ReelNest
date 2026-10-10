@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../ui/theme/design_tokens.dart';
 import '../ui/widgets/source_icons.dart';
 import 'destinations.dart';
+import '../features/sources/presentation/emby_sidebar.dart';
 
 class DesktopShell extends StatelessWidget {
   const DesktopShell({
@@ -115,6 +116,7 @@ class DesktopShell extends StatelessWidget {
                           ),
                         ),
                       ),
+                    const EmbySidebar(),
                   ],
                 ),
               ),

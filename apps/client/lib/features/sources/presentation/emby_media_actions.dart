@@ -6,6 +6,7 @@ import '../../playback/application/playback_providers.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
+import '../application/emby_library_providers.dart';
 
 void _notice(BuildContext context, String message) {
   if (context.mounted) {
@@ -78,9 +79,35 @@ class _EmbyMediaActionsState extends ConsumerState<EmbyMediaActions> {
             .watched ??
         false;
     final favorite = item.remote?.favorite == true;
+    final library = ref
+        .watch(embyVideoSnapshotProvider(item.identity.sourceId))
+        .asData
+        ?.value;
+    final listed =
+        library?.entries
+            .where((e) => e.item.identity == item.identity)
+            .firstOrNull
+            ?.watchlist ??
+        false;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.favoriteOnly && item.type != 'music')
+          IconButton(
+            tooltip: listed ? '移出想看' : '加入想看',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              listed ? Icons.bookmark : Icons.bookmark_border,
+              size: 20,
+            ),
+            onPressed: _busy || library == null
+                ? null
+                : () => _perform(
+                    () => ref
+                        .read(embyLibraryRepositoryProvider)
+                        .setWatchlist(item.identity, !listed),
+                  ),
+          ),
         if (widget.favoriteOnly)
           IconButton(
             tooltip: favorite ? '取消喜欢' : '喜欢',
