@@ -51,6 +51,8 @@ void main() {
       Future<void> addSelection() async {
         await tester.tap(find.byKey(const ValueKey('add-source')));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('下一步'));
+        await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(TextButton, '选择文件夹'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('添加并扫描'));
@@ -115,6 +117,8 @@ void main() {
       await tester.tap(find.text('管理媒体源'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('add-source')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('下一步'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, '选择文件夹'));
       await tester.pumpAndSettle();

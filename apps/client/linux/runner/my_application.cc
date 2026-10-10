@@ -8,6 +8,45 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
 
+struct PlaybackSleepState { GtkApplication* application; guint cookie; };
+static void playback_sleep_free(gpointer data) {
+  auto* state = static_cast<PlaybackSleepState*>(data);
+  if (state->cookie) gtk_application_uninhibit(state->application, state->cookie);
+  g_object_unref(state->application);
+  delete state;
+}
+static void playback_sleep_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
+  auto* state = static_cast<PlaybackSleepState*>(data);
+  if (g_strcmp0(fl_method_call_get_name(call), "setActive") != 0) {
+    fl_method_call_respond_not_implemented(call, nullptr); return;
+  }
+  FlValue* value = fl_method_call_get_args(call);
+  if (!value || fl_value_get_type(value) != FL_VALUE_TYPE_BOOL) {
+    fl_method_call_respond_error(call, "invalid_argument", "Expected boolean", nullptr, nullptr); return;
+  }
+  if (fl_value_get_bool(value) && !state->cookie) {
+    state->cookie = gtk_application_inhibit(state->application, nullptr,
+        GTK_APPLICATION_INHIBIT_IDLE | GTK_APPLICATION_INHIBIT_SUSPEND,
+        "ReelNest video playback");
+    if (!state->cookie) {
+      fl_method_call_respond_error(call, "power_request_failed", "Cannot inhibit sleep", nullptr, nullptr); return;
+    }
+  } else if (!fl_value_get_bool(value) && state->cookie) {
+    gtk_application_uninhibit(state->application, state->cookie); state->cookie = 0;
+  }
+  fl_method_call_respond_success(call, nullptr, nullptr);
+}
+static void register_playback_sleep(FlPluginRegistry* registry) {
+  auto* application = GTK_APPLICATION(g_application_get_default());
+  if (!application) return;  // Dart receives a missing-channel warning.
+  g_autoptr(FlPluginRegistrar) registrar = fl_plugin_registry_get_registrar_for_plugin(registry, "ReelNestPlaybackSleep");
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  g_autoptr(FlMethodChannel) channel = fl_method_channel_new(
+      fl_plugin_registrar_get_messenger(registrar), "reelnest/playback_sleep", FL_METHOD_CODEC(codec));
+  auto* state = new PlaybackSleepState{GTK_APPLICATION(g_object_ref(application)), 0};
+  fl_method_channel_set_method_call_handler(channel, playback_sleep_call, state, playback_sleep_free);
+}
+
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
@@ -77,8 +116,10 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  register_playback_sleep(FL_PLUGIN_REGISTRY(view));
   desktop_multi_window_plugin_set_window_created_callback([](FlPluginRegistry* registry) {
     fl_register_plugins(registry);
+    register_playback_sleep(registry);
   });
 
   gtk_widget_grab_focus(GTK_WIDGET(view));

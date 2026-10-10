@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../../domain/media_source.dart';
 import '../../../player/media_kit_video_engine.dart';
 import '../../sources/application/source_providers.dart';
+import '../../sources/application/emby_providers.dart';
 import '../application/playback_providers.dart';
 import '../application/playback_session.dart';
 import 'video_player_page.dart';
@@ -31,6 +32,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   late final PlaybackSession _session;
   late final MediaIdentity _initial;
   bool _destroyed = false;
+  MediaIdentity? _notifiedIdentity;
   @override
   void initState() {
     super.initState();
@@ -39,9 +41,22 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       sources: ref.read(sourceRepositoryProvider),
       records: ref.read(playbackRepositoryProvider),
       createEngine: MediaKitVideoEngine.new,
+      emby: ref.read(embyConnectionProvider),
     );
+    _session.addListener(_onPlaybackChanged);
     windowManager.addListener(this);
     unawaited(_configure());
+  }
+
+  void _onPlaybackChanged() {
+    final identity = _session.item?.identity;
+    if (!_session.loading &&
+        _session.error == null &&
+        identity != null &&
+        identity != _notifiedIdentity) {
+      _notifiedIdentity = identity;
+      unawaited(_notifyMain());
+    }
   }
 
   MediaIdentity _identity(Map<String, dynamic> args) => (
@@ -52,6 +67,10 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     await windowManager.setPreventClose(true);
     await widget.window.setWindowMethodHandler((call) async {
       if (call.method == 'play') {
+        // A reused hidden/minimized window must render the surface commit
+        // before open() can start playback and return to the caller.
+        await widget.window.show();
+        await windowManager.focus();
         final id = _identity(Map<String, dynamic>.from(call.arguments as Map));
         if (_session.item?.identity != id || _session.error != null) {
           await _session.open(id);
@@ -63,7 +82,6 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
             );
           }
         }
-        await windowManager.focus();
         return null;
       }
       if (call.method == 'close') {
@@ -117,6 +135,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _session.removeListener(_onPlaybackChanged);
     _session.dispose();
     super.dispose();
   }

@@ -13,9 +13,10 @@ final playbackRepositoryProvider = Provider<PlaybackRepository>(
   (ref) => PlaybackRepository(ref.watch(sourceRepositoryProvider).database),
 );
 final playbackRecordProvider = FutureProvider.autoDispose
-    .family<PlaybackRecord, MediaIdentity>(
-      (ref, id) => ref.watch(playbackRepositoryProvider).read(id),
-    );
+    .family<PlaybackRecord, MediaIdentity>((ref, id) {
+      ref.watch(sourceChangesProvider);
+      return ref.watch(playbackRepositoryProvider).read(id);
+    });
 
 abstract interface class PlaybackLauncher {
   Future<void> open(MediaIdentity identity);

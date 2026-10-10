@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
+import 'player_track_popovers.dart';
+import 'player_visuals.dart';
 
 /// First functional port of PlayerView's video canvas and primary controls.
 /// Uses its 568px bar, 14px glass corner, 7px timeline spacing, 42/50px clocks,
@@ -34,17 +36,43 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   bool _hoverControls = false;
   double? _scrub;
   Timer? _hideTimer;
+  bool _popoverActive = false;
+  PlayerPalette _palette = const PlayerPalette();
+  MediaIdentity? _paletteIdentity;
+  final _subtitleButton = GlobalKey();
+  final _audioButton = GlobalKey();
+  final _volumeButton = GlobalKey();
+  final _episodeButton = GlobalKey();
+  final _settingsButton = GlobalKey();
   PlaybackSession get session => widget.session;
   @override
   void initState() {
     super.initState();
+    session.waitForSurface = _waitForSurface;
+    session.addListener(_updatePalette);
+    session.closeRequests.addListener(_onEndClose);
     unawaited(session.open(widget.identity));
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    if (session.waitForSurface == _waitForSurface) {
+      session.waitForSurface = null;
+    }
+    session.removeListener(_updatePalette);
+    session.closeRequests.removeListener(_onEndClose);
     super.dispose();
+  }
+
+  Future<void> _waitForSurface() async {
+    if (!mounted) throw StateError('Player surface detached');
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) throw StateError('Player surface detached');
+  }
+
+  void _onEndClose() {
+    if (mounted) unawaited(requestClose());
   }
 
   void _show() {
@@ -54,11 +82,70 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       if (mounted &&
           session.clock.playing &&
           !_hoverControls &&
+          !_popoverActive &&
           _scrub == null) {
         setState(() => _controls = false);
       }
     });
   }
+
+  void _updatePalette() {
+    final item = session.item;
+    if (item == null || item.identity == _paletteIdentity) return;
+    _paletteIdentity = item.identity;
+    unawaited(
+      PlayerPalette.forPoster(item.posterPath).then((value) {
+        if (mounted && session.item?.identity == item.identity) {
+          setState(() => _palette = value);
+        }
+      }),
+    );
+  }
+
+  Future<void> _panel(PlayerPanel panel, GlobalKey key) async {
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    _popoverActive = true;
+    _show();
+    if (panel == PlayerPanel.episodes) {
+      unawaited(session.refreshQueue());
+    } else if (panel != PlayerPanel.settings) {
+      unawaited(session.refreshTracks());
+    }
+    try {
+      await showPlayerPanel(
+        context,
+        anchor: box.localToGlobal(Offset.zero) & box.size,
+        panel: panel,
+        session: session,
+        palette: _palette,
+      );
+    } finally {
+      _popoverActive = false;
+      if (mounted) _show();
+    }
+  }
+
+  Widget _panelButton(
+    String label,
+    PlayerSymbol symbol,
+    PlayerPanel panel,
+    GlobalKey key,
+    bool enabled,
+  ) => Tooltip(
+    message: label,
+    child: SizedBox(
+      key: key,
+      width: 27,
+      height: 30,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        onPressed: enabled ? () => unawaited(_panel(panel, key)) : null,
+        icon: PlayerSymbolIcon(symbol, color: _palette.primary),
+      ),
+    ),
+  );
 
   Future<void> _full() async {
     try {
@@ -115,6 +202,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     IconData icon,
     VoidCallback? action, {
     double width = 27,
+    Color? color,
   }) => Tooltip(
     message: label,
     child: SizedBox(
@@ -124,7 +212,11 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),
         onPressed: action,
-        icon: Icon(icon, size: 17, color: Colors.white.withValues(alpha: .95)),
+        icon: Icon(
+          icon,
+          size: 17,
+          color: color ?? Colors.white.withValues(alpha: .95),
+        ),
       ),
     ),
   );
@@ -138,17 +230,25 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       },
       const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
         _show();
-        unawaited(
-          session.seek(session.clock.position - const Duration(seconds: 5)),
-        );
+        unawaited(session.skip(-1));
       },
       const SingleActivator(LogicalKeyboardKey.arrowRight): () {
         _show();
-        unawaited(
-          session.seek(session.clock.position + const Duration(seconds: 5)),
-        );
+        unawaited(session.skip(1));
       },
       const SingleActivator(LogicalKeyboardKey.keyF): () => unawaited(_full()),
+      const SingleActivator(LogicalKeyboardKey.arrowUp): () {
+        _show();
+        unawaited(session.volume(session.clock.volume + 5.5));
+      },
+      const SingleActivator(LogicalKeyboardKey.arrowDown): () {
+        _show();
+        unawaited(session.volume(session.clock.volume - 5.5));
+      },
+      const SingleActivator(LogicalKeyboardKey.keyM): () {
+        _show();
+        unawaited(session.mute());
+      },
       const SingleActivator(LogicalKeyboardKey.escape): () =>
           unawaited(_fullscreen ? _full() : requestClose()),
     },
@@ -285,8 +385,12 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .20),
-                border: Border.all(color: Colors.white.withValues(alpha: .25)),
+                gradient: LinearGradient(
+                  colors: _palette.barFill,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                border: Border.all(color: _palette.border.first),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
@@ -305,6 +409,24 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         fontSize: 11,
                       ),
                     ),
+                  if (session.syncError != null)
+                    Text(
+                      session.syncError!,
+                      style: const TextStyle(
+                        color: Colors.orange,
+                        fontSize: 11,
+                      ),
+                    ),
+                  if (session.controlError != null)
+                    Text(
+                      session.controlError!,
+                      style: TextStyle(color: _palette.secondary, fontSize: 11),
+                    ),
+                  if (session.transitionMessage != null)
+                    Text(
+                      session.transitionMessage!,
+                      style: TextStyle(color: _palette.secondary, fontSize: 11),
+                    ),
                   Row(
                     children: [
                       SizedBox(
@@ -314,8 +436,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                             Duration(milliseconds: position.toInt()),
                           ),
                           textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: Colors.white70,
+                          style: TextStyle(
+                            color: _palette.secondary,
                             fontSize: 11,
                           ),
                         ),
@@ -325,13 +447,9 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         child: SliderTheme(
                           data: SliderTheme.of(context).copyWith(
                             trackHeight: 3,
-                            activeTrackColor: Colors.white.withValues(
-                              alpha: .82,
-                            ),
-                            inactiveTrackColor: Colors.white.withValues(
-                              alpha: .18,
-                            ),
-                            thumbColor: Colors.white,
+                            activeTrackColor: _palette.trackProgress,
+                            inactiveTrackColor: _palette.trackBase,
+                            thumbColor: _palette.primary,
                             thumbShape: const RoundSliderThumbShape(
                               enabledThumbRadius: 5,
                             ),
@@ -372,8 +490,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         width: 50,
                         child: Text(
                           formatVideoTime(value.duration),
-                          style: const TextStyle(
-                            color: Colors.white70,
+                          style: TextStyle(
+                            color: _palette.secondary,
                             fontSize: 11,
                           ),
                         ),
@@ -383,40 +501,48 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                   Row(
                     children: [
                       SizedBox(
-                        width: 170,
+                        width: 200,
                         child: Row(
                           children: [
-                            _icon(
-                              '后退 5 秒',
-                              Icons.replay_5,
-                              can
-                                  ? () => unawaited(
-                                      session.seek(
-                                        value.position -
-                                            const Duration(seconds: 5),
-                                      ),
-                                    )
-                                  : null,
+                            if (session.queue.items.length > 1) ...[
+                              _panelButton(
+                                '剧集列表',
+                                PlayerSymbol.episodes,
+                                PlayerPanel.episodes,
+                                _episodeButton,
+                                can,
+                              ),
+                              const SizedBox(width: 5),
+                            ],
+                            _panelButton(
+                              '字幕',
+                              PlayerSymbol.subtitle,
+                              PlayerPanel.subtitles,
+                              _subtitleButton,
+                              can,
                             ),
-                            _icon(
-                              '快进 5 秒',
-                              Icons.forward_5,
-                              can
-                                  ? () => unawaited(
-                                      session.seek(
-                                        value.position +
-                                            const Duration(seconds: 5),
-                                      ),
-                                    )
-                                  : null,
+                            const SizedBox(width: 5),
+                            _panelButton(
+                              '音轨',
+                              PlayerSymbol.audio,
+                              PlayerPanel.audio,
+                              _audioButton,
+                              can,
                             ),
                           ],
                         ),
                       ),
                       const Spacer(),
+                      _icon(
+                        '上一集',
+                        Icons.skip_previous,
+                        can ? () => unawaited(session.adjacent(-1)) : null,
+                        color: _palette.primary,
+                      ),
+                      const SizedBox(width: 8),
                       DecoratedBox(
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .12),
+                          color: _palette.choiceFill,
                           borderRadius: BorderRadius.circular(15),
                         ),
                         child: _icon(
@@ -424,47 +550,47 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                           value.playing ? Icons.pause : Icons.play_arrow,
                           can ? () => unawaited(session.toggle()) : null,
                           width: 44,
+                          color: _palette.primary,
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      _icon(
+                        '下一集',
+                        Icons.skip_next,
+                        can ? () => unawaited(session.adjacent(1)) : null,
+                        color: _palette.primary,
                       ),
                       const Spacer(),
                       SizedBox(
-                        width: 170,
+                        width: 200,
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            _icon(
-                              value.volume == 0 ? '取消静音' : '静音',
+                            _panelButton(
+                              '音量',
                               value.volume == 0
-                                  ? Icons.volume_off
-                                  : Icons.volume_up,
-                              can
-                                  ? () => unawaited(
-                                      session.volume(
-                                        value.volume == 0 ? 80 : 0,
-                                      ),
-                                    )
-                                  : null,
+                                  ? PlayerSymbol.muted
+                                  : PlayerSymbol.speaker,
+                              PlayerPanel.volume,
+                              _volumeButton,
+                              can,
                             ),
-                            SizedBox(
-                              width: 95,
-                              child: Slider(
-                                key: const ValueKey('video-volume'),
-                                value: value.volume.clamp(0, 100),
-                                min: 0,
-                                max: 100,
-                                activeColor: Colors.white70,
-                                inactiveColor: Colors.white24,
-                                onChanged: can
-                                    ? (v) => unawaited(session.volume(v))
-                                    : null,
-                              ),
+                            const SizedBox(width: 5),
+                            _panelButton(
+                              '播放器设置',
+                              PlayerSymbol.settings,
+                              PlayerPanel.settings,
+                              _settingsButton,
+                              can,
                             ),
+                            const SizedBox(width: 5),
                             _icon(
                               _fullscreen ? '退出全屏' : '全屏',
                               _fullscreen
                                   ? Icons.fullscreen_exit
                                   : Icons.fullscreen,
                               () => unawaited(_full()),
+                              color: _palette.primary,
                             ),
                           ],
                         ),

@@ -75,7 +75,11 @@ class _MainWindowClose with WindowListener {
       }
       await container.read(sourceRepositoryProvider).close();
       container.dispose();
-      await windowManager.destroy();
+      // Request a native close after the channel reply has returned. Posting
+      // WM_QUIT via destroy skips the normal HWND shutdown sequence on Windows.
+      windowManager.removeListener(this);
+      await windowManager.setPreventClose(false);
+      await windowManager.close();
     } finally {
       closing = false;
     }

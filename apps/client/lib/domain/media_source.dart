@@ -1,4 +1,5 @@
 import 'source_media_type.dart';
+import 'remote_media_metadata.dart';
 import 'source_options.dart';
 
 enum MediaSourceKind {
@@ -74,6 +75,8 @@ class IndexedMedia {
     this.overview,
     this.posterPath,
     this.backdropPath,
+    this.updatedAt,
+    this.remote,
   });
 
   final MediaIdentity identity;
@@ -94,6 +97,8 @@ class IndexedMedia {
   final String? overview;
   final String? posterPath;
   final String? backdropPath;
+  final DateTime? updatedAt;
+  final RemoteMediaMetadata? remote;
 
   String? get filePath => isSeries ? null : identity.localId;
 
@@ -141,7 +146,22 @@ class ScanCancelled implements Exception {
 
 class ScanCancellation {
   bool _cancelled = false;
-  void cancel() => _cancelled = true;
+  final _listeners = <void Function()>{};
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    for (final listener in _listeners.toList()) {
+      listener();
+    }
+    _listeners.clear();
+  }
+
+  void Function() listen(void Function() listener) {
+    check();
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
   void check() {
     if (_cancelled) throw const ScanCancelled();
   }

@@ -104,6 +104,20 @@ class LibraryDatabase extends GeneratedDatabase {
       }
       await customStatement('PRAGMA foreign_keys = ON');
       await customStatement('PRAGMA busy_timeout = 5000');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS media_activity (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id, local_id),
+          FOREIGN KEY(source_id, local_id) REFERENCES media(source_id, local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS player_preferences (
+          key TEXT PRIMARY KEY, value TEXT NOT NULL
+        )
+      ''');
       // This module owns one current table. Idempotent provisioning does not
       // modify existing media/source columns or add a historical upgrade chain.
       await customStatement('''
@@ -116,6 +130,25 @@ class LibraryDatabase extends GeneratedDatabase {
             ON DELETE CASCADE
         )
       ''');
+      // Current connector-owned metadata table; no historical schema branches.
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS remote_media_metadata (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, value TEXT NOT NULL,
+          PRIMARY KEY(source_id, local_id),
+          FOREIGN KEY(source_id, local_id) REFERENCES media(source_id, local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS remote_media_details (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL,
+          value TEXT NOT NULL, fetched_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id, local_id),
+          FOREIGN KEY(source_id, local_id) REFERENCES media(source_id, local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+
       // Track this run's imported identities for successful-scan pruning.
       // Imported media are committed per file, as in the original scanner.
       await customStatement('''

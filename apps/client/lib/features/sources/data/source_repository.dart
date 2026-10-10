@@ -7,6 +7,7 @@ import 'package:drift/drift.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
+import '../../../domain/remote_media_metadata.dart';
 import '../../../domain/library_health.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/source_options.dart';
@@ -23,6 +24,20 @@ String _newId() {
     16,
     (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
+}
+
+String _embyLocation(String value) {
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      uri.scheme != 'emby' ||
+      uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment ||
+      uri.pathSegments.length != 1) {
+    throw const SourceFailure('Emby 来源标识无效。');
+  }
+  return uri.toString();
 }
 
 class SourceRepository {
@@ -44,6 +59,7 @@ class SourceRepository {
   final _pendingScans = <Future<SourceScanSummary>>{};
   bool _closed = false;
   Stream<void> get changes => _changes.stream;
+  bool isScanning(String id) => _scans.containsKey(id);
 
   SourceAdapter _adapter(MediaSourceKind kind) =>
       adapters[kind] ?? (throw SourceFailure('${kind.label} 尚未接入。'));
@@ -53,6 +69,23 @@ class SourceRepository {
 
   void _changed() {
     if (!_closed) _changes.add(null);
+  }
+
+  /// Publish connector-owned trace mutations through the same browse refresh.
+  void traceChanged() => _changed();
+
+  Future<void> setRemoteFavorite(MediaIdentity identity, bool favorite) async {
+    final item = await media(identity);
+    if (item.remote == null) throw const SourceFailure('此媒体没有远程状态。');
+    await database.customStatement(
+      'UPDATE remote_media_metadata SET value = ? WHERE source_id = ? AND local_id = ?',
+      [
+        jsonEncode({...item.remote!.toJson(), 'favorite': favorite}),
+        identity.sourceId,
+        identity.localId,
+      ],
+    );
+    _changed();
   }
 
   Future<List<MediaSource>> sources() async {
@@ -104,11 +137,9 @@ class SourceRepository {
   /// transaction, so slow NAS I/O never holds the database transaction open.
   Future<LibraryInventory> inventory() => database.transaction(() async {
     final sourceList = await sources();
-    final rows = await database
-        .customSelect(
-          'SELECT * FROM media ORDER BY title COLLATE NOCASE, source_id, local_id',
-        )
-        .get();
+    final rows = await database.customSelect('''SELECT media.*, (SELECT value FROM remote_media_metadata r WHERE r.source_id = media.source_id AND r.local_id = media.local_id) AS remote_metadata, media_activity.updated_at AS activity_updated_at
+             FROM media LEFT JOIN media_activity USING(source_id, local_id)
+             ORDER BY title COLLATE NOCASE, source_id, local_id''').get();
     return (
       sources: List<MediaSource>.unmodifiable(sourceList),
       items: List<IndexedMedia>.unmodifiable(rows.map(_media)),
@@ -119,6 +150,9 @@ class SourceRepository {
       DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
 
   Future<bool> isReachable(MediaSource source) async {
+    if (!source.kind.isFileSource) {
+      return false; // Remote reachability is owned by its connection service.
+    }
     if (!await _adapter(source.kind).isReachable(source.location)) return false;
     return !_tracksIdentity(source.kind) || await isSafeDirectory(source);
   }
@@ -128,13 +162,15 @@ class SourceRepository {
       await identityLookup(source.location) == source.accessIdentity;
 
   bool _tracksIdentity(MediaSourceKind kind) =>
-      _explicitIdentityLookup || _adapter(kind) is FileSourceAdapter;
+      kind.isFileSource &&
+      (_explicitIdentityLookup || _adapter(kind) is FileSourceAdapter);
 
   void _requireNoMaintenance() {
     if (_indexMaintenance) throw const SourceFailure('正在清理索引，请稍后再试。');
   }
 
   Future<MediaSource> add({
+    String? sourceId,
     required MediaSourceKind kind,
     required String name,
     required String location,
@@ -153,9 +189,11 @@ class SourceRepository {
     if (normalizedName.isEmpty) {
       throw const SourceFailure('请输入来源名称。');
     }
-    final root = await _adapter(kind).validateLocation(location);
+    final root = kind == MediaSourceKind.emby
+        ? _embyLocation(location)
+        : await _adapter(kind).validateLocation(location);
     final identity = _tracksIdentity(kind) ? await identityLookup(root) : null;
-    final id = _newId();
+    final id = sourceId ?? _newId();
     final now = DateTime.now().toUtc().millisecondsSinceEpoch;
     await database.transaction(() async {
       _requireNoMaintenance();
@@ -430,7 +468,7 @@ class SourceRepository {
       final chunk = ids.skip(offset).take(200).toList();
       final rows = await database
           .customSelect(
-            'SELECT * FROM media WHERE (source_id, local_id) IN '
+            'SELECT media.*, (SELECT value FROM remote_media_metadata r WHERE r.source_id = media.source_id AND r.local_id = media.local_id) AS remote_metadata FROM media WHERE (source_id, local_id) IN '
             '(${List.filled(chunk.length, '(?, ?)').join(',')}) ORDER BY source_id, local_id',
             variables: chunk
                 .expand((id) => [Variable(id.sourceId), Variable(id.localId)])
@@ -461,7 +499,7 @@ class SourceRepository {
       final rows = await database
           .customSelect(
             '''
-        SELECT * FROM media WHERE source_id = ? AND ${topLevelOnly ? 'parent_id IS NULL' : 'is_series = 0'}
+        SELECT media.*, (SELECT value FROM remote_media_metadata r WHERE r.source_id = media.source_id AND r.local_id = media.local_id) AS remote_metadata FROM media WHERE source_id = ? AND ${topLevelOnly ? 'parent_id IS NULL' : 'is_series = 0'}
         ORDER BY title COLLATE NOCASE, local_id LIMIT ? OFFSET ?
       ''',
             variables: [Variable(id), Variable(limit), Variable(offset)],
@@ -475,6 +513,9 @@ class SourceRepository {
   }
 
   IndexedMedia _media(QueryRow r) => IndexedMedia(
+    updatedAt: r.data['activity_updated_at'] == null
+        ? null
+        : _date(r.read<int>('activity_updated_at')),
     identity: (
       sourceId: r.read<String>('source_id'),
       localId: r.read<String>('local_id'),
@@ -497,12 +538,18 @@ class SourceRepository {
     overview: r.readNullable<String>('overview'),
     posterPath: r.readNullable<String>('poster_path'),
     backdropPath: r.readNullable<String>('backdrop_path'),
+    remote: r.data['remote_metadata'] == null
+        ? null
+        : RemoteMediaMetadata.fromJson(
+            jsonDecode(r.data['remote_metadata'] as String)
+                as Map<String, dynamic>,
+          ),
   );
 
   Future<IndexedMedia> media(MediaIdentity identity) async {
     final row = await database
         .customSelect(
-          'SELECT * FROM media WHERE source_id = ? AND local_id = ?',
+          'SELECT media.*, (SELECT value FROM remote_media_metadata r WHERE r.source_id = media.source_id AND r.local_id = media.local_id) AS remote_metadata FROM media WHERE source_id = ? AND local_id = ?',
           variables: [Variable(identity.sourceId), Variable(identity.localId)],
         )
         .getSingleOrNull();
@@ -559,7 +606,7 @@ class SourceRepository {
       final rows = await database
           .customSelect(
             '''
-        SELECT * FROM media WHERE $where
+        SELECT media.*, (SELECT value FROM remote_media_metadata r WHERE r.source_id = media.source_id AND r.local_id = media.local_id) AS remote_metadata FROM media WHERE $where
         ORDER BY episode_number ASC, title COLLATE NOCASE ASC, local_id ASC LIMIT ? OFFSET ?
       ''',
             variables: [...bindings, Variable(limit), Variable(offset)],
@@ -588,6 +635,139 @@ class SourceRepository {
       _pendingScans.remove(work);
       _scans.remove(id);
     });
+  }
+
+  /// Remote sync is a snapshot transaction, not a filesystem scan. Failed or
+  /// cancelled fetches never modify media, progress, or the last successful time.
+  Future<SourceScanSummary> syncRemote(
+    String id,
+    Future<List<IndexedMedia>> Function(MediaSource, ScanCancellation) fetch, {
+    void Function(SourceScanProgress)? onProgress,
+  }) {
+    _requireIdle(id);
+    if (_closed) throw const SourceFailure('媒体库已关闭。');
+    final cancellation = ScanCancellation();
+    _scans[id] = cancellation;
+    final work = _syncRemote(id, cancellation, fetch, onProgress);
+    _pendingScans.add(work);
+    return work.whenComplete(() {
+      _pendingScans.remove(work);
+      _scans.remove(id);
+    });
+  }
+
+  Future<SourceScanSummary> _syncRemote(
+    String id,
+    ScanCancellation cancellation,
+    Future<List<IndexedMedia>> Function(MediaSource, ScanCancellation) fetch,
+    void Function(SourceScanProgress)? onProgress,
+  ) async {
+    final runId = _newId();
+    try {
+      final current = await source(id);
+      if (current.kind != MediaSourceKind.emby) {
+        throw const SourceFailure('此来源不支持远程同步。');
+      }
+      final snapshot = await fetch(current, cancellation);
+      cancellation.check();
+      if (snapshot.any(
+        (item) => item.identity.sourceId != id || item.remote == null,
+      )) {
+        throw const SourceFailure('远程媒体来源身份无效，已保留原索引。');
+      }
+      await database.transaction(() async {
+        cancellation.check();
+        final latest = await source(id);
+        if (jsonEncode(latest.options.toJson()) !=
+            jsonEncode(current.options.toJson())) {
+          throw const SourceFailure('同步期间库范围已改变，请重新同步。');
+        }
+        for (final item in snapshot) {
+          cancellation.check();
+          await _upsert(
+            runId,
+            item,
+            identityKind: item.isSeries ? 'show' : item.type,
+          );
+          final previousTrace =
+              current.options.remoteTraceSyncMode ==
+                  RemoteTraceSyncMode.disabled
+              ? await database
+                    .customSelect(
+                      'SELECT value FROM remote_media_metadata WHERE source_id = ? AND local_id = ?',
+                      variables: [
+                        Variable(id),
+                        Variable(item.identity.localId),
+                      ],
+                    )
+                    .getSingleOrNull()
+              : null;
+          final metadata = item.remote!.toJson();
+          if (previousTrace != null) {
+            metadata['favorite'] =
+                (jsonDecode(previousTrace.read<String>('value'))
+                    as Map)['favorite'] ??
+                false;
+          }
+          await database.customStatement(
+            'INSERT INTO remote_media_metadata(source_id, local_id, value) VALUES (?, ?, ?) ON CONFLICT(source_id, local_id) DO UPDATE SET value = excluded.value',
+            [id, item.identity.localId, jsonEncode(metadata)],
+          );
+          if (!item.isSeries) {
+            final trace = item.remote!;
+            // Disabled keeps existing local trace, but an initial import uses
+            // server values, matching preservingLocalTraceForDisabledEmbySync.
+            await database.customStatement(
+              '''INSERT INTO playback_states(
+              source_id, local_id, position_ms, duration_ms, watched, last_played_at)
+              VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(source_id, local_id) DO UPDATE SET
+                position_ms = excluded.position_ms, duration_ms = excluded.duration_ms,
+                watched = excluded.watched, last_played_at = excluded.last_played_at
+              WHERE ? != 'disabled'
+              ''',
+              [
+                id,
+                item.identity.localId,
+                trace.positionMs,
+                trace.durationMs ?? 0,
+                trace.watched ? 1 : 0,
+                trace.lastPlayedAt?.millisecondsSinceEpoch ?? 0,
+                current.options.remoteTraceSyncMode.name,
+              ],
+            );
+          }
+        }
+        await database.customStatement(
+          'DELETE FROM media WHERE source_id = ? AND local_id NOT IN (SELECT local_id FROM scan_stage WHERE run_id = ?)',
+          [id, runId],
+        );
+        await database.customStatement(
+          'UPDATE sources SET last_scan = ? WHERE id = ?',
+          [DateTime.now().toUtc().millisecondsSinceEpoch, id],
+        );
+        cancellation.check();
+      });
+      onProgress?.call(
+        SourceScanProgress(
+          totalFiles: snapshot.length,
+          processedFiles: snapshot.length,
+          importedItems: snapshot.length,
+        ),
+      );
+      return SourceScanSummary(
+        scannedFiles: snapshot.length,
+        importedItems: snapshot.length,
+        skippedFiles: 0,
+        errors: const [],
+      );
+    } finally {
+      await database.customStatement(
+        'DELETE FROM scan_stage WHERE run_id = ?',
+        [runId],
+      );
+      _changed();
+    }
   }
 
   Future<SourceScanSummary> _scan(
@@ -740,9 +920,10 @@ class SourceRepository {
     // MediaRepository.upsert retains missing descriptive fields. The original
     // scanner uses different ID prefixes for movie/episode/albumvideo/etc.; our
     // relative file key stays stable, so a kind change explicitly resets them.
-    String metadataValue(String column) =>
-        'CASE WHEN media.identity_kind = excluded.identity_kind '
-        'THEN COALESCE(excluded.$column, media.$column) ELSE excluded.$column END';
+    String metadataValue(String column) => item.remote != null
+        ? 'excluded.$column'
+        : 'CASE WHEN media.identity_kind = excluded.identity_kind '
+              'THEN COALESCE(excluded.$column, media.$column) ELSE excluded.$column END';
     await database.customStatement(
       '''
       INSERT INTO media(source_id, local_id, title, type, bytes, modified, missing,
@@ -781,6 +962,15 @@ class SourceRepository {
     await database.customStatement(
       'INSERT OR IGNORE INTO scan_stage(run_id, local_id) VALUES (?, ?)',
       [runId, item.identity.localId],
+    );
+    await database.customStatement(
+      '''INSERT INTO media_activity(source_id, local_id, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(source_id, local_id) DO UPDATE SET updated_at = excluded.updated_at''',
+      [
+        item.identity.sourceId,
+        item.identity.localId,
+        DateTime.now().toUtc().millisecondsSinceEpoch,
+      ],
     );
   }
 

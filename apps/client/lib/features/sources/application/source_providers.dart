@@ -9,6 +9,7 @@ import '../../../platform/directory_access.dart';
 import '../../../sources/filesystem/file_source_adapter.dart';
 import '../../../storage/library_database.dart';
 import '../data/source_repository.dart';
+import 'emby_providers.dart';
 
 final directoryAccessProvider = Provider<DirectoryAccess>(
   (ref) => DesktopDirectoryAccess(),
@@ -28,12 +29,15 @@ final sourceRepositoryProvider = Provider<SourceRepository>((ref) {
   return repository;
 });
 
-final _sourceChangesProvider = StreamProvider<void>(
-  (ref) => ref.watch(sourceRepositoryProvider).changes,
-);
+// Riverpod compares stream values: repeated void/null events otherwise stop
+// refreshing dependents after the first mutation.
+final sourceChangesProvider = StreamProvider<int>((ref) {
+  var revision = 0;
+  return ref.watch(sourceRepositoryProvider).changes.map((_) => ++revision);
+});
 
 final sourcesProvider = FutureProvider<List<MediaSource>>((ref) {
-  ref.watch(_sourceChangesProvider);
+  ref.watch(sourceChangesProvider);
   return ref.watch(sourceRepositoryProvider).sources();
 });
 
@@ -44,8 +48,12 @@ final sourceReachabilityProvider = FutureProvider<Map<String, bool>>((
   final sources = await ref.watch(sourcesProvider.future);
   final results = await Future.wait(
     sources.map(
-      (source) async =>
-          MapEntry(source.id, await repository.isReachable(source)),
+      (source) async => MapEntry(
+        source.id,
+        source.kind == MediaSourceKind.emby
+            ? await ref.read(embyConnectionProvider).isReachable(source)
+            : await repository.isReachable(source),
+      ),
     ),
   );
   return Map.fromEntries(results);
@@ -54,7 +62,7 @@ final sourceReachabilityProvider = FutureProvider<Map<String, bool>>((
 typedef SourcePageKey = ({String sourceId, int offset});
 final sourceMediaProvider = FutureProvider.autoDispose
     .family<IndexedMediaPage, SourcePageKey>((ref, key) {
-      ref.watch(_sourceChangesProvider);
+      ref.watch(sourceChangesProvider);
       return ref
           .watch(sourceRepositoryProvider)
           .browse(key.sourceId, offset: key.offset, topLevelOnly: true);
@@ -62,13 +70,13 @@ final sourceMediaProvider = FutureProvider.autoDispose
 
 final sourceMediaDetailProvider = FutureProvider.autoDispose
     .family<IndexedMedia, MediaIdentity>((ref, identity) {
-      ref.watch(_sourceChangesProvider);
+      ref.watch(sourceChangesProvider);
       return ref.watch(sourceRepositoryProvider).media(identity);
     });
 
 final sourceSeasonsProvider = FutureProvider.autoDispose
     .family<List<IndexedSeason>, MediaIdentity>((ref, identity) {
-      ref.watch(_sourceChangesProvider);
+      ref.watch(sourceChangesProvider);
       return ref.watch(sourceRepositoryProvider).seasons(identity);
     });
 
@@ -79,7 +87,7 @@ typedef SourceEpisodePageKey = ({
 });
 final sourceEpisodesProvider = FutureProvider.autoDispose
     .family<IndexedMediaPage, SourceEpisodePageKey>((ref, key) {
-      ref.watch(_sourceChangesProvider);
+      ref.watch(sourceChangesProvider);
       return ref
           .watch(sourceRepositoryProvider)
           .episodes(key.series, seasonNumber: key.season, offset: key.offset);
@@ -178,7 +186,9 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     // appended while running; restartScanIfNeeded discards the former.
     final initialBatch = _active == null && !_updatingSettings;
     final futures = <Future<void>>[];
-    for (final source in sources.where((s) => s.kind.isFileSource)) {
+    for (final source in sources.where(
+      (s) => s.kind.isFileSource || s.kind == MediaSourceKind.emby,
+    )) {
       futures.add(scan(source.id));
       if (initialBatch) {
         for (final request in _queue.where((r) => r.id == source.id)) {
@@ -276,32 +286,36 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     var progress = const SourceScanProgress();
     try {
       final source = await _repository.source(id);
-      final reachable = await _repository.isReachable(source);
       if (request.cancelled || _disposed) throw const ScanCancelled();
-      if (!reachable) {
-        throw const SourceFailure('所选媒体源不可访问，请确认磁盘或 NAS 已挂载。');
+      void update(SourceScanProgress value) {
+        progress = value;
+        _set(id, SourceScanState(running: true, progress: value));
       }
-      final summary = await _repository.scan(
-        id,
-        onProgress: (value) {
-          progress = value;
-          _set(id, SourceScanState(running: true, progress: value));
-        },
-      );
+
+      late SourceScanSummary summary;
+      if (source.kind == MediaSourceKind.emby) {
+        summary = await ref
+            .read(embySyncProvider)
+            .synchronize(id, onProgress: update);
+      } else {
+        final reachable = await _repository.isReachable(source);
+        if (request.cancelled || _disposed) throw const ScanCancelled();
+        if (!reachable) throw const SourceFailure('所选媒体源不可访问，请确认磁盘或 NAS 已挂载。');
+        summary = await _repository.scan(id, onProgress: update);
+      }
       _set(
         id,
         SourceScanState(
           progress: progress,
           message: summary.errors.isEmpty
-              ? '扫描完成：${summary.importedItems} 个媒体文件'
+              ? (source.kind == MediaSourceKind.emby
+                    ? '同步完成：${summary.importedItems} 个媒体条目'
+                    : '扫描完成：${summary.importedItems} 个媒体文件')
               : '扫描结束：${summary.importedItems} 个媒体文件，${summary.errors.length} 个错误。${summary.errors.first}',
         ),
       );
     } on ScanCancelled {
-      _set(
-        id,
-        SourceScanState(progress: progress, message: '扫描已取消，已导入的文件和原有索引均已保留。'),
-      );
+      _set(id, SourceScanState(progress: progress, message: '操作已取消，原有索引已保留。'));
     } catch (error) {
       _set(
         id,

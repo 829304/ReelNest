@@ -1,8 +1,8 @@
 # ReelNest 项目结构与模块设计
 
-更新：2026-10-08。正常入口为独立目录来源管理；用户确认本地媒体完成后优先接入 Emby。第一阶段仅 Windows/macOS/Linux，完整目标结构仍在逐步实现。
+更新：2026-10-09。正常入口为独立目录来源管理；用户确认本地媒体完成后优先接入 Emby。第一阶段仅 Windows/macOS/Linux，完整目标结构仍在逐步实现。
 
-状态：已有 `apps/client`、五端平台工程、应用外壳和 CI 配置；2026-10-05 新增 `features/sources`、文件来源适配器与 Drift/SQLite 索引。下文仍是目标布局，独立 packages、播放器和远程连接器尚未实现；实际范围见[本地媒体源与索引](LOCAL_SOURCES.zh-CN.md)。
+状态：已有 `apps/client`、平台工程、外壳、CI、文件来源/索引、本地基础播放及字幕/音轨面板、Emby E1 连接与选库、E2 同步/浏览及 E3 电影/剧集播放闭环。下文仍含目标布局；独立 packages、完整播放器和正式远程连接器尚未完成。实际范围见[本地媒体源与索引](LOCAL_SOURCES.zh-CN.md)、[播放与续播](LOCAL_PLAYBACK.zh-CN.md)、[字幕/音轨](PLAYER_TRACKS.zh-CN.md)。
 
 ## 1. 设计原则
 
@@ -29,8 +29,8 @@
 | `features/` | 按用户功能组织页面、状态协调与仓储：当前有来源、首页、设置，以及旧试验的媒体库/服务器模块 |
 | `features/health/` | 本地健康规则、异步检测与缓存、忽略持久化、仪表盘本地监测区域及恢复设置；与文件扫描分开 |
 | `sources/filesystem/` | 本地文件夹、移动盘、已挂载 NAS 的枚举、过滤、文件名解析及本地元数据 |
-| `api/` | 纯协议请求与响应处理；目前只有隔离保留的 `mlink/` 试验实现 |
-| `features/playback/` | 本地视频会话、续播记录、独立窗口启动/通信与基本控制界面 |
+| `api/` | 纯协议请求与响应处理；已接入 `emby/` 登录/库协议；`mlink/` 为隔离保留的试验实现 |
+| `features/playback/` | 视频会话、续播/轨道偏好、字幕发现/语言匹配、独立窗口与控制面板 |
 | `player/` | 播放引擎接口、media_kit 原生适配与视频渲染，不处理服务器账号 |
 | `storage/` | 当前 SQLite 表结构、存储接口；没有开发版本升级链 |
 | `platform/` | 原生目录选择、安全凭据存储等系统适配 |
@@ -38,11 +38,11 @@
 
 仓库顶层另有 `docs/`、`scripts/`、`.github/workflows/` 和 `.fvm/`。构建输出在应用 `build/` 下，不纳入源码；以下目标树中的 `tooling/` 暂以现有 `scripts/` 承担，不为名称统一单独搬动。
 
-Emby 接入时按实际代码需要新增：
+Emby 当前实现及后续模块：
 
-- `lib/api/emby/`：地址、鉴权请求头、协议 DTO、响应解析、错误映射；不包含 Widget、SQL 或来源队列。
-- `lib/sources/emby/`：将 Emby 对象转换为公共媒体模型，处理选库、同步、分页和播放资源准备；依赖协议客户端，不依赖页面。现有 `SourceAdapter.scan` 偏文件扫描，不能为复用接口强迫远程浏览模拟目录遍历；根据原调用链拆出必要能力接口。
-- `lib/features/sources/`：原版 Emby 连接/选库表单与来源状态；`application/` 协调会话、同步和取消，`data/` 组合适配器与本地存储。凭据通过 `platform/` 的安全存储实现保存。
+- `lib/api/emby/`（E1 已实现）：地址、鉴权请求头、协议 DTO、响应解析、错误映射；不包含 Widget、SQL 或来源队列。
+- `lib/sources/emby/`（E2 抓取/映射已实现）：将 Emby 对象转换为公共媒体模型，处理选库、同步、分页和播放资源准备；依赖协议客户端，不依赖页面。现有 `SourceAdapter.scan` 偏文件扫描，不能为复用接口强迫远程浏览模拟目录遍历；根据原调用链拆出必要能力接口。
+- `lib/features/sources/`（E1–E3 已接入连接、同步、鉴权播放资源和上报）：原版 Emby 连接/选库表单与来源状态；`application/` 协调会话、同步和取消，`data/` 组合适配器与本地存储。凭据通过 `platform/` 的安全存储实现保存。
 - `lib/features/library/`、目标 `details/` 和 `playback/`：承接公共浏览、详情与播放。当前本地浏览/详情暂在 `features/sources/presentation`，接入第二种真实来源时再按职责提取；旧 `features/library` 的 Mlink 实现不能直接作为公共媒体库接口。
 
 两处 `sources` 职责不同：`features/sources` 管理用户操作媒体源的流程，顶层 `sources` 实现媒体从哪里来。页面不拼 Emby URL，播放器不处理 Emby 登录，缓存与会话按来源/账号隔离。新适配不经过旧 Mlink 试验；原版可选来源 ReelNest Server 后续独立迁移。
@@ -187,7 +187,7 @@ flowchart TD
 
 播放会话拥有引擎实例并负责释放；页面切换不应意外创建多个播放器。退出播放、切换服务器、退出账号时明确处理停止、进度保存和资源释放。高频进度只更新需要它的组件，避免整页重建。
 
-未来替换某个平台的引擎时，保留上层播放接口。当前 media_kit 仍是待原型验证的优先实现，不能把计划当作五端播放能力已经验收。
+未来替换某个平台的引擎时，保留上层播放接口。media_kit/libmpv 已验证 Windows 基础解码和本批字幕/音轨流程，macOS/Linux 原生及移动端能力仍未验收。
 
 ## 7. 系统能力与协议边界
 
@@ -218,3 +218,34 @@ flowchart TD
 6. 按原功能清单补齐搜索、下载等模块和平台行为；本地媒体库是早期主线，尚未全部完成。历史数据导入不因出现在早期规划中而自动成为当前开发任务，需有实际需求再设计。
 
 初始化已开始按上述顺序落地。后续结构变更同步更新本文；阶段与范围调整更新实施计划；CI、版本和发布规则更新仓库规划。
+
+## 本轮落地补充：播放队列（2026-10-09）
+
+`features/playback/domain/video_queue.dart` 管理队列和结束动作，`PlaybackSession` 负责切换/EOF/保存协调。`data/playback_repository.dart` 批量读取列表观看状态并事务保存进度/更新时间；`player_preferences_repository.dart` 保存全局结束选项。`presentation/player_track_popovers.dart` 复用列表/弹层组件，`player_behavior_settings.dart` 按原更多设置框架迁移播放结束行，窗口操作仍由 `PlayerWindowApp` 承担。`media_activity` 为当前模块独立表，不建立历史版本升级链。边界见 [队列说明](PLAYER_QUEUE.zh-CN.md)。
+
+Emby E1 的按来源凭据隔离、SQLite 非敏感配置及恢复规则见 [连接与选库说明](EMBY_CONNECTION.zh-CN.md)。没有新增历史数据库升级链。
+
+E2 新增 `sources/emby` 的同步器/映射器、连接协议分页/图片方法，以及来源索引仓储的远程快照事务。按来源隔离的 `remote_media_metadata` 表存无凭据媒体字段；SQL 不存鉴权 URL。现有来源浏览/详情共用布局，后续统一组件命名不改变原 UI。详见 [E2 同步说明](EMBY_SYNC.zh-CN.md)。
+
+E3 实际装配：播放资源准备与凭据刷新由 `EmbyConnectionRepository` 组合协议层承担，`PlaybackSession` 按来源分派并复用现有引擎/记录；不为目录规划单独增加空仓储或 Dart package。详见 [E3](EMBY_PLAYBACK.zh-CN.md)。
+
+
+### Emby 状态操作与字幕补充
+
+- `api/emby/emby_subtitle.dart` 保存内存中的服务器字幕描述，`emby_client.dart` 实现当前账号的收藏/已看端点及有界字幕读取。
+- `features/sources/data/emby_connection_repository.dart` 按来源串行处理鉴权和状态写回；收藏失败回滚，观看批量失败保留本地并返回失败数。
+- `features/playback/data/playback_repository.dart` 维护手动观看状态的事务；来源仓库维护本地收藏与同步策略。
+- `features/sources/presentation/emby_media_actions.dart` 为详情/季集提供喜欢、单项和分页批量已看入口。
+- `PlaybackSession` 管理字幕选择、取消和所属临时目录的生命周期；播放器面板显示服务器字幕，mpv 引擎继续统一处理字幕轨道。
+
+详见 [本批范围与验证](EMBY_ACTIONS_SUBTITLES.zh-CN.md)。这些入口没有替代完整详情、导航或原版 UI 验收。
+
+### Emby 服务器详情
+
+- `api/emby/emby_detail.dart`：白名单展示字段、演职员和技术信息模型，不保留服务器资源 URL。
+- `features/sources/data/emby_detail_repository.dart`：按来源隔离的 30 天 SQLite 详情缓存、失败保留、排队超时/取消和人物作品查询。
+- `features/sources/application/emby_providers.dart`：缓存优先的详情流与鉴权图片数据生命周期。
+- `features/sources/presentation/emby_detail_extras.dart`：折叠详情、人员入口、艺术照浏览和链接；公共详情页展示元信息/技术参数。
+- `platform/external_links.dart`：三桌面端系统浏览器入口，可注入替身验证链接操作。
+
+当前初始表 `remote_media_details` 与媒体索引建立复合外键，随条目删除；没有历史数据库迁移。字段/缓存规则与未迁移差异见 [详情记录](EMBY_DETAILS.zh-CN.md)。

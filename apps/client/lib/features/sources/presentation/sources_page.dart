@@ -12,6 +12,8 @@ import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../application/source_providers.dart';
 import 'add_source_dialog.dart';
+import 'emby_sheets.dart';
+import '../application/emby_providers.dart';
 import 'source_page_sections.dart';
 import 'source_settings_sheet.dart';
 
@@ -61,6 +63,26 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   }
 
   Future<void> _add() async {
+    final kind = await showDialog<MediaSourceKind>(
+      context: context,
+      builder: (_) => const SourceKindSheet(),
+    );
+    if (kind == null || !mounted) return;
+    if (kind == MediaSourceKind.emby) {
+      final added = await showDialog<MediaSource>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) =>
+            EmbyConnectionSheet(repository: ref.read(embyConnectionProvider)),
+      );
+      if (mounted) {
+        ref.invalidate(sourceReachabilityProvider);
+        if (added != null) {
+          unawaited(ref.read(sourceScansProvider.notifier).scan(added.id));
+        }
+      }
+      return;
+    }
     final draft = await showDialog<SourceDraft>(
       context: context,
       builder: (_) =>
@@ -123,6 +145,23 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   });
 
   Future<void> _settings(MediaSource source) async {
+    if (source.kind == MediaSourceKind.emby) {
+      final scopeChanged = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => EmbyLibrarySheet(
+          source: source,
+          repository: ref.read(embyConnectionProvider),
+        ),
+      );
+      if (mounted) {
+        ref.invalidate(sourceReachabilityProvider);
+        if (scopeChanged == true) {
+          unawaited(ref.read(sourceScansProvider.notifier).scan(source.id));
+        }
+      }
+      return;
+    }
     final draft = await showDialog<SourceSettingsDraft>(
       context: context,
       builder: (_) => SourceSettingsSheet(source: source),
@@ -158,7 +197,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (confirmed == true && mounted) {
       await _perform(
-        () => ref.read(sourceRepositoryProvider).remove(source.id),
+        () => source.kind == MediaSourceKind.emby
+            ? ref.read(embyConnectionProvider).remove(source.id)
+            : ref.read(sourceRepositoryProvider).remove(source.id),
       );
     }
   }
@@ -193,7 +234,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
             FilledButton.icon(
               key: const ValueKey('add-source'),
               style: actionStyle,
-              onPressed: _busy || !access.supported ? null : _add,
+              onPressed: _busy ? null : _add,
               icon: const SourceLineIcon(
                 SourceGlyph.plus,
                 size: 15,
@@ -205,7 +246,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               key: const ValueKey('scan-all'),
               style: actionStyle,
               onPressed:
-                  _busy || isScanning || (sources.asData?.value.isEmpty ?? true)
+                  _busy ||
+                      isScanning ||
+                      !(sources.asData?.value.any(
+                            (s) =>
+                                (s.kind.isFileSource ||
+                                s.kind == MediaSourceKind.emby),
+                          ) ??
+                          false)
                   ? null
                   : () => ref
                         .read(sourceScansProvider.notifier)
@@ -337,9 +385,11 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
             ),
             const SizedBox(height: 8),
             Text('${source.kind.label} · ${source.itemCount} 项'),
+            if (source.kind == MediaSourceKind.emby && source.lastScan == null)
+              const Text('媒体内容尚未同步。'),
             if (source.lastScan != null)
               Text(
-                '上次完整扫描：${source.lastScan!.toLocal().toString().split('.').first}',
+                '上次完整${source.kind == MediaSourceKind.emby ? '同步' : '扫描'}：${source.lastScan!.toLocal().toString().split('.').first}',
               ),
             if (scan.running) ...[
               const SizedBox(height: 12),
@@ -349,7 +399,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                     : null,
               ),
               Text(
-                '已处理 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个文件',
+                source.kind == MediaSourceKind.emby
+                    ? '已读取 ${scan.progress.processedFiles} 个媒体条目'
+                    : '已处理 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个文件',
               ),
             ],
             if (scan.message != null)
@@ -363,7 +415,11 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               runSpacing: 8,
               children: [
                 FilledButton.tonal(
-                  onPressed: () => context.go('/sources/${source.id}'),
+                  onPressed:
+                      !source.kind.isFileSource &&
+                          source.kind != MediaSourceKind.emby
+                      ? null
+                      : () => context.go('/sources/${source.id}'),
                   child: const Text('浏览媒体'),
                 ),
                 IconButton(
@@ -374,7 +430,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                   ),
                   onPressed:
                       _busy ||
-                          !source.kind.isFileSource ||
+                          (source.kind == MediaSourceKind.emby && scan.busy) ||
+                          (!source.kind.isFileSource &&
+                              source.kind != MediaSourceKind.emby) ||
                           source.mediaType == SourceMediaType.privateCollection
                       ? null
                       : () => _settings(source),
@@ -385,19 +443,54 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                       ? () => ref
                             .read(sourceScansProvider.notifier)
                             .cancel(source.id)
-                      : _busy || isScanning || !connected
+                      : _busy ||
+                            isScanning ||
+                            !connected ||
+                            (!source.kind.isFileSource &&
+                                source.kind != MediaSourceKind.emby)
                       ? null
                       : () => ref
                             .read(sourceScansProvider.notifier)
                             .scan(source.id),
-                  child: Text(scan.busy ? '取消扫描' : '重新扫描'),
+                  child: Text(
+                    scan.busy
+                        ? (source.kind == MediaSourceKind.emby
+                              ? '取消同步'
+                              : '取消扫描')
+                        : source.kind.isFileSource
+                        ? '重新扫描'
+                        : '同步媒体',
+                  ),
                 ),
                 TextButton(
-                  onPressed: _busy || scan.busy || !canChoose
+                  onPressed:
+                      _busy ||
+                          scan.busy ||
+                          !canChoose ||
+                          !source.kind.isFileSource
                       ? null
                       : () => _relocate(source),
                   child: const Text('重新定位'),
                 ),
+                if (source.kind == MediaSourceKind.emby)
+                  TextButton(
+                    onPressed: _busy || scan.busy
+                        ? null
+                        : () async {
+                            await showDialog<MediaSource>(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (_) => EmbyConnectionSheet(
+                                source: source,
+                                repository: ref.read(embyConnectionProvider),
+                              ),
+                            );
+                            if (mounted) {
+                              ref.invalidate(sourceReachabilityProvider);
+                            }
+                          },
+                    child: const Text('重新认证'),
+                  ),
                 TextButton(
                   onPressed: _busy || scan.busy ? null : () => _remove(source),
                   child: const Text('移除来源'),

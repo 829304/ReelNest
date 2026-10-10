@@ -4,7 +4,7 @@ import '../domain/app_failure.dart';
 import '../storage/credential_store.dart';
 
 class SecureCredentialStore implements CredentialStore {
-  SecureCredentialStore({FlutterSecureStorage? storage})
+  SecureCredentialStore({FlutterSecureStorage? storage, this.key = _defaultKey})
     : _storage =
           storage ??
           const FlutterSecureStorage(
@@ -13,12 +13,13 @@ class SecureCredentialStore implements CredentialStore {
           );
 
   final FlutterSecureStorage _storage;
-  static const _key = 'io.github.user829304.reelnest.mlink.session.v1';
+  static const _defaultKey = 'io.github.user829304.reelnest.mlink.session.v1';
+  final String key;
 
   @override
   Future<String?> read() async {
     try {
-      return await _storage.read(key: _key);
+      return await _storage.read(key: key);
     } catch (_) {
       throw AppFailure.storage;
     }
@@ -27,8 +28,8 @@ class SecureCredentialStore implements CredentialStore {
   @override
   Future<void> write(String value) async {
     try {
-      await _storage.write(key: _key, value: value);
-      if (await _storage.read(key: _key) != value) {
+      await _storage.write(key: key, value: value);
+      if (await _storage.read(key: key) != value) {
         throw AppFailure.storage;
       }
     } catch (_) {
@@ -39,8 +40,8 @@ class SecureCredentialStore implements CredentialStore {
   @override
   Future<void> clear() async {
     try {
-      await _storage.delete(key: _key);
-      if (await _storage.read(key: _key) != null) {
+      await _storage.delete(key: key);
+      if (await _storage.read(key: key) != null) {
         throw AppFailure.storage;
       }
     } catch (_) {

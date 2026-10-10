@@ -3,13 +3,17 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../application/emby_providers.dart';
+
 import 'package:path/path.dart' as p;
 
 import '../../../domain/media.dart';
 import '../../../domain/media_source.dart';
 
-/// Local paths never pass through the legacy server artwork/auth providers.
-class LocalMediaArtwork extends StatelessWidget {
+/// Shared poster rendering. File and Emby data never use legacy Mlink artwork/auth.
+class LocalMediaArtwork extends ConsumerWidget {
   const LocalMediaArtwork({
     required this.source,
     required this.item,
@@ -21,13 +25,41 @@ class LocalMediaArtwork extends StatelessWidget {
   final BoxFit fit;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final relative = item.posterPath;
     final placeholder = LocalPosterPlaceholder(
       title: item.cardTitle,
       type: item.type,
     );
     if (relative == null) return placeholder;
+    if (source.kind == MediaSourceKind.emby) {
+      return ref
+          .watch(
+            embyArtworkProvider((
+              sourceId: source.id,
+              itemId: relative,
+              backdrop: false,
+              revision: source.lastScan?.millisecondsSinceEpoch ?? 0,
+            )),
+          )
+          .when(
+            loading: () => placeholder,
+            error: (_, _) => placeholder,
+            data: (bytes) => Image(
+              image: ResizeImage(
+                MemoryImage(bytes),
+                width: 700,
+                height: 1050,
+                policy: ResizeImagePolicy.fit,
+              ),
+              fit: fit,
+              width: double.infinity,
+              height: double.infinity,
+              excludeFromSemantics: true,
+              errorBuilder: (_, _, _) => placeholder,
+            ),
+          );
+    }
     final path = p.joinAll([source.location, ...p.posix.split(relative)]);
     return LayoutBuilder(
       builder: (context, size) {

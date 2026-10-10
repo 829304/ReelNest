@@ -103,6 +103,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('跟随系统'), 150);
     expect(find.text('跟随系统'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

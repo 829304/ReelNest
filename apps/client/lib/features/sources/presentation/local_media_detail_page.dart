@@ -15,6 +15,10 @@ import '../../playback/presentation/video_player_page.dart'
     show formatVideoTime;
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
+import 'emby_media_actions.dart';
+import '../../../api/emby/emby_detail.dart';
+import '../application/emby_providers.dart';
+import 'emby_detail_extras.dart';
 
 /// Local-data counterpart of DetailView.swift / EpisodeListView.swift.
 /// Playback delegates to the independent window; extras and native material
@@ -30,6 +34,7 @@ class LocalMediaDetailPage extends ConsumerStatefulWidget {
 class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
   final _expanded = <String>{};
   String? _selectedEpisode;
+  int _detailRefresh = 0;
 
   Widget _inset(Widget child, {double top = 8, double bottom = 8}) =>
       SliverPadding(
@@ -43,6 +48,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
     if (oldWidget.identity != widget.identity) {
       _expanded.clear();
       _selectedEpisode = null;
+      _detailRefresh = 0;
     }
   }
 
@@ -112,13 +118,57 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                     if (source == null) {
                       return [_inset(const LinearProgressIndicator())];
                     }
+                    final extras = source.kind == MediaSourceKind.emby
+                        ? ref.watch(
+                            embyDetailProvider((
+                              identity: item.identity,
+                              refresh: _detailRefresh,
+                            )),
+                          )
+                        : null;
                     return [
-                      _inset(_DetailHero(source: source, item: item)),
+                      _inset(
+                        _DetailHero(
+                          source: source,
+                          item: item,
+                          detail: extras?.asData?.value.detail,
+                        ),
+                      ),
+                      if (extras != null)
+                        _inset(
+                          extras.when(
+                            loading: () => const Text('正在整理演职人员、艺术照和相关作品…'),
+                            error: (_, _) => Row(
+                              children: [
+                                const Expanded(
+                                  child: Text('Emby 详情读取失败，基础信息和播放仍可使用。'),
+                                ),
+                                TextButton(
+                                  onPressed: () =>
+                                      setState(() => _detailRefresh++),
+                                  child: const Text('重试'),
+                                ),
+                              ],
+                            ),
+                            data: (snapshot) => EmbyDetailExtras(
+                              key: ValueKey(item.identity),
+                              source: source,
+                              item: item,
+                              snapshot: snapshot,
+                              onRefresh: () => setState(() => _detailRefresh++),
+                            ),
+                          ),
+                        ),
                       if (item.isSeries)
                         ..._series(source, item)
                       else
                         _inset(
-                          _LocalFileStatus(source: source, item: item),
+                          source.kind.isFileSource
+                              ? _LocalFileStatus(source: source, item: item)
+                              : _RemoteFileStatus(
+                                  item: item,
+                                  detail: extras?.asData?.value.detail,
+                                ),
                           top: 12,
                           bottom: 28,
                         ),
@@ -163,6 +213,10 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 ),
                 const Spacer(),
                 Text('$count 集'),
+                if (source.kind == MediaSourceKind.emby) ...[
+                  const SizedBox(width: 10),
+                  EmbyBatchWatchedButton(series: item.identity),
+                ],
               ],
             ),
             top: 12,
@@ -179,6 +233,13 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                       _expanded.add(season.key);
                     }
                   }),
+                  actions: source.kind == MediaSourceKind.emby
+                      ? EmbyBatchWatchedButton(
+                          series: item.identity,
+                          oneSeason: true,
+                          season: season.number,
+                        )
+                      : null,
                 ),
                 top: 5,
                 bottom: 5,
@@ -208,9 +269,10 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
 }
 
 class _DetailHero extends StatelessWidget {
-  const _DetailHero({required this.source, required this.item});
+  const _DetailHero({required this.source, required this.item, this.detail});
   final MediaSource source;
   final IndexedMedia item;
+  final EmbyDetail? detail;
   @override
   Widget build(BuildContext context) {
     final palette = SourceSheetPalette(
@@ -247,14 +309,23 @@ class _DetailHero extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (source.kind == MediaSourceKind.emby)
+                        EmbyMediaActions(item: item, favoriteOnly: true),
+                    ],
                   ),
                   const SizedBox(height: 14),
                   DecoratedBox(
@@ -276,16 +347,84 @@ class _DetailHero extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (item.remote case final remote?) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      [
+                        if (remote.rating != null)
+                          '评分 ${remote.rating!.toStringAsFixed(1)}',
+                        if (remote.durationMs != null)
+                          '${remote.durationMs! ~/ 60000} 分钟',
+                        ?detail?.technical.resolution ?? remote.resolution,
+                        ?detail?.status,
+                        ?detail?.contentRating,
+                      ].join(' · '),
+                      style: TextStyle(fontSize: 12, color: palette.secondary),
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   Text(
-                    item.overview ?? '暂无简介。',
+                    detail?.overview ?? item.overview ?? '暂无简介。',
                     maxLines: 6,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: palette.secondary),
                   ),
+                  if (item.remote case final remote?) ...[
+                    if ((detail?.genres ?? remote.genres).isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 7,
+                        children: (detail?.genres ?? remote.genres)
+                            .map(
+                              (genre) => DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: palette.selectedTint.withValues(
+                                    alpha: .12,
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 5,
+                                  ),
+                                  child: Text(
+                                    genre,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: palette.selectedTint,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    if (detail?.companies.isNotEmpty == true) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        detail!.companies.take(4).join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: palette.secondary,
+                        ),
+                      ),
+                    ],
+                  ],
                   if (item.type != 'music' && item.type != 'photo') ...[
                     const SizedBox(height: 16),
-                    _PlaybackButton(item: item),
+                    _PlaybackButton(
+                      item: item,
+                      enabled:
+                          source.kind.isFileSource ||
+                          source.kind == MediaSourceKind.emby,
+                    ),
+                    if (source.kind == MediaSourceKind.emby && !item.isSeries)
+                      EmbyMediaActions(item: item),
                   ],
                 ],
               ),
@@ -302,10 +441,12 @@ class _SeasonHeader extends StatelessWidget {
     required this.season,
     required this.expanded,
     required this.onToggle,
+    this.actions,
   });
   final IndexedSeason season;
   final bool expanded;
   final VoidCallback onToggle;
+  final Widget? actions;
   @override
   Widget build(BuildContext context) {
     final palette = SourceSheetPalette(
@@ -349,6 +490,7 @@ class _SeasonHeader extends StatelessWidget {
               style: TextStyle(fontSize: 11, color: palette.secondary),
             ),
             const Spacer(),
+            ?actions,
           ],
         ),
       ),
@@ -427,6 +569,9 @@ class _EpisodeRow extends ConsumerWidget {
       Theme.of(context).brightness == Brightness.dark,
     );
     Future<void> play() async {
+      if (!source.kind.isFileSource && source.kind != MediaSourceKind.emby) {
+        return;
+      }
       try {
         await ref.read(playbackLauncherProvider).open(item.identity);
       } catch (_) {
@@ -438,10 +583,17 @@ class _EpisodeRow extends ConsumerWidget {
     }
 
     return GestureDetector(
-      onDoubleTap: () {
-        onSelect();
-        play();
-      },
+      onSecondaryTapDown: source.kind == MediaSourceKind.emby
+          ? (details) =>
+                showEmbyEpisodeMenu(context, ref, item, details.globalPosition)
+          : null,
+      onDoubleTap:
+          source.kind.isFileSource || source.kind == MediaSourceKind.emby
+          ? () {
+              onSelect();
+              play();
+            }
+          : null,
       child: TextButton(
         onPressed: onSelect,
         style: TextButton.styleFrom(
@@ -462,13 +614,33 @@ class _EpisodeRow extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            SizedBox(
-              width: 120,
-              height: 68,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LocalMediaArtwork(source: source, item: item),
-              ),
+            Stack(
+              children: [
+                SizedBox(
+                  width: 120,
+                  height: 68,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LocalMediaArtwork(source: source, item: item),
+                  ),
+                ),
+                if (source.kind == MediaSourceKind.emby &&
+                    ref
+                            .watch(playbackRecordProvider(item.identity))
+                            .asData
+                            ?.value
+                            .watched ==
+                        true)
+                  const Positioned(
+                    right: 4,
+                    bottom: 4,
+                    child: Icon(
+                      Icons.visibility,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -533,8 +705,9 @@ class _EpisodeRow extends ConsumerWidget {
 }
 
 class _PlaybackButton extends ConsumerStatefulWidget {
-  const _PlaybackButton({required this.item});
+  const _PlaybackButton({required this.item, required this.enabled});
   final IndexedMedia item;
+  final bool enabled;
   @override
   ConsumerState<_PlaybackButton> createState() => _PlaybackButtonState();
 }
@@ -588,9 +761,9 @@ class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
           prominent: true,
           height: 34,
           horizontalPadding: 14,
-          onPressed: _opening ? null : _play,
+          onPressed: _opening || !widget.enabled ? null : _play,
         ),
-        if (record?.lastPlayedAt != null) ...[
+        if (record?.lastPlayedAt != null || record?.watched == true) ...[
           const SizedBox(height: 8),
           Text(
             record!.watched ? '已看' : '观看至 ${formatVideoTime(record.position)}',
@@ -598,6 +771,80 @@ class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _RemoteFileStatus extends ConsumerWidget {
+  const _RemoteFileStatus({required this.item, this.detail});
+  final IndexedMedia item;
+  final EmbyDetail? detail;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final technical = detail?.technical;
+    final video = technical?.videoCodec ?? item.remote?.videoCodec;
+    final audio = technical?.audioCodec ?? item.remote?.audioCodec;
+    final bitrate = technical?.bitrate ?? item.remote?.bitrate;
+    final size = technical?.size ?? item.bytes;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '文件',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.cloud_outlined, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Emby 流媒体 · ${item.title}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await ref
+                        .read(playbackLauncherProvider)
+                        .open(item.identity);
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('无法打开播放器，请重试。')),
+                      );
+                    }
+                  }
+                },
+                child: const Text('打开'),
+              ),
+            ],
+          ),
+          if (video != null || audio != null || bitrate != null || size > 0)
+            Text(
+              [
+                if (video != null) video.toUpperCase(),
+                if (audio != null) audio.toUpperCase(),
+                if (bitrate != null)
+                  '${(bitrate / 1000000).toStringAsFixed(1)} Mbps',
+                if (size > 0) '${(size / 1024 / 1024).toStringAsFixed(1)} MiB',
+              ].join(' · '),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

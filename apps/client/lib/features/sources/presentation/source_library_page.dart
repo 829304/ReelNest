@@ -66,7 +66,13 @@ class SourceLibraryPage extends ConsumerWidget {
               ),
             ),
             data: (page) => page.total == 0
-                ? _message('没有可显示的媒体。请检查来源或重新扫描。')
+                ? _message(
+                    source.kind == MediaSourceKind.emby
+                        ? (source.lastScan == null
+                              ? '媒体内容尚未同步。请先同步媒体源。'
+                              : '所选媒体库没有可显示的媒体。')
+                        : '没有可显示的媒体。请检查来源或重新扫描。',
+                  )
                 : SliverPadding(
                     padding: const EdgeInsets.fromLTRB(32, 8, 32, 28),
                     sliver: SliverLayoutBuilder(

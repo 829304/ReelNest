@@ -408,7 +408,7 @@ void main() {
       await tester.tapAt(tester.getCenter(slider));
       await tester.pump();
       expect(session.clock.position.inSeconds, inInclusiveRange(45, 55));
-      await tester.tap(find.byTooltip('静音'));
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
       await tester.pump();
       expect(session.clock.volume, 0);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
