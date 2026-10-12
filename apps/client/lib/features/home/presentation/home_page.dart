@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,12 +13,39 @@ import '../domain/home_snapshot.dart';
 import 'widgets/home_video_row.dart';
 import 'widgets/home_hero.dart';
 import 'widgets/home_page_background.dart';
+import 'widgets/home_header.dart';
+import 'widgets/home_search_results.dart';
 
-class HomePage extends ConsumerWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!TickerMode.valuesOf(context).enabled) return const SizedBox();
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  final _search = TextEditingController();
+  Timer? _debounce;
+  String _query = '';
+  void _submit() {
+    _debounce?.cancel();
+    final query = _search.text.trim();
+    if (_query != query) setState(() => _query = query);
+  }
+
+  void _changed(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 180), _submit);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
@@ -101,52 +130,11 @@ class HomePage extends ConsumerWidget {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(36, 28, 36, 0),
           sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$greeting，欢迎回来',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: palette.secondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      const TextSpan(text: '今天，'),
-                      WidgetSpan(
-                        child: ShaderMask(
-                          blendMode: BlendMode.srcIn,
-                          shaderCallback: (rect) => const LinearGradient(
-                            colors: [
-                              Color(0xFF36BFFA),
-                              Color(0xFF2E90FA),
-                              Color(0xFFFF9F45),
-                              Color(0xFFFF5C8A),
-                            ],
-                          ).createShader(rect),
-                          child: const Text(
-                            '为你精选',
-                            style: TextStyle(
-                              fontSize: 29,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const TextSpan(text: '了一份片单'),
-                    ],
-                  ),
-                  maxLines: 1,
-                  style: const TextStyle(
-                    fontSize: 29,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+            child: HomeHeader(
+              greeting: greeting,
+              controller: _search,
+              onChanged: _changed,
+              onSubmit: _submit,
             ),
           ),
         ),
@@ -162,6 +150,8 @@ class HomePage extends ConsumerWidget {
               ),
             ),
           )
+        else if (_query.isNotEmpty)
+          HomeSearchResults(key: ValueKey(_query), query: _query)
         else ...[
           if (recommendation.value?.hero.isNotEmpty == true)
             SliverPadding(

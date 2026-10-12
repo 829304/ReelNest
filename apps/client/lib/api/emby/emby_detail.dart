@@ -122,11 +122,17 @@ class EmbyDetail {
     this.countries = const [],
     this.companies = const [],
     this.genres = const [],
+    this.networks = const [],
+    this.firstAirDate,
+    this.endDate,
+    this.originalLanguage,
   });
   final String itemId, tmdbKind;
   final String? overview, status, contentRating, tmdbId, imdbId;
   final List<EmbyPerson> people;
   final List<String> countries, companies, genres;
+  final List<String> networks;
+  final String? firstAirDate, endDate, originalLanguage;
   final int backdropCount;
   final bool hasPoster;
   final EmbyTechnicalInfo technical;
@@ -147,6 +153,7 @@ class EmbyDetail {
       'Studios',
       'ProductionLocations',
       'Genres',
+      'Networks',
       'MediaSources',
     ]) {
       if (dto[field] != null && dto[field] is! List) {
@@ -221,6 +228,14 @@ class EmbyDetail {
             .take(8),
       ),
       genres: _texts(dto['Genres']),
+      networks: List.unmodifiable(
+        (dto['Networks'] as List? ?? [])
+            .map((value) => value is Map ? _text(value['Name']) : _text(value))
+            .whereType<String>(),
+      ),
+      firstAirDate: _text(dto['PremiereDate']),
+      endDate: _text(dto['EndDate']),
+      originalLanguage: _text(dto['OriginalLanguage']),
       tmdbId: tmdb != null && RegExp(r'^\d+$').hasMatch(tmdb) ? tmdb : null,
       imdbId: imdb != null && RegExp(r'^tt\d+$').hasMatch(imdb) ? imdb : null,
       tmdbKind: dto['Type']?.toString().toLowerCase() == 'movie'
@@ -244,6 +259,10 @@ class EmbyDetail {
     'countries': countries,
     'companies': companies,
     'genres': genres,
+    'networks': networks,
+    'firstAirDate': firstAirDate,
+    'endDate': endDate,
+    'originalLanguage': originalLanguage,
   };
   factory EmbyDetail.fromJson(Map<String, dynamic> json) => EmbyDetail(
     itemId: json['itemId'] as String,
@@ -266,5 +285,9 @@ class EmbyDetail {
     countries: (json['countries'] as List).cast<String>(),
     companies: (json['companies'] as List).cast<String>(),
     genres: (json['genres'] as List).cast<String>(),
+    networks: _texts(json['networks']),
+    firstAirDate: json['firstAirDate'] as String?,
+    endDate: json['endDate'] as String?,
+    originalLanguage: json['originalLanguage'] as String?,
   );
 }

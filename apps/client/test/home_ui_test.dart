@@ -17,6 +17,7 @@ import 'package:reelnest/features/home/presentation/home_page.dart';
 import 'package:reelnest/features/home/presentation/home_collection_page.dart';
 import 'package:reelnest/features/home/presentation/widgets/home_video_card.dart';
 import 'package:reelnest/features/home/presentation/widgets/home_hero.dart';
+import 'package:reelnest/features/home/presentation/widgets/home_search_results.dart';
 import 'package:reelnest/features/library/data/video_preferences_repository.dart';
 import 'package:reelnest/features/playback/application/playback_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
@@ -170,6 +171,146 @@ void main() {
     );
     await settle(tester);
   }
+
+  testWidgets(
+    'homepage search debounces, submits immediately and clears back to overview',
+    (tester) async {
+      await seed('贝加尔湖');
+      await seed('其他影片');
+      await pump(tester);
+      final field = find.byKey(const ValueKey('home-search-field'));
+      await tester.enterText(field, 'bje');
+      await tester.pump(const Duration(milliseconds: 179));
+      expect(find.byType(HomeSearchResults), findsNothing);
+      await tester.pump(const Duration(milliseconds: 1));
+      await settle(tester);
+      expect(find.byType(HomeSearchResults), findsOneWidget);
+      expect(
+        find.byKey(
+          ValueKey('home-search-open-${(sourceId: local.id, localId: '贝加尔湖')}'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('其他影片'), findsNothing);
+      await tester.enterText(field, '没有这个标题');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(
+        tester.widget<HomeSearchResults>(find.byType(HomeSearchResults)).query,
+        '没有这个标题',
+      );
+      await settle(tester);
+      expect(find.text('无匹配结果'), findsOneWidget);
+      await tester.enterText(field, '');
+      await tester.pump(const Duration(milliseconds: 180));
+      await settle(tester);
+      expect(find.byType(HomeSearchResults), findsNothing);
+      expect(find.byKey(const ValueKey('home-stat-影片')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets(
+    'lazy search retains query and scroll across refresh and detail return',
+    (tester) async {
+      for (var n = 0; n < 48; n++) {
+        await seed('影片$n');
+      }
+      await pump(tester);
+      final field = find.byKey(const ValueKey('home-search-field'));
+      await tester.enterText(field, '影片');
+      await tester.pump(const Duration(milliseconds: 180));
+      await settle(tester);
+      final view = find.descendant(
+        of: find.byType(HomePage),
+        matching: find.byType(CustomScrollView),
+      );
+      final scrollable = find
+          .descendant(of: view, matching: find.byType(Scrollable))
+          .first;
+      final state = tester.state<ScrollableState>(scrollable);
+      expect(
+        find.text('影片47'),
+        findsNothing,
+        reason: 'offscreen rows are lazy',
+      );
+      await tester.drag(view, const Offset(0, -1100));
+      await settle(tester);
+      final offset = state.position.pixels;
+      expect(offset, greaterThan(600));
+      sources.traceChanged();
+      await settle(tester);
+      expect(tester.state(scrollable), same(state));
+      expect(state.position.pixels, closeTo(offset, .5));
+      final rows = find.byWidgetPredicate(
+        (w) =>
+            w is InkWell &&
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith('home-search-open-'),
+      );
+      final visible = rows.hitTestable().first;
+      await tester.tap(visible);
+      await settle(tester);
+      expect(find.byType(LocalMediaDetailPage), findsOneWidget);
+      await tester.tap(find.text('返回').last);
+      await settle(tester);
+      expect(
+        tester.widget<HomeSearchResults>(find.byType(HomeSearchResults)).query,
+        '影片',
+      );
+      expect(tester.state(scrollable), same(state));
+      expect(state.position.pixels, closeTo(offset, .5));
+      state.position.jumpTo(0);
+      await settle(tester);
+      expect(tester.widget<TextField>(field).controller!.text, '影片');
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets(
+    'search header and grouped rows render at desktop minimum width',
+    (tester) async {
+      await seed('影片1');
+      await seed('影片2');
+      await seed('影片系列', series: true);
+      final preview = GlobalKey();
+      await pump(tester, preview: preview);
+      tester.view.physicalSize = const Size(1088, 720);
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('home-search-field')),
+        '影片',
+      );
+      await tester.pump(const Duration(milliseconds: 180));
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(() async {
+        final boundary =
+            preview.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        final image = await boundary.toImage(pixelRatio: 1);
+        try {
+          final bytes = await image.toByteData(format: ImageByteFormat.png);
+          await Directory('build/home-search').create(recursive: true);
+          await File('build/home-search/search-preview.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+        } finally {
+          image.dispose();
+        }
+      });
+    },
+    variant: TargetPlatformVariant({TargetPlatform.windows}),
+  );
 
   testWidgets(
     'home displays cached modules, plays, enters details and returns in its own branch',

@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:drift/drift.dart';
 
+import '../../../api/emby/emby_detail.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/remote_media_policy.dart';
@@ -11,6 +12,8 @@ import '../../playback/data/playback_repository.dart';
 import '../../sources/data/source_repository.dart';
 import '../../sources/domain/emby_library.dart';
 import '../domain/home_snapshot.dart';
+import '../domain/home_search.dart';
+import 'home_search_worker.dart';
 
 class HomeRepository {
   const HomeRepository(this.sources);
@@ -86,6 +89,40 @@ class HomeRepository {
     return data.length > 180
         ? Isolate.run(() => _recommendationCandidates(data, source))
         : _recommendationCandidates(data, source);
+  }
+
+  /// One coherent SQLite snapshot, including cached details and public child
+  /// titles. No connector/HTTP calls, per-card queries or complete scan.
+  Future<List<HomeVideo>> search(
+    String sourceId,
+    String query, {
+    required String scope,
+    required ScanCancellation cancellation,
+  }) async {
+    cancellation.check();
+    if (query.trim().isEmpty) return [];
+    final source = await sources.source(sourceId, includeCounts: false);
+    cancellation.check();
+    if (!accepts(source) || homeSearchScope(source) != scope) return [];
+    final rows = await sources.database.customSelect('''$_scope
+      SELECT scope.*, d.value AS details FROM scope
+      LEFT JOIN remote_media_details d USING(source_id,local_id)
+      ORDER BY local_id
+    ''', variables: _variables(source)).get();
+    cancellation.check();
+    final data = rows.map((r) => r.data).toList();
+    final results = data.length > 180
+        ? await runHomeSearchWorker(
+            () => _searchVideos(data, source, query),
+            cancellation,
+          )
+        : _searchVideos(data, source, query);
+    cancellation.check();
+    // Provider disposal drops obsolete queries; this also guards direct calls
+    // that race source removal/reconnection or a library-selection change.
+    final current = await sources.source(sourceId, includeCounts: false);
+    cancellation.check();
+    return homeSearchScope(current) == scope ? results : [];
   }
 
   /// Original includesCachedVideo: a series is offline-ready if at least one
@@ -425,4 +462,73 @@ HomeStats _stats(List<Map<String, dynamic>> rows) {
     episodes: episodes,
     unwatched: unwatched,
   );
+}
+
+List<HomeVideo> _searchVideos(
+  List<Map<String, dynamic>> rows,
+  MediaSource source,
+  String query,
+) {
+  List<String?> terms(IndexedMedia item) => [
+    item.title,
+    item.originalTitle,
+    item.overview,
+    item.year?.toString(),
+    item.remote?.artist,
+    item.remote?.album,
+    item.remote?.externalId,
+    if (source.kind == MediaSourceKind.emby) 'Emby',
+    ...?item.remote?.genres,
+    item.remote?.videoCodec,
+    item.remote?.audioCodec,
+    item.remote?.resolution,
+  ];
+  final decoded = rows.map(SourceRepository.decodeIndexedRow).toList();
+  final children = <String, List<String?>>{};
+  for (final child in decoded) {
+    if (child.parentId != null && child.type == 'episode') {
+      (children[child.parentId!] ??= []).addAll([
+        ...terms(child),
+        child.episodeLabel,
+        if (child.seasonNumber != null) '第 ${child.seasonNumber} 季',
+        if (child.episodeNumber != null) '第 ${child.episodeNumber} 集',
+      ]);
+    }
+  }
+  final results = <HomeVideo>[];
+  for (var n = 0; n < rows.length; n++) {
+    final item = decoded[n];
+    if (item.type == 'episode' || item.displayType == 'music') continue;
+    final fields = [...terms(item), ...?children[item.identity.localId]];
+    final raw = rows[n]['details'] as String?;
+    if (raw != null) {
+      final extra = EmbyDetail.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      fields.addAll([
+        extra.overview,
+        extra.status,
+        extra.contentRating,
+        extra.firstAirDate,
+        extra.endDate,
+        extra.originalLanguage,
+        extra.tmdbId,
+        extra.imdbId,
+        if (extra.tmdbId != null) 'tmdb',
+        if (extra.imdbId != null) 'imdb',
+        ...extra.genres,
+        ...extra.countries,
+        ...extra.companies,
+        ...extra.networks,
+        for (final p in extra.people) ...[p.name, p.role, p.department],
+        extra.technical.videoCodec,
+        extra.technical.audioCodec,
+        extra.technical.resolution,
+      ]);
+    }
+    if (LibrarySearchMatcher.matches(query, fields)) {
+      results.add(_recommendationVideo(rows[n], source));
+    }
+  }
+  return List.unmodifiable(results);
 }
