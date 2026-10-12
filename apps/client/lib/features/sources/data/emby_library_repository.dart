@@ -8,6 +8,7 @@ import '../../../api/emby/emby_detail.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/remote_media_policy.dart';
 import '../../playback/domain/playback_record.dart';
+import '../../playback/data/playback_repository.dart';
 import '../domain/emby_library.dart';
 import 'source_repository.dart';
 
@@ -148,12 +149,14 @@ class EmbyLibraryRepository {
             '''
       SELECT m.*, r.value AS remote_metadata, a.updated_at AS activity_updated_at,
         p.local_id AS preference_id, p.watchlist, p.user_rating, p.created_at,
-        s.position_ms, s.duration_ms, s.watched, s.last_played_at, d.value AS details
+        s.position_ms, s.duration_ms, s.watched, s.last_played_at, d.value AS details,
+        t.key AS local_trace
       FROM media m
       LEFT JOIN remote_media_metadata r USING(source_id, local_id)
       LEFT JOIN media_activity a USING(source_id, local_id)
       LEFT JOIN media_library_preferences p USING(source_id, local_id)
       LEFT JOIN playback_states s USING(source_id, local_id)
+      LEFT JOIN player_preferences t ON t.key = '${PlaybackRepository.localTracePrefix}' || json_array(m.source_id,m.local_id)
       LEFT JOIN remote_media_details d USING(source_id, local_id)
       WHERE m.source_id = ? ORDER BY m.title COLLATE NOCASE, m.local_id
     ''',
@@ -361,7 +364,7 @@ EmbyVideoSnapshot _buildSnapshot(_SnapshotData data) {
     entries.add(
       VideoLibraryEntry(
         item: item,
-        reportedProgress: row.readNullable<int>('position_ms') == null
+        reportedProgress: row.readNullable<String>('local_trace') == null
             ? remote?.playedPercentage == null
                   ? null
                   : remote!.playedPercentage! / 100

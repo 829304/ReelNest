@@ -67,8 +67,8 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
   Widget build(BuildContext context) {
     final detail = ref.watch(sourceMediaDetailProvider(widget.identity));
     final sources = ref.watch(sourcesProvider);
-    final source = sources.asData?.value
-        .where((s) => s.id == widget.identity.sourceId)
+    final source = sources.value
+        ?.where((s) => s.id == widget.identity.sourceId)
         .firstOrNull;
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
@@ -94,12 +94,13 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 ),
                 top: 28,
               ),
-              if (sources.hasError)
+              if (sources.hasError && source == null)
                 _inset(Text(sourceErrorMessage(sources.error!)))
-              else if (sources.hasValue && source == null)
+              else if (!sources.isLoading && sources.hasValue && source == null)
                 _inset(const Text('此媒体源已移除。'))
               else
                 ...detail.when(
+                  skipLoadingOnReload: true,
                   loading: () => [_inset(const LinearProgressIndicator())],
                   error: (error, stack) => [
                     _inset(

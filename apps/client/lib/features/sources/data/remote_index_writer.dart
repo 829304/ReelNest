@@ -7,6 +7,7 @@ import '../../../domain/remote_media_policy.dart';
 import '../../../domain/source_options.dart';
 import '../../../domain/source_scan.dart';
 import '../../../storage/library_database.dart';
+import '../../playback/data/playback_repository.dart';
 
 /// Queue prepared statements per chunk: one isolate round trip, not one per SQL.
 /// The caller owns the transaction, so cancellation still rolls back the snapshot.
@@ -159,6 +160,14 @@ class RemoteIndexWriter {
                 trace.lastPlayedAt?.millisecondsSinceEpoch ?? 0,
                 traceMode.name,
               ],
+            );
+          }
+          // Enabled trace imports replace the local overlay. Do not reset the
+          // independent history epoch or allow disabled imports to undo clears.
+          if (traceMode != RemoteTraceSyncMode.disabled) {
+            batch.customStatement(
+              'DELETE FROM player_preferences WHERE key = ?',
+              [PlaybackRepository.localTraceKey(item.identity)],
             );
           }
         }

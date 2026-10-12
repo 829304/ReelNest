@@ -468,10 +468,29 @@ class EmbyConnectionRepository {
               ),
           },
         );
+        final localTraces =
+            (await sources.database
+                    .customSelect(
+                      'SELECT key FROM player_preferences WHERE key IN (SELECT value FROM json_each(?))',
+                      variables: [
+                        Variable(
+                          jsonEncode(
+                            ids.map(PlaybackRepository.localTraceKey).toList(),
+                          ),
+                        ),
+                      ],
+                    )
+                    .get())
+                .map((row) => row.read<String>('key'))
+                .toSet();
         items.removeWhere((item) {
           final record = records[item.identity]!;
           return record.position == Duration.zero &&
-              record.lastPlayedAt == null;
+              record.lastPlayedAt == null &&
+              ((item.remote?.playedPercentage ?? 0) <= 0 ||
+                  localTraces.contains(
+                    PlaybackRepository.localTraceKey(item.identity),
+                  ));
         });
         final traced = items.map((i) => i.identity).toSet();
         ids.removeWhere((id) => !traced.contains(id));

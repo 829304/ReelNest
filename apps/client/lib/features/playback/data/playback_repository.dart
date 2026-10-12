@@ -10,6 +10,21 @@ class PlaybackRepository {
   PlaybackRepository(this.database);
   final LibraryDatabase database;
 
+  // A zero clock imported from Emby is not an explicit local reset. Keep this
+  // provenance separate from the history epoch, which must survive re-syncs to
+  // reject checkpoints from players opened before a clear operation.
+  static const localTracePrefix = 'playback.trace.local.';
+  static String localTraceKey(MediaIdentity id) =>
+      '$localTracePrefix${jsonEncode([id.sourceId, id.localId])}';
+
+  Future<void> _markLocalTrace(MediaIdentity id) => database.customStatement(
+    '''INSERT INTO player_preferences(key,value)
+       SELECT ?, 'true' WHERE EXISTS
+         (SELECT 1 FROM playback_states WHERE source_id=? AND local_id=?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value''',
+    [localTraceKey(id), id.sourceId, id.localId],
+  );
+
   Future<PlaybackRecord> read(MediaIdentity identity) async {
     final row = await database
         .customSelect(
@@ -89,6 +104,7 @@ class PlaybackRepository {
               watched ? 1 : 0,
             ],
           );
+          await _markLocalTrace(id);
         }
       });
 
@@ -171,6 +187,7 @@ class PlaybackRepository {
          ON CONFLICT(source_id, local_id) DO UPDATE SET updated_at = excluded.updated_at''',
         [updatedAt, identity.sourceId, identity.localId],
       );
+      await _markLocalTrace(identity);
     });
   }
 }

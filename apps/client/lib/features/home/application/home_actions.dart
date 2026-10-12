@@ -70,9 +70,18 @@ Future<void> homeVideoAction(
         }
       case 'clear':
         if (video.source.kind == MediaSourceKind.emby) {
-          await ref
+          final failed = await ref
               .read(embyConnectionProvider)
               .markPlayed([id], false, clearHistory: true);
+          if (context.mounted && failed > 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '有 $failed 个条目未能写回远程服务器，本机播放记录已清除，请检查连接和服务器状态。后续同步可能恢复服务器记录。',
+                ),
+              ),
+            );
+          }
         } else {
           await ref.read(playbackRepositoryProvider).clearHistory([id]);
           sources.traceChanged();

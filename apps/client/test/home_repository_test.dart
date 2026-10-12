@@ -11,6 +11,7 @@ import 'package:reelnest/features/home/application/home_providers.dart';
 import 'package:reelnest/features/library/data/video_preferences_repository.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
+import 'package:reelnest/features/sources/data/remote_index_writer.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/storage/library_database.dart';
 
@@ -462,6 +463,140 @@ void main() {
       0,
     );
   });
+
+  test('synced empty movie clocks retain percentage until explicitly cleared or locally played', () async {
+    await seed(remote, 'percentage-film', duration: 0);
+    await sources.database.customStatement(
+      "UPDATE remote_media_metadata SET value=json_set(value,'\$.playedPercentage',40) WHERE source_id=?",
+      [remote.id],
+    );
+    final id = (sourceId: remote.id, localId: 'percentage-film');
+    final imported = await sources.media(id);
+    Future<void> sync(RemoteTraceSyncMode mode) => sources.database.transaction(
+      () => RemoteIndexWriter(sources.database).write(
+        remote.id,
+        [imported],
+        traceMode: mode,
+        cancellation: ScanCancellation(),
+      ),
+    );
+    await sync(RemoteTraceSyncMode.bidirectional);
+    final records = PlaybackRepository(sources.database);
+    expect((await records.read(id)).position, Duration.zero);
+    expect((await records.read(id)).duration, Duration.zero);
+    expect(
+      (await home.page(
+        remote.id,
+        HomeCollection.continueWatching,
+      )).items.single.entry.progress,
+      .4,
+    );
+    expect(
+      (await home.page(
+        remote.id,
+        HomeCollection.recentlyPlayed,
+      )).items.single.entry.progress,
+      .4,
+    );
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      .4,
+    );
+    expect((await home.stats(remote.id, .3)).unwatched, 0);
+
+    final beforeClear = await records.historyEpoch(id);
+    await records.clearHistory([id]);
+    final afterClear = await records.historyEpoch(id);
+    expect(afterClear, isNot(beforeClear));
+    await sync(RemoteTraceSyncMode.disabled);
+    expect(
+      (await home.page(remote.id, HomeCollection.continueWatching)).items,
+      isEmpty,
+    );
+    expect(
+      (await home.page(remote.id, HomeCollection.recentlyPlayed)).items,
+      isEmpty,
+    );
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      0,
+    );
+    expect((await home.stats(remote.id, .3)).unwatched, 1);
+
+    // Re-imports may legitimately restore remote traces, without admitting
+    // stale checkpoints from a player opened before the clear.
+    await sync(RemoteTraceSyncMode.importOnly);
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      .4,
+    );
+    expect(await records.historyEpoch(id), afterClear);
+    await records.save(
+      id,
+      position: const Duration(seconds: 80),
+      duration: const Duration(seconds: 100),
+      historyEpoch: beforeClear,
+    );
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      .4,
+    );
+    await records.save(
+      id,
+      position: const Duration(seconds: 10),
+      duration: const Duration(seconds: 100),
+      historyEpoch: afterClear,
+    );
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      .1,
+    );
+    await records.markWatched([id], false);
+    expect(
+      (await home.recommendationCandidates(remote.id)).single.entry.progress,
+      0,
+    );
+  });
+
+  test(
+    'series playback target uses percentage-only episode progress',
+    () async {
+      await seed(
+        remote,
+        'percentage-series',
+        type: 'tvShow',
+        series: true,
+        collection: 'tvshows',
+      );
+      await seed(
+        remote,
+        'first',
+        type: 'episode',
+        parent: 'percentage-series',
+        episode: 1,
+        duration: 0,
+      );
+      await seed(
+        remote,
+        'second',
+        type: 'episode',
+        parent: 'percentage-series',
+        episode: 2,
+        duration: 0,
+      );
+      await sources.database.customStatement(
+        "UPDATE remote_media_metadata SET value=json_set(value,'\$.playedPercentage',CASE local_id WHEN 'first' THEN 95 ELSE 40 END) WHERE source_id=? AND local_id IN ('first','second')",
+        [remote.id],
+      );
+      expect(
+        await home.playbackTarget((
+          sourceId: remote.id,
+          localId: 'percentage-series',
+        ), .9),
+        (sourceId: remote.id, localId: 'second'),
+      );
+    },
+  );
 
   test('series candidates preserve remote classification and do not include movies', () async {
     await seed(remote, 'movie');

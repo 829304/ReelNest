@@ -24,9 +24,9 @@ class SourceLibraryPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sources = ref.watch(sourcesProvider);
-    final source = sources.asData?.value
-        .where((s) => s.id == sourceId)
-        .firstOrNull;
+    // Dependency reloads retain the previous value in AsyncLoading. Keep the
+    // same library subtree alive while its source configuration is refreshed.
+    final source = sources.value?.where((s) => s.id == sourceId).firstOrNull;
     if (source?.kind == MediaSourceKind.emby) {
       return EmbyVideoLibraryPage(
         destination: (
@@ -67,14 +67,15 @@ class SourceLibraryPage extends ConsumerWidget {
             ),
           ),
         ),
-        if (sources.hasError)
+        if (sources.hasError && source == null)
           _message(sourceErrorMessage(sources.error!))
-        else if (sources.hasValue && source == null)
+        else if (!sources.isLoading && sources.hasValue && source == null)
           _message('此媒体源已移除。')
         else if (source == null)
           const SliverToBoxAdapter(child: LinearProgressIndicator())
         else
           firstPage.when(
+            skipLoadingOnReload: true,
             loading: () =>
                 const SliverToBoxAdapter(child: LinearProgressIndicator()),
             error: (error, stack) => SliverToBoxAdapter(

@@ -7,6 +7,7 @@ import '../../../domain/media_source.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/remote_media_policy.dart';
 import '../../playback/domain/playback_record.dart';
+import '../../playback/data/playback_repository.dart';
 import '../../sources/data/source_repository.dart';
 import '../../sources/domain/emby_library.dart';
 import '../domain/home_snapshot.dart';
@@ -25,7 +26,8 @@ class HomeRepository {
 
   // Do not join details or read a complete connector snapshot. This projection
   // stays in SQLite; only bounded card rows/grouped counts cross to Dart.
-  String get _scope => '''WITH RECURSIVE blocked(local_id) AS (
+  String get _scope =>
+      '''WITH RECURSIVE blocked(local_id) AS (
     SELECT local_id FROM media WHERE source_id = ? AND type IN ('private','privateCollection','photo')
     UNION SELECT child.local_id FROM media child INDEXED BY media_parent JOIN blocked parent
       ON child.parent_id = parent.local_id WHERE child.source_id = ?
@@ -37,7 +39,7 @@ class HomeRepository {
       MAX(COALESCE(json_extract(r.value,'\$.rating'),0),COALESCE(p.user_rating * 2,0)) AS score,
       COALESCE(s.position_ms,json_extract(r.value,'\$.positionMs'),0) AS position_ms,
       COALESCE(s.duration_ms,json_extract(r.value,'\$.durationMs'),0) AS duration_ms,
-      CASE WHEN s.position_ms IS NULL THEN json_extract(r.value,'\$.playedPercentage') / 100.0 END AS reported_progress,
+      CASE WHEN t.key IS NULL THEN json_extract(r.value,'\$.playedPercentage') / 100.0 END AS reported_progress,
       COALESCE(s.watched,json_extract(r.value,'\$.watched'),0) AS watched,
       CASE WHEN s.last_played_at IS NOT NULL THEN NULLIF(s.last_played_at,0)
         ELSE CAST(ROUND((julianday(json_extract(r.value,'\$.lastPlayedAt')) - 2440587.5) * 86400000) AS INTEGER) END AS last_played_at
@@ -46,6 +48,7 @@ class HomeRepository {
     LEFT JOIN media_activity a USING(source_id,local_id)
     LEFT JOIN media_library_preferences p USING(source_id,local_id)
     LEFT JOIN playback_states s USING(source_id,local_id)
+    LEFT JOIN player_preferences t ON t.key = '${PlaybackRepository.localTracePrefix}' || json_array(m.source_id,m.local_id)
     LEFT JOIN player_preferences f ON f.key = 'library.favorite.' || json_array(m.source_id,m.local_id)
     WHERE m.source_id = ? AND m.type NOT IN ('music','photo','private','privateCollection')
       AND m.local_id NOT IN (SELECT local_id FROM blocked)
@@ -297,7 +300,7 @@ class HomeRepository {
     final rows = await sources.database
         .customSelect(
           '''$_scope
-      SELECT local_id,watched,position_ms,duration_ms,last_played_at FROM scope
+      SELECT local_id,watched,position_ms,duration_ms,last_played_at,$_progress AS progress FROM scope
       WHERE parent_id = ? AND type = 'episode'
       ORDER BY COALESCE(season_number,0),COALESCE(episode_number,0),title COLLATE NOCASE,local_id
     ''',
@@ -309,10 +312,7 @@ class HomeRepository {
     QueryRow? resume;
     for (var n = 0; n < rows.length; n++) {
       final row = rows[n];
-      final duration = row.read<int>('duration_ms');
-      final progress = duration > 0
-          ? row.read<int>('position_ms') / duration
-          : 0.0;
+      final progress = row.read<double>('progress');
       if (row.read<int>('watched') == 1 || progress >= threshold) {
         lastFinished = n;
       } else if (progress > 0 &&
