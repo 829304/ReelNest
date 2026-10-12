@@ -41,7 +41,7 @@ void main() {
     (tester) async {
       await start(tester, const Size(1280, 800));
       expect(find.byType(DesktopShell), findsOneWidget);
-      await tester.tap(find.text('管理媒体源'));
+      await tester.tap(find.text('前往媒体源添加'));
       await tester.pumpAndSettle();
       expect(find.text('媒体源待添加'), findsOneWidget);
 
@@ -99,7 +99,7 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = 1.5;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await start(tester, const Size(320, 640));
-    expect(find.text('你的媒体，从这里开始'), findsOneWidget);
+    expect(find.text('媒体源待添加'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();

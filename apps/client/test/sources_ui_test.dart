@@ -46,7 +46,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('管理媒体源'));
+      await tester.tap(find.text('前往媒体源添加'));
       await tester.pumpAndSettle();
       Future<void> addSelection() async {
         await tester.tap(find.byKey(const ValueKey('add-source')));
@@ -114,7 +114,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('管理媒体源'));
+      await tester.tap(find.text('前往媒体源添加'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('add-source')));
       await tester.pumpAndSettle();

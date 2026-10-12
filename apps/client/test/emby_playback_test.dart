@@ -50,6 +50,7 @@ class _Records extends PlaybackRepository {
     required Duration position,
     required Duration duration,
     DateTime? playedAt,
+    String? historyEpoch,
     bool autoMarkWatched = true,
     double watchedThreshold = .9,
   }) {
@@ -59,6 +60,7 @@ class _Records extends PlaybackRepository {
       position: position,
       duration: duration,
       playedAt: playedAt,
+      historyEpoch: historyEpoch,
       autoMarkWatched: autoMarkWatched,
       watchedThreshold: watchedThreshold,
     );

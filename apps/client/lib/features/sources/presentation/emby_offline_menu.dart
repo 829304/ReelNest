@@ -13,9 +13,15 @@ import '../application/emby_providers.dart';
 import '../domain/emby_offline_subscription.dart';
 
 class EmbyOfflineMenu extends ConsumerWidget {
-  const EmbyOfflineMenu({required this.item, this.compact = false, super.key});
+  const EmbyOfflineMenu({
+    required this.item,
+    this.compact = false,
+    this.menuOnly = false,
+    super.key,
+  });
   final IndexedMedia item;
   final bool compact;
+  final bool menuOnly;
   Future<void> _run(
     BuildContext context,
     Future<void> Function() action,
@@ -121,65 +127,72 @@ class EmbyOfflineMenu extends ConsumerWidget {
           return result;
         }
 
-        return MenuAnchor(
-          menuChildren: [
-            ...presets(null),
-            if (qualities.length > 1) ...[
-              const Divider(),
-              SubmenuButton(
-                menuChildren: [
-                  for (final q in qualities)
-                    SubmenuButton(
-                      menuChildren: presets(q.id),
-                      child: Text('${q.label} · ${q.detail}'),
-                    ),
-                ],
-                child: const Text('指定缓存清晰度'),
-              ),
-            ],
-            if (rule != null) ...[
-              const Divider(),
-              action(
-                rule.paused(DateTime.now()) ? '继续自动缓存' : '暂停 7 天',
-                () => repository.update(
-                  series,
-                  pause: !rule.paused(DateTime.now()),
-                ),
-              ),
-              SubmenuButton(
-                menuChildren: [
-                  for (final policy in OfflineNetwork.values)
-                    action(
-                      policy.label,
-                      () => repository.update(series, network: policy),
-                      selected: rule.network == policy,
-                    ),
-                ],
-                child: Text('网络策略：${rule.network.label}'),
-              ),
-              SubmenuButton(
-                menuChildren: [
-                  action(
-                    '不自动到期',
-                    () => repository.update(series, clearExpiration: true),
-                    selected: rule.expiresAt == null,
+        final children = <Widget>[
+          ...presets(null),
+          if (qualities.length > 1) ...[
+            const Divider(),
+            SubmenuButton(
+              menuChildren: [
+                for (final q in qualities)
+                  SubmenuButton(
+                    menuChildren: presets(q.id),
+                    child: Text('${q.label} · ${q.detail}'),
                   ),
-                  for (final days in [7, 30, 90])
-                    action(
-                      '$days 天后到期',
-                      () => repository.update(series, expirationDays: days),
-                    ),
-                ],
-                child: Text(
-                  rule.expiresAt == null
-                      ? '到期计划：不自动到期'
-                      : '到期计划：${rule.expired(DateTime.now()) ? '已到期' : '${rule.expiresAt!.difference(DateTime.now()).inDays + 1} 天后'}',
-                ),
-              ),
-              const Divider(),
-              action('停止自动缓存', () => repository.stop(series)),
-            ],
+              ],
+              child: const Text('指定缓存清晰度'),
+            ),
           ],
+          if (rule != null) ...[
+            const Divider(),
+            action(
+              rule.paused(DateTime.now()) ? '继续自动缓存' : '暂停 7 天',
+              () => repository.update(
+                series,
+                pause: !rule.paused(DateTime.now()),
+              ),
+            ),
+            SubmenuButton(
+              menuChildren: [
+                for (final policy in OfflineNetwork.values)
+                  action(
+                    policy.label,
+                    () => repository.update(series, network: policy),
+                    selected: rule.network == policy,
+                  ),
+              ],
+              child: Text('网络策略：${rule.network.label}'),
+            ),
+            SubmenuButton(
+              menuChildren: [
+                action(
+                  '不自动到期',
+                  () => repository.update(series, clearExpiration: true),
+                  selected: rule.expiresAt == null,
+                ),
+                for (final days in [7, 30, 90])
+                  action(
+                    '$days 天后到期',
+                    () => repository.update(series, expirationDays: days),
+                  ),
+              ],
+              child: Text(
+                rule.expiresAt == null
+                    ? '到期计划：不自动到期'
+                    : '到期计划：${rule.expired(DateTime.now()) ? '已到期' : '${rule.expiresAt!.difference(DateTime.now()).inDays + 1} 天后'}',
+              ),
+            ),
+            const Divider(),
+            action('停止自动缓存', () => repository.stop(series)),
+          ],
+        ];
+        if (menuOnly) {
+          return SubmenuButton(
+            menuChildren: children,
+            child: const Text('自动缓存系列'),
+          );
+        }
+        return MenuAnchor(
+          menuChildren: children,
           builder: (context, controller, _) => TextButton(
             onPressed: () =>
                 controller.isOpen ? controller.close() : controller.open(),

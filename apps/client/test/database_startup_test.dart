@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,80 @@ void main() {
     expect(p.basename(sandbox.path), startsWith('reelnest-startup-test-'));
     await sandbox.delete(recursive: true);
   });
+
+  for (final rollback in [false, true]) {
+    test(
+      'close drains background transaction ${rollback ? 'rollback' : 'commit'} and rejects new work',
+      () async {
+        final database = LibraryDatabase(
+          NativeDatabase.createInBackground(file),
+        );
+        await database.customStatement('SELECT 1');
+        final entered = Completer<void>(), release = Completer<void>();
+        final work = database.transaction(() async {
+          await database.customStatement(
+            "INSERT INTO player_preferences VALUES ('drain', 'first')",
+          );
+          entered.complete();
+          await release.future;
+          await database.transaction(() async {
+            await database.customStatement(
+              "UPDATE player_preferences SET value='nested' WHERE key='drain'",
+            );
+          }, requireNew: true);
+          if (rollback) throw StateError('test rollback');
+        });
+        final outcome = rollback ? expectLater(work, throwsStateError) : work;
+        await entered.future.timeout(const Duration(seconds: 5));
+        var closed = false;
+        final closing = database.close();
+        expect(identical(database.close(), closing), isTrue);
+        final observedClose = closing.then((_) => closed = true);
+        try {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          expect(closed, isFalse);
+          await expectLater(
+            database.transaction(() async {}),
+            throwsStateError,
+          );
+        } finally {
+          release.complete();
+          await outcome;
+          await observedClose.timeout(const Duration(seconds: 5));
+        }
+        final reopened = LibraryDatabase(
+          NativeDatabase.createInBackground(file),
+        );
+        try {
+          final value = await reopened
+              .customSelect(
+                "SELECT value FROM player_preferences WHERE key='drain'",
+              )
+              .getSingleOrNull();
+          expect(value?.read<String>('value'), rollback ? isNull : 'nested');
+        } finally {
+          await reopened.close();
+        }
+      },
+    );
+  }
+
+  test(
+    'closing inside a transaction fails promptly without deadlocking it',
+    () async {
+      final database = LibraryDatabase(NativeDatabase.createInBackground(file));
+      try {
+        await database
+            .transaction(() async {
+              await expectLater(database.close(), throwsStateError);
+              await database.customStatement('SELECT 1');
+            })
+            .timeout(const Duration(seconds: 5));
+      } finally {
+        await database.close();
+      }
+    },
+  );
 
   test(
     'real background connection creates and reopens an empty current database',

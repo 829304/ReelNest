@@ -547,7 +547,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('管理媒体源'));
+      await tester.tap(find.text('媒体源').first);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('add-source')));
       await tester.pumpAndSettle();
@@ -619,7 +619,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('管理媒体源'));
+      await tester.tap(find.text('媒体源').first);
       await tester.pumpAndSettle();
       for (var n = 0; n < 100 && find.text('浏览媒体').evaluate().isEmpty; n++) {
         await tester.runAsync(

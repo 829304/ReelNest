@@ -325,57 +325,53 @@ void main() {
     expect(server.requests.last.uri.queryParameters['maxWidth'], '2048');
     expect(server.requests.last.uri.queryParameters['api_key'], 'token-2');
   });
-  test(
-    'queued cancellation exits promptly and never sends or caches later',
-    () async {
-      final entered = Completer<void>(), release = Completer<void>();
-      server.viewsHandler = (r) async {
-        entered.complete();
-        await release.future;
-        r.response.write(jsonEncode(server.views));
-        await r.response.close();
-      };
-      final blocker = connections.libraries(source.id);
-      await entered.future;
-      final token = ScanCancellation();
-      final request = details.load(id('film'), cancellation: token);
-      final expected = expectLater(request, throwsA(isA<ScanCancelled>()));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      token.cancel();
-      await expected.timeout(const Duration(milliseconds: 200));
-      release.complete();
-      await blocker;
-      expect(getRequests(), 0);
-      expect(await details.read(id('film')), isNull);
-    },
-  );
-  test(
-    'queue timeout returns cached result and obsolete task never sends',
-    () async {
-      await details.load(id('film'));
-      final entered = Completer<void>(), release = Completer<void>();
-      server.viewsHandler = (r) async {
-        entered.complete();
-        await release.future;
-        r.response.write(jsonEncode(server.views));
-        await r.response.close();
-      };
-      final blocker = connections.libraries(source.id);
-      await entered.future;
-      final bounded = EmbyDetailRepository(
-        sources: sources,
-        connections: connections,
-        timeout: const Duration(milliseconds: 40),
-        now: () => time,
-      );
-      final result = await bounded.load(id('film'), force: true);
-      expect(result.refreshError, isNotNull);
-      release.complete();
-      await blocker;
-      await connections.session(source.id);
-      expect(getRequests(), 1);
-    },
-  );
+  test('credential-refresh queue cancellation exits promptly and never retries or caches later', () async {
+    final entered = Completer<void>(), release = Completer<void>();
+    server.viewsHandler = (r) async {
+      entered.complete();
+      await release.future;
+      r.response.write(jsonEncode(server.views));
+      await r.response.close();
+    };
+    final blocker = connections.libraries(source.id);
+    await entered.future;
+    server.validToken = 'expired';
+    final token = ScanCancellation();
+    final request = details.load(id('film'), cancellation: token);
+    final expected = expectLater(request, throwsA(isA<ScanCancelled>()));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    token.cancel();
+    await expected.timeout(const Duration(milliseconds: 200));
+    release.complete();
+    await blocker;
+    expect(getRequests(), 1);
+    expect(await details.read(id('film')), isNull);
+  });
+  test('credential-refresh queue timeout returns cache and obsolete retry never sends', () async {
+    await details.load(id('film'));
+    final entered = Completer<void>(), release = Completer<void>();
+    server.viewsHandler = (r) async {
+      entered.complete();
+      await release.future;
+      r.response.write(jsonEncode(server.views));
+      await r.response.close();
+    };
+    final blocker = connections.libraries(source.id);
+    await entered.future;
+    server.validToken = 'expired';
+    final bounded = EmbyDetailRepository(
+      sources: sources,
+      connections: connections,
+      timeout: const Duration(milliseconds: 40),
+      now: () => time,
+    );
+    final result = await bounded.load(id('film'), force: true);
+    expect(result.refreshError, isNotNull);
+    release.complete();
+    await blocker;
+    await connections.session(source.id);
+    expect(getRequests(), 2);
+  });
   test('removing item during fetch prevents caching and foreign keys clean snapshots', () async {
     await details.load(id('film'));
     final entered = Completer<void>(), release = Completer<void>();
@@ -405,10 +401,10 @@ void main() {
     await sync.synchronize(other.id);
     expect(await details.read((sourceId: other.id, localId: 'film')), isNull);
     expect(
-      (await details.personWorks(source.id, 'actor')).single.identity,
+      (await details.cachedPersonWorks(source.id, 'actor')).single.identity,
       id('film'),
     );
-    expect(await details.personWorks(other.id, 'actor'), isEmpty);
+    expect(await details.cachedPersonWorks(other.id, 'actor'), isEmpty);
   });
 
   testWidgets(
@@ -418,8 +414,17 @@ void main() {
       tester.view.physicalSize = const Size(1088, 900);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
+      await tester.runAsync(() async {
+        final current = await sources.source(source.id);
+        time = current.lastScan!.add(const Duration(days: 1));
+        await sources.database.customStatement(
+          "UPDATE media SET poster_path='film' WHERE source_id=? AND local_id='film'",
+          [source.id],
+        );
+      });
       final snapshot = await tester.runAsync(() => details.load(id('film')));
       final opened = <Uri>[];
+      final posterRevisions = <int>[];
       final png = base64Decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       );
@@ -433,7 +438,10 @@ void main() {
               (ref, key) => Stream.value(snapshot!),
             ),
             embyDetailImageProvider.overrideWith((ref, key) async => png),
-            embyArtworkProvider.overrideWith((ref, key) async => png),
+            embyArtworkProvider.overrideWith((ref, key) async {
+              posterRevisions.add(key.revision);
+              return png;
+            }),
             externalLinkOpenerProvider.overrideWithValue((uri) async {
               opened.add(uri);
             }),
@@ -446,6 +454,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('服务器简介'), findsOneWidget);
       expect(find.textContaining('3840x2160'), findsOneWidget);
+      expect(posterRevisions, isNotEmpty);
+      expect(posterRevisions.toSet(), {
+        (await tester.runAsync(() => sources.source(source.id)))!
+            .lastScan!
+            .millisecondsSinceEpoch,
+      });
       await tester.scrollUntilVisible(
         find.text('演员').first,
         200,

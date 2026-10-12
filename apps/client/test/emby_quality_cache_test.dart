@@ -451,6 +451,93 @@ void main() {
     );
   });
 
+  test(
+    'detail artwork overtakes queued posters and promotes duplicate requests',
+    () async {
+      final blocked = Completer<void>(), release = Completer<void>();
+      final detailArrived = Completer<void>();
+      final releaseDetail = Completer<void>();
+      final order = <String>[];
+      server.artworkHandler = (r) async {
+        final id = r.uri.pathSegments[r.uri.pathSegments.indexOf('Images') - 1];
+        order.add(id);
+        if (order.length <= 4) {
+          if (order.length == 4) blocked.complete();
+          await release.future;
+        }
+        if (id == 'actor') {
+          detailArrived.complete();
+          await releaseDetail.future;
+        }
+        r.response.headers.contentType = ContentType('image', 'png');
+        r.response.add(png);
+        await r.response.close();
+      };
+      final running = [
+        for (var i = 0; i < 4; i++) cache.artwork(source.id, 'active$i'),
+      ];
+      final pending = <Future<dynamic>>[];
+      try {
+        await blocked.future.timeout(const Duration(seconds: 3));
+        pending.addAll([
+          for (var i = 0; i < 8; i++) cache.artwork(source.id, 'poster$i'),
+        ]);
+        pending.add(cache.artwork(source.id, 'actor'));
+        // Allow the disk probes to enqueue, then promote the coalesced request.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        pending.add(
+          cache.artwork(source.id, 'actor', priority: ArtworkPriority.detail),
+        );
+        release.complete();
+        await detailArrived.future.timeout(const Duration(seconds: 3));
+        expect(order[4], 'actor');
+        expect(order.where((id) => id == 'actor'), hasLength(1));
+      } finally {
+        if (!release.isCompleted) release.complete();
+        releaseDetail.complete();
+        await Future.wait([...running, ...pending]);
+      }
+    },
+  );
+
+  test('one prewarm worker leaves room for visible detail images', () async {
+    final started = Completer<void>(), release = Completer<void>();
+    server.artworkHandler = (r) async {
+      if (r.uri.path.contains('/warm')) {
+        if (!started.isCompleted) started.complete();
+        await release.future;
+      }
+      r.response.headers.contentType = ContentType('image', 'png');
+      r.response.add(png);
+      await r.response.close();
+    };
+    final warming = cache.prewarm([
+      for (var i = 0; i < 8; i++)
+        IndexedMedia(
+          identity: (sourceId: source.id, localId: 'warm$i'),
+          title: 'Warm $i',
+          type: film.type,
+          bytes: film.bytes,
+          modified: film.modified,
+          posterPath: 'warm$i',
+        ),
+    ]);
+    try {
+      await started.future.timeout(const Duration(seconds: 3));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+        await cache
+            .artwork(source.id, 'actor', priority: ArtworkPriority.detail)
+            .timeout(const Duration(seconds: 1)),
+        png,
+      );
+      expect(release.isCompleted, isFalse);
+    } finally {
+      release.complete();
+      await warming;
+    }
+  });
+
   test('artwork coalesces duplicates, bounds concurrency to four and does not queue playback behind image bytes', () async {
     var active = 0, peak = 0;
     final started = Completer<void>(), release = Completer<void>();
@@ -505,6 +592,44 @@ void main() {
       expect(await root.list().length, 1);
     },
   );
+
+  test('acquiring one cached video does not inspect unrelated cache paths', () async {
+    server.catalog['movies'] = [movie('film'), movie('second')];
+    await EmbySyncRepository(
+      sources: sources,
+      connections: connections,
+    ).synchronize(source.id);
+    await download();
+    await sources.database.customStatement(
+      '''
+      INSERT INTO video_disk_cache
+      SELECT source_id,'second','invalid-bundle',root,filename,bytes,
+        quality_id,quality_label,created_at,accessed_at
+      FROM video_disk_cache WHERE source_id=? AND local_id='film'
+    ''',
+      [source.id],
+    );
+    final acquired = await cache.acquire(film.identity);
+    expect(acquired, isNotNull);
+    try {
+      expect(await File(acquired!.path).readAsBytes(), video);
+      expect(
+        (await cache.entries(identity: film.identity)).single.identity,
+        film.identity,
+      );
+      // Invalid metadata is still rejected when that entry is actually chosen.
+      await expectLater(
+        cache.acquire((sourceId: source.id, localId: 'second')),
+        throwsA(isA<SourceFailure>()),
+      );
+      expect(
+        await cache.acquire((sourceId: source.id, localId: 'missing')),
+        isNull,
+      );
+    } finally {
+      if (acquired != null) await cache.release(acquired.lease);
+    }
+  });
 
   test('download commits full video and cached playback works without contacting Emby', () async {
     expect((await download()).state, VideoCacheTaskState.complete);

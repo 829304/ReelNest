@@ -13,6 +13,7 @@ import '../features/sources/application/source_providers.dart';
 import '../features/sources/application/emby_library_providers.dart';
 import 'reelnest_app.dart';
 import '../features/sources/application/emby_providers.dart';
+import '../features/home/application/home_providers.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,6 +59,7 @@ void refreshPlaybackViews(
   Iterable<String> sourceIds,
 ) {
   container.invalidate(playbackRecordProvider);
+  container.read(homePlaybackRevisionsProvider.notifier).refresh(sourceIds);
   container.read(embyOfflineProvider).request();
   for (final id in sourceIds.toSet()) {
     container.invalidate(embyVideoSnapshotProvider(id));

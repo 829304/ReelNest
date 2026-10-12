@@ -130,16 +130,26 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     _destroyed = true;
     await _session.close();
     await _notifyMain();
+    // Finish this engine's cache work while its database and plugins still live.
+    // ProviderScope disposal does not await asynchronous onDispose callbacks.
+    await ref.read(embyCacheProvider).dispose();
+    ref.read(embyConnectionProvider).dispose();
     await ref.read(sourceRepositoryProvider).close();
     // window_manager.destroy posts WM_QUIT on Windows, which would exit
     // every engine. Close this native window after committing the checkpoint.
+    windowManager.removeListener(this);
+    _session.removeListener(_onPlaybackChanged);
     await windowManager.setPreventClose(false);
     await windowManager.close();
   }
 
   @override
-  void onWindowClose() =>
+  void onWindowClose() {
+    if (!_destroyed) {
       unawaited(_page.currentState?.requestClose() ?? Future.value());
+    }
+  }
+
   @override
   void dispose() {
     windowManager.removeListener(this);

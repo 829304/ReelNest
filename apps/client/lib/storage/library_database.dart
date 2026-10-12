@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -20,9 +21,64 @@ class LibrarySchemaMismatch implements Exception {
   String toString() => message;
 }
 
+class _TransactionLifetime {
+  bool active = true;
+}
+
 /// Explicit SQL schema, owned solely by ReelNest. No old MediaLib DB is opened.
 class LibraryDatabase extends GeneratedDatabase {
   LibraryDatabase(super.executor);
+
+  final _transactionZone = Object();
+  final _transactions = <Future<void>>{};
+  Future<void>? _closing;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function() action, {
+    bool requireNew = false,
+  }) {
+    if ((Zone.current[_transactionZone] as _TransactionLifetime?)?.active ==
+        true) {
+      return super.transaction(action, requireNew: requireNew);
+    }
+    if (_closing != null) {
+      return Future.error(StateError('Database is closing'));
+    }
+    final lifetime = _TransactionLifetime();
+    final work = runZoned(
+      () => super.transaction(action, requireNew: requireNew),
+      zoneValues: {_transactionZone: lifetime},
+    );
+    // Keep the caller's result/error intact, while shutdown only waits for the
+    // transaction's commit or rollback to finish, including nested savepoints.
+    final settled = work.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _transactions.add(settled);
+    unawaited(
+      settled.then((_) {
+        lifetime.active = false;
+        _transactions.remove(settled);
+      }),
+    );
+    return work;
+  }
+
+  @override
+  Future<void> close() {
+    if ((Zone.current[_transactionZone] as _TransactionLifetime?)?.active ==
+        true) {
+      return Future.error(StateError('Cannot close inside a transaction'));
+    }
+    return _closing ??= _closeAfterTransactions();
+  }
+
+  Future<void> _closeAfterTransactions() async {
+    await Future.wait(_transactions.toList());
+    await super.close();
+  }
 
   factory LibraryDatabase.open() => LibraryDatabase(
     LazyDatabase(() async {

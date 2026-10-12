@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -342,33 +343,31 @@ class EmbyDetailImage extends ConsumerWidget {
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Center(child: Icon(person ? Icons.person : Icons.photo_outlined)),
     );
-    return ref
-        .watch(
-          embyDetailImageProvider((
-            sourceId: sourceId,
-            itemId: itemId,
-            backdrop: backdrop,
-            index: index,
-            width: width,
-            revision: revision,
-          )),
-        )
-        .when(
-          loading: () => placeholder,
-          error: (_, _) => placeholder,
-          data: (bytes) => Image(
-            image: ResizeImage(
-              MemoryImage(bytes),
-              width: width,
-              height: backdrop ? (width / 1.78).ceil() : width * 3 ~/ 2,
-              policy: ResizeImagePolicy.fit,
-            ),
-            fit: fit,
-            width: double.infinity,
-            height: double.infinity,
-            errorBuilder: (_, _, _) => placeholder,
-          ),
-        );
+    final key = (
+      sourceId: sourceId,
+      itemId: itemId,
+      backdrop: backdrop,
+      index: index,
+      width: width,
+      revision: revision,
+    );
+    return Image(
+      image: ref.watch(embyImagePipelineProvider).image((
+        sourceId: sourceId,
+        itemId: itemId,
+        backdrop: backdrop,
+        index: index,
+        width: width,
+        height: backdrop ? (width / 1.78).ceil() : width * 3 ~/ 2,
+        revision: revision,
+      ), () => ref.read(embyDetailImageProvider(key).future)),
+      fit: fit,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: (_, _, _) => placeholder,
+      frameBuilder: (_, child, frame, synchronous) =>
+          frame == null ? placeholder : child,
+    );
   }
 }
 
@@ -546,78 +545,194 @@ class EmbyPersonPage extends ConsumerWidget {
   final EmbyPerson person;
   final int revision;
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-    body: SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(32, 28, 32, 28),
-        children: [
-          Row(
-            children: [
-              const Text(
-                '人物',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('返回'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (person.imageId != null)
-                SizedBox(
-                  width: 160,
-                  height: 240,
-                  child: EmbyDetailImage(
-                    sourceId: source.id,
-                    itemId: person.imageId!,
-                    width: 500,
-                    revision: revision,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = (sourceId: source.id, personKey: person.key);
+    final snapshot = ref.watch(embyPersonWorksProvider(key));
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(32, 28, 32, 28),
+          children: [
+            Row(
+              children: [
+                const Text(
+                  '人物',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('返回'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (person.imageId != null)
+                  SizedBox(
+                    width: 160,
+                    height: 240,
+                    child: EmbyDetailImage(
+                      sourceId: source.id,
+                      itemId: person.imageId!,
+                      width: 500,
+                      revision: revision,
+                    ),
+                  ),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        person.name,
+                        style: const TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(person.role),
+                    ],
                   ),
                 ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Column(
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '库中作品',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            Builder(
+              builder: (context) {
+                if (snapshot.hasError) {
+                  return TextButton(
+                    onPressed: () =>
+                        ref.invalidate(embyPersonWorksProvider(key)),
+                    child: const Text('人物作品读取失败，重试'),
+                  );
+                }
+                final value = snapshot.value;
+                if (value == null) return const Text('正在读取服务端人物作品…');
+                final works = value.items;
+                if (works.isEmpty) {
+                  return Text(
+                    value.complete ? '当前媒体库范围内暂无此人物作品。' : '正在读取服务端人物作品…',
+                  );
+                }
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      person.name,
-                      style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w600,
+                    if (!value.complete)
+                      Text(value.warning ?? '正在读取完整作品，先显示已加载内容…'),
+                    if (value.warning != null)
+                      TextButton(
+                        onPressed: () =>
+                            ref.invalidate(embyPersonWorksProvider(key)),
+                        child: const Text('重试'),
                       ),
+                    EmbyPersonWorksStrip(
+                      source: source,
+                      works: works,
+                      onOpen: (item) {
+                        final router = GoRouter.of(context);
+                        Navigator.of(context).pop();
+                        _pushIndexedDetail(router, item.identity);
+                      },
                     ),
-                    const SizedBox(height: 12),
-                    Text(person.role),
                   ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Keep PersonDetailView's 112px horizontal cards accessible with a mouse.
+class EmbyPersonWorksStrip extends StatefulWidget {
+  const EmbyPersonWorksStrip({
+    required this.source,
+    required this.works,
+    required this.onOpen,
+    super.key,
+  });
+  final MediaSource source;
+  final List<IndexedMedia> works;
+  final ValueChanged<IndexedMedia> onOpen;
+  @override
+  State<EmbyPersonWorksStrip> createState() => _EmbyPersonWorksStripState();
+}
+
+class _EmbyPersonWorksStripState extends State<EmbyPersonWorksStrip> {
+  final _scroll = ScrollController();
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_update);
+  }
+
+  void _update() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _move(double direction) {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    _scroll.animateTo(
+      (_scroll.offset + direction * position.viewportDimension * .8).clamp(
+        0.0,
+        position.maxScrollExtent,
+      ),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final extent = math.max(
+        0.0,
+        widget.works.length * 126.0 - 14 - constraints.maxWidth,
+      );
+      final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 234,
+            child: Scrollbar(
+              key: const ValueKey('person-works-scrollbar'),
+              controller: _scroll,
+              thumbVisibility: true,
+              trackVisibility: true,
+              interactive: true,
+              scrollbarOrientation: ScrollbarOrientation.bottom,
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(
+                  scrollbars: false,
+                  dragDevices: {
+                    ...ScrollConfiguration.of(context).dragDevices,
+                    PointerDeviceKind.mouse,
+                  },
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            '库中作品',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
-          FutureBuilder<List<IndexedMedia>>(
-            future: ref
-                .watch(embyDetailRepositoryProvider)
-                .personWorks(source.id, person.key),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) return const Text('人物作品读取失败，请返回后重试。');
-              if (!snapshot.hasData) return const Text('正在整理库中作品…');
-              final works = snapshot.data!;
-              if (works.isEmpty) return const Text('暂无已缓存的库中作品。');
-              return SizedBox(
-                height: 234,
                 child: ListView.separated(
+                  controller: _scroll,
+                  primary: false,
                   scrollDirection: Axis.horizontal,
-                  itemCount: works.length,
+                  itemCount: widget.works.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 14),
                   itemBuilder: (context, index) => SizedBox(
                     width: 112,
@@ -626,18 +741,14 @@ class EmbyPersonPage extends ConsumerWidget {
                         SizedBox(
                           height: 168,
                           child: LocalMediaCard(
-                            source: source,
-                            item: works[index],
-                            onOpen: () {
-                              final router = GoRouter.of(context);
-                              Navigator.of(context).pop();
-                              _pushIndexedDetail(router, works[index].identity);
-                            },
+                            source: widget.source,
+                            item: widget.works[index],
+                            onOpen: () => widget.onOpen(widget.works[index]),
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          works[index].title,
+                          widget.works[index].title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -645,11 +756,27 @@ class EmbyPersonPage extends ConsumerWidget {
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
+          if (extent > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  tooltip: '向左浏览作品',
+                  onPressed: offset > .5 ? () => _move(-1) : null,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                IconButton(
+                  tooltip: '向右浏览作品',
+                  onPressed: offset < extent - .5 ? () => _move(1) : null,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
         ],
-      ),
-    ),
+      );
+    },
   );
 }

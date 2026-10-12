@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../../../domain/media_source.dart';
 
 import '../application/playback_session.dart';
@@ -779,20 +780,22 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
                   ),
                   overlayShape: SliderComponentShape.noOverlay,
                 ),
-                child: Slider(
-                  key: const ValueKey('video-volume'),
-                  value: (_draftVolume ?? volume).clamp(0, 100),
-                  min: 0,
-                  max: 100,
-                  onChangeStart: (v) => setState(() => _draftVolume = v),
-                  onChanged: (v) {
-                    setState(() => _draftVolume = v);
-                    unawaited(session.volume(v, remember: false));
-                  },
-                  onChangeEnd: (v) {
-                    setState(() => _draftVolume = null);
-                    unawaited(session.volume(v));
-                  },
+                child: SliderOverlayScope(
+                  child: Slider(
+                    key: const ValueKey('video-volume'),
+                    value: (_draftVolume ?? volume).clamp(0, 100),
+                    min: 0,
+                    max: 100,
+                    onChangeStart: (v) => setState(() => _draftVolume = v),
+                    onChanged: (v) {
+                      setState(() => _draftVolume = v);
+                      unawaited(session.volume(v, remember: false));
+                    },
+                    onChangeEnd: (v) {
+                      setState(() => _draftVolume = null);
+                      unawaited(session.volume(v));
+                    },
+                  ),
                 ),
               ),
             ),

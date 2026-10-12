@@ -1,6 +1,10 @@
 import 'dart:async';
+
+import 'remote_index_writer.dart';
+
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
@@ -8,6 +12,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
 import '../../../domain/remote_media_metadata.dart';
+import '../../../domain/remote_media_policy.dart';
 import '../../../domain/library_health.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/source_options.dart';
@@ -17,6 +22,7 @@ import '../../../sources/source_adapter.dart';
 import '../../../sources/filesystem/file_source_adapter.dart';
 import '../../../platform/directory_safety.dart';
 import '../../../storage/library_database.dart';
+import '../../playback/data/playback_repository.dart';
 
 String _newId() {
   final random = Random.secure();
@@ -88,13 +94,29 @@ class SourceRepository {
     _changed();
   }
 
-  Future<List<MediaSource>> sources() async {
-    final rows = await database.customSelect('''
+  Future<List<MediaSource>> sources({bool includeCounts = true}) =>
+      _sources(includeCounts: includeCounts);
+
+  Future<List<MediaSource>> _sources({
+    String? id,
+    bool includeCounts = true,
+  }) async {
+    final rows = await database
+        .customSelect(
+          includeCounts
+              ? '''
       SELECT s.*, COUNT(m.local_id) AS item_count,
         COALESCE(SUM(m.missing), 0) AS missing_count
       FROM sources s LEFT JOIN media m ON m.source_id = s.id AND m.is_series = 0
+      ${id == null ? '' : 'WHERE s.id = ?'}
       GROUP BY s.id ORDER BY s.name COLLATE NOCASE, s.id
-    ''').get();
+    '''
+              : '''SELECT s.*, 0 AS item_count, 0 AS missing_count FROM sources s
+                   ${id == null ? '' : 'WHERE s.id = ?'}
+                   ORDER BY s.name COLLATE NOCASE, s.id''',
+          variables: [if (id != null) Variable(id)],
+        )
+        .get();
     return rows
         .map(
           (r) => MediaSource(
@@ -127,8 +149,10 @@ class SourceRepository {
         .toList();
   }
 
-  Future<MediaSource> source(String id) async {
-    final matches = (await sources()).where((s) => s.id == id);
+  /// Internal connection/scope checks can skip expensive library counts. UI
+  /// callers retain exact counts by default; configuration is always read live.
+  Future<MediaSource> source(String id, {bool includeCounts = true}) async {
+    final matches = await _sources(id: id, includeCounts: includeCounts);
     if (matches.isEmpty) throw const SourceFailure('该媒体源已移除。');
     return matches.first;
   }
@@ -454,6 +478,65 @@ class SourceRepository {
     }
   }
 
+  /// Index-only removal, gated against scans/other maintenance. Children are
+  /// removed before parents; no filesystem or remote deletion occurs here.
+  Future<int> removeIndexedItems(Set<MediaIdentity> requested) async {
+    if (_closed) throw const SourceFailure('媒体库已关闭。');
+    _requireNoMaintenance();
+    if (_scans.isNotEmpty) throw const SourceFailure('请先取消扫描并等待结束。');
+    if (requested.isEmpty) return 0;
+    _indexMaintenance = true;
+    final done = _maintenanceDone = Completer<void>();
+    try {
+      final removed = await database.transaction(() async {
+        final all = (await inventory()).items;
+        final byId = {for (final item in all) item.identity: item};
+        if (requested.any((id) => !byId.containsKey(id))) {
+          throw const SourceFailure('部分内容已移除，请刷新后重试。');
+        }
+        final children = <MediaIdentity, List<IndexedMedia>>{};
+        for (final item in all) {
+          if (item.parentId != null) {
+            (children[(
+                      sourceId: item.identity.sourceId,
+                      localId: item.parentId!,
+                    )] ??=
+                    [])
+                .add(item);
+          }
+        }
+        final ordered = <MediaIdentity>[];
+        final visited = <MediaIdentity>{};
+        void visit(MediaIdentity id) {
+          if (!visited.add(id)) return;
+          for (final child in children[id] ?? <IndexedMedia>[]) {
+            visit(child.identity);
+          }
+          ordered.add(id);
+        }
+
+        for (final id in requested) {
+          visit(id);
+        }
+        await PlaybackRepository(database).clearHistory(ordered);
+        var count = 0;
+        for (final id in ordered) {
+          count += await database.customUpdate(
+            'DELETE FROM media WHERE source_id=? AND local_id=?',
+            variables: [Variable(id.sourceId), Variable(id.localId)],
+          );
+        }
+        return count;
+      });
+      if (removed > 0) _changed();
+      return removed;
+    } finally {
+      _indexMaintenance = false;
+      _maintenanceDone = null;
+      done.complete();
+    }
+  }
+
   Future<String> _cleanupFingerprint(Set<MediaIdentity> requested) async {
     final sources = await database
         .customSelect('SELECT * FROM sources ORDER BY id')
@@ -512,54 +595,69 @@ class SourceRepository {
     });
   }
 
-  Future<List<IndexedMedia>> indexedSource(String id) async =>
-      (await database
-              .customSelect(
-                '''
-    SELECT media.*, r.value AS remote_metadata, a.updated_at AS activity_updated_at
-    FROM media LEFT JOIN remote_media_metadata r USING(source_id, local_id)
-    LEFT JOIN media_activity a USING(source_id, local_id)
-    WHERE media.source_id = ? ORDER BY media.title COLLATE NOCASE, media.local_id
-  ''',
-                variables: [Variable(id)],
-              )
-              .get())
-          .map(_media)
-          .toList();
+  Future<List<IndexedMedia>> indexedSource(String id) =>
+      _indexedWhere('media.source_id = ?', [Variable(id)]);
 
-  IndexedMedia _media(QueryRow r) => IndexedMedia(
-    updatedAt: r.data['activity_updated_at'] == null
-        ? null
-        : _date(r.read<int>('activity_updated_at')),
-    identity: (
-      sourceId: r.read<String>('source_id'),
-      localId: r.read<String>('local_id'),
-    ),
-    title: r.read<String>('title'),
-    type: r.read<String>('type'),
-    bytes: r.read<int>('bytes'),
-    modified: DateTime.fromMillisecondsSinceEpoch(
-      r.read<int>('modified'),
-      isUtc: true,
-    ),
-    missing: r.read<int>('missing') != 0,
-    year: r.readNullable<int>('year'),
-    seasonNumber: r.readNullable<int>('season_number'),
-    episodeNumber: r.readNullable<int>('episode_number'),
-    seriesDirectory: r.readNullable<String>('series_directory'),
-    isSeries: r.read<int>('is_series') != 0,
-    parentId: r.readNullable<String>('parent_id'),
-    originalTitle: r.readNullable<String>('original_title'),
-    overview: r.readNullable<String>('overview'),
-    posterPath: r.readNullable<String>('poster_path'),
-    backdropPath: r.readNullable<String>('backdrop_path'),
-    remote: r.data['remote_metadata'] == null
-        ? null
-        : RemoteMediaMetadata.fromJson(
-            jsonDecode(r.data['remote_metadata'] as String)
-                as Map<String, dynamic>,
-          ),
-  );
+  /// Query only the selected identities. json_each avoids SQLite's bound
+  /// parameter limit on large selections; UNION also terminates parent cycles.
+  Future<List<IndexedMedia>> indexedSelection(
+    String sourceId,
+    Iterable<String> localIds, {
+    bool descendants = false,
+  }) {
+    final ids = localIds.toSet();
+    if (ids.isEmpty) return Future.value([]);
+    return _indexedWhere(
+      'media.source_id = ? AND media.local_id = chosen.local_id',
+      [
+        Variable(jsonEncode(ids.toList())),
+        if (descendants) Variable(sourceId),
+        Variable(sourceId),
+      ],
+      prefix:
+          '''WITH RECURSIVE chosen(local_id) AS (
+        SELECT value FROM json_each(?)
+        ${descendants ? '''UNION
+          SELECT child.local_id FROM media child INDEXED BY media_parent JOIN chosen parent
+            ON child.parent_id = parent.local_id WHERE child.source_id = ?''' : ''}
+      )''',
+      // CROSS JOIN keeps selected IDs outermost. Otherwise SQLite can prefer
+      // the title-order index and walk the entire source for a single ID.
+      from: 'chosen CROSS JOIN media',
+    );
+  }
+
+  Future<List<IndexedMedia>> indexedChildren(MediaIdentity parent) =>
+      _indexedWhere('media.source_id = ? AND media.parent_id = ?', [
+        Variable(parent.sourceId),
+        Variable(parent.localId),
+      ], from: 'media INDEXED BY media_parent');
+
+  Future<List<IndexedMedia>> _indexedWhere(
+    String where,
+    List<Variable> variables, {
+    String prefix = '',
+    String from = 'media',
+  }) async {
+    final rows = await database.customSelect(
+      '''$prefix SELECT media.*, r.value AS remote_metadata,
+        a.updated_at AS activity_updated_at
+        FROM $from LEFT JOIN remote_media_metadata r ON r.source_id = media.source_id AND r.local_id = media.local_id
+        LEFT JOIN media_activity a ON a.source_id = media.source_id AND a.local_id = media.local_id
+        WHERE $where ORDER BY media.title COLLATE NOCASE, media.local_id''',
+      variables: variables,
+    ).get();
+    final data = rows.map((r) => r.data).toList();
+    return data.length > 180
+        ? _decodeIndexedRowsInBackground(data)
+        : data.map(_indexedMediaFromSql).toList();
+  }
+
+  IndexedMedia _media(QueryRow row) => _indexedMediaFromSql(row.data);
+
+  /// Shared decoding for immutable SQL snapshots after their read transaction.
+  static IndexedMedia decodeIndexedRow(Map<String, dynamic> row) =>
+      _indexedMediaFromSql(row);
 
   Future<IndexedMedia> media(MediaIdentity identity) async {
     final row = await database
@@ -652,6 +750,67 @@ class SourceRepository {
     });
   }
 
+  /// Foreground pages are additive cache entries, never a completed snapshot.
+  /// Existing rows (including local trace and manual preferences) stay untouched.
+  Future<void> cacheRemoteItems(
+    MediaSource expected,
+    List<IndexedMedia> items, {
+    required ScanCancellation cancellation,
+  }) async {
+    cancellation.check();
+    if (_closed || _indexMaintenance) {
+      throw const SourceFailure('媒体库正在关闭或维护，请稍后重试。');
+    }
+    var added = false;
+    await database.transaction(() async {
+      final current = await source(expected.id, includeCounts: false);
+      if (current.kind != MediaSourceKind.emby ||
+          jsonEncode(current.options.toJson()) !=
+              jsonEncode(expected.options.toJson()) ||
+          items.any(
+            (i) => i.identity.sourceId != current.id || i.remote == null,
+          )) {
+        throw const SourceFailure('媒体库范围已改变，请重新打开。');
+      }
+      // Check inside the same transaction as the insert: a completed snapshot
+      // may have pruned items while this foreground HTTP page was in flight.
+      if (current.lastScan != expected.lastScan) {
+        throw const SourceFailure('媒体库已重新同步，请刷新后重试。');
+      }
+      final existing = <String>{};
+      // Check only this page's identities, not every row in a large local index.
+      for (var start = 0; start < items.length; start += 250) {
+        final page = items.skip(start).take(250).toList();
+        final placeholders = List.filled(page.length, '?').join(',');
+        final rows = await database
+            .customSelect(
+              'SELECT local_id FROM media WHERE source_id = ? AND local_id IN ($placeholders)',
+              variables: [
+                Variable(current.id),
+                ...page.map((i) => Variable(i.identity.localId)),
+              ],
+            )
+            .get();
+        existing.addAll(rows.map((r) => r.read<String>('local_id')));
+      }
+      final missing = items
+          .where((i) => existing.add(i.identity.localId))
+          .toList();
+      cancellation.check();
+      if (missing.isEmpty) return;
+      await RemoteIndexWriter(database).write(
+        current.id,
+        missing,
+        importedAt: current.createdAt,
+        traceMode: current.options.remoteTraceSyncMode,
+        cancellation: cancellation,
+      );
+      cancellation.check();
+      added = true;
+    });
+    if (added) _changed();
+  }
+
   /// Remote sync is a snapshot transaction, not a filesystem scan. Failed or
   /// cancelled fetches never modify media, progress, or the last successful time.
   Future<SourceScanSummary> syncRemote(
@@ -705,69 +864,23 @@ class SourceRepository {
             jsonEncode(current.options.toJson())) {
           throw const SourceFailure('同步期间库范围已改变，请重新同步。');
         }
-        for (final item in snapshot) {
-          cancellation.check();
-          await _upsert(
-            runId,
-            item,
-            identityKind: item.isSeries ? 'show' : item.type,
-          );
-          final previousTrace =
-              current.options.remoteTraceSyncMode ==
-                  RemoteTraceSyncMode.disabled
-              ? await database
-                    .customSelect(
-                      'SELECT value FROM remote_media_metadata WHERE source_id = ? AND local_id = ?',
-                      variables: [
-                        Variable(id),
-                        Variable(item.identity.localId),
-                      ],
-                    )
-                    .getSingleOrNull()
-              : null;
-          final metadata = item.remote!.toJson();
-          if (previousTrace != null) {
-            metadata['favorite'] =
-                (jsonDecode(previousTrace.read<String>('value'))
-                    as Map)['favorite'] ??
-                false;
-          }
-          await database.customStatement(
-            'INSERT INTO remote_media_metadata(source_id, local_id, value) VALUES (?, ?, ?) ON CONFLICT(source_id, local_id) DO UPDATE SET value = excluded.value',
-            [id, item.identity.localId, jsonEncode(metadata)],
-          );
-          if (!item.isSeries) {
-            final trace = item.remote!;
-            // Disabled keeps existing local trace, but an initial import uses
-            // server values, matching preservingLocalTraceForDisabledEmbySync.
-            await database.customStatement(
-              '''INSERT INTO playback_states(
-              source_id, local_id, position_ms, duration_ms, watched, last_played_at)
-              VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT(source_id, local_id) DO UPDATE SET
-                position_ms = excluded.position_ms, duration_ms = excluded.duration_ms,
-                watched = excluded.watched, last_played_at = excluded.last_played_at
-              WHERE ? != 'disabled'
-              ''',
-              [
-                id,
-                item.identity.localId,
-                trace.positionMs,
-                trace.durationMs ?? 0,
-                trace.watched ? 1 : 0,
-                trace.lastPlayedAt?.millisecondsSinceEpoch ?? 0,
-                current.options.remoteTraceSyncMode.name,
-              ],
-            );
-          }
-        }
+        await RemoteIndexWriter(database).write(
+          id,
+          snapshot,
+          traceMode: current.options.remoteTraceSyncMode,
+          cancellation: cancellation,
+          runId: runId,
+          onProgress: onProgress,
+        );
         await commitSnapshot?.call();
         await database.customStatement(
           'DELETE FROM media WHERE source_id = ? AND local_id NOT IN (SELECT local_id FROM scan_stage WHERE run_id = ?)',
           [id, runId],
         );
         await database.customStatement(
-          'UPDATE sources SET last_scan = ? WHERE id = ?',
+          // last_scan also versions foreground cursors. Advance even if two
+          // commits share a millisecond or the system clock has moved back.
+          'UPDATE sources SET last_scan = MAX(COALESCE(last_scan + 1, 0), ?) WHERE id = ?',
           [DateTime.now().toUtc().millisecondsSinceEpoch, id],
         );
         cancellation.check();
@@ -992,7 +1105,7 @@ class SourceRepository {
       [
         item.identity.sourceId,
         item.identity.localId,
-        item.remote?.rating,
+        RemoteRatingPolicy.seedUserRating(item.remote?.rating),
         DateTime.now().toUtc().millisecondsSinceEpoch,
       ],
     );
@@ -1007,7 +1120,9 @@ class SourceRepository {
     );
   }
 
-  Future<void> close() async {
+  Future<void>? _closing;
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
     _closed = true;
     for (final token in _scans.values) {
       token.cancel();
@@ -1026,3 +1141,42 @@ class SourceRepository {
     await database.close();
   }
 }
+
+Future<List<IndexedMedia>> _decodeIndexedRowsInBackground(
+  List<Map<String, dynamic>> rows,
+) => Isolate.run(() => rows.map(_indexedMediaFromSql).toList());
+IndexedMedia _indexedMediaFromSql(Map<String, dynamic> r) => IndexedMedia(
+  updatedAt: r['activity_updated_at'] == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(
+          (r['activity_updated_at'] as int),
+          isUtc: true,
+        ),
+  identity: (
+    sourceId: (r['source_id'] as String),
+    localId: (r['local_id'] as String),
+  ),
+  title: (r['title'] as String),
+  type: (r['type'] as String),
+  bytes: (r['bytes'] as int),
+  modified: DateTime.fromMillisecondsSinceEpoch(
+    (r['modified'] as int),
+    isUtc: true,
+  ),
+  missing: (r['missing'] as int) != 0,
+  year: (r['year'] as int?),
+  seasonNumber: (r['season_number'] as int?),
+  episodeNumber: (r['episode_number'] as int?),
+  seriesDirectory: (r['series_directory'] as String?),
+  isSeries: (r['is_series'] as int) != 0,
+  parentId: (r['parent_id'] as String?),
+  originalTitle: (r['original_title'] as String?),
+  overview: (r['overview'] as String?),
+  posterPath: (r['poster_path'] as String?),
+  backdropPath: (r['backdrop_path'] as String?),
+  remote: r['remote_metadata'] == null
+      ? null
+      : RemoteMediaMetadata.fromJson(
+          jsonDecode(r['remote_metadata'] as String) as Map<String, dynamic>,
+        ),
+);

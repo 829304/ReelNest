@@ -15,7 +15,10 @@ class AppShell extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final selectedIndex = navigationShell.currentIndex;
-        void select(int index) => navigationShell.goBranch(index);
+        // Top-level labels select their entry page, not a remembered library
+        // or detail route inside the branch (ContentView.setSidebarSelection).
+        void select(int index) =>
+            navigationShell.goBranch(index, initialLocation: true);
         // Desktop window constraints live in the native runners, as in the
         // original MainWindowToolbarVisibilityGuard. Width is not a platform.
         final desktop = switch (defaultTargetPlatform) {

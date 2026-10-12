@@ -12,6 +12,7 @@ import '../../../api/emby/emby_quality.dart';
 import '../../../domain/media_source.dart';
 import 'emby_connection_repository.dart';
 import 'source_repository.dart';
+import 'artwork_decode_queue.dart';
 import '../../playback/data/player_preferences_repository.dart';
 
 enum VideoCacheTaskState {
@@ -23,6 +24,8 @@ enum VideoCacheTaskState {
   failed,
   cancelled,
 }
+
+enum ArtworkPriority { background, visible, detail }
 
 class VideoCacheTask {
   VideoCacheTask(this.item, this.quality);
@@ -64,8 +67,13 @@ class EmbyCacheRepository {
     this.maxImageBytes = 512 * 1024 * 1024,
     this.maxImageFiles = 6000,
     this.beforePublish,
-  }) : cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
+    ArtworkDecodeQueue? decodeQueue,
+  }) : decodes = decodeQueue ?? ArtworkDecodeQueue(),
+       _ownsDecodes = decodeQueue == null,
+       cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
   final SourceRepository sources;
+  final ArtworkDecodeQueue decodes;
+  final bool _ownsDecodes;
   final EmbyConnectionRepository connections;
   final Future<Directory> Function() cacheDirectory;
   final int maxImageBytes, maxImageFiles;
@@ -74,7 +82,9 @@ class EmbyCacheRepository {
   final _images = <String, Future<Uint8List>>{};
   final _queue = <VideoCacheTask>[];
   bool _draining = false, _disposed = false;
-  final _imageWaiters = <Completer<void>>[];
+  final _imageWaiters = <({String key, Completer<void> ready})>[];
+  final _imagePriorities = <String, ArtworkPriority>{};
+  int? _lastImageSweep;
   int _imageActive = 0;
   final _imageCancellations = <ScanCancellation>{};
   final _imageFailures = <String, ({int until, int attempts})>{};
@@ -134,6 +144,7 @@ class EmbyCacheRepository {
     int index = 0,
     int? width,
     int revision = 0,
+    ArtworkPriority priority = ArtworkPriority.visible,
   }) {
     // Successful source sync/detail refresh supplies a persisted timestamp.
     // Separate generations also prevent a late old request replacing new art;
@@ -146,11 +157,15 @@ class EmbyCacheRepository {
       width ?? (backdrop ? 1280 : 700),
       revision,
     ]);
+    if (priority.index > (_imagePriorities[key]?.index ?? -1)) {
+      _imagePriorities[key] = priority;
+    }
     return _images.putIfAbsent(
       key,
       () => _artwork(key, sourceId, itemId, backdrop, index, width)
           .whenComplete(() {
             _images.remove(key);
+            _imagePriorities.remove(key);
           }),
     );
   }
@@ -164,6 +179,7 @@ class EmbyCacheRepository {
     int? width,
   ) async {
     Directory? root;
+    var replacing = false;
     try {
       root = await imageRoot();
       final row = await sources.database
@@ -173,6 +189,7 @@ class EmbyCacheRepository {
           )
           .getSingleOrNull();
       if (row != null && _token(row.read<String>('filename'))) {
+        replacing = true;
         final file = File(p.join(root.path, row.read<String>('filename')));
         if (await FileSystemEntity.type(file.path, followLinks: false) ==
                 FileSystemEntityType.file &&
@@ -194,7 +211,7 @@ class EmbyCacheRepository {
     }
     if (_imageActive >= 4) {
       final waiter = Completer<void>();
-      _imageWaiters.add(waiter);
+      _imageWaiters.add((key: key, ready: waiter));
       await waiter.future;
     } else {
       _imageActive++;
@@ -239,7 +256,7 @@ class EmbyCacheRepository {
             ''',
               [key, sourceId, filename, bytes.length, _now()],
             );
-            await _pruneImages(root!);
+            await _pruneImages(root!, force: replacing);
           });
         } catch (_) {
           if (await temporary.exists()) await temporary.delete();
@@ -260,19 +277,30 @@ class EmbyCacheRepository {
     } finally {
       _imageCancellations.remove(cancellation);
       if (_imageWaiters.isNotEmpty) {
-        _imageWaiters.removeAt(0).complete();
+        // Stable order within a priority; visible detail images overtake queued
+        // posters. Reusing a queued image also promotes that same request.
+        var next = 0;
+        for (var i = 1; i < _imageWaiters.length; i++) {
+          if ((_imagePriorities[_imageWaiters[i].key]?.index ?? 0) >
+              (_imagePriorities[_imageWaiters[next].key]?.index ?? 0)) {
+            next = i;
+          }
+        }
+        _imageWaiters.removeAt(next).ready.complete();
       } else {
         _imageActive--;
       }
     }
   }
 
-  Future<void> _validateImage(Uint8List bytes) async {
+  Future<void> _validateImage(Uint8List bytes) => decodes.run(() async {
     if (bytes.length > 24 * 1024 * 1024) throw const SourceFailure('封面过大。');
     final codec = await ui.instantiateImageCodec(
       bytes,
-      targetWidth: 700,
-      targetHeight: 1050,
+      // Validate the encoded frame without allocating a second poster-sized
+      // bitmap. The display pipeline performs the actual sized decode.
+      targetWidth: 1,
+      targetHeight: 1,
     );
     try {
       final frame = await codec.getNextFrame();
@@ -280,9 +308,23 @@ class EmbyCacheRepository {
     } finally {
       codec.dispose();
     }
-  }
+  });
 
-  Future<void> _pruneImages(Directory root) async {
+  Future<void> _pruneImages(Directory root, {bool force = false}) async {
+    // Keep the exact budget, but don't enumerate thousands of files while
+    // holding the database write lock after every downloaded thumbnail.
+    final size = await sources.database
+        .customSelect(
+          'SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM artwork_disk_cache',
+        )
+        .getSingle();
+    if (!force &&
+        size.read<int>('count') <= maxImageFiles &&
+        size.read<int>('bytes') <= maxImageBytes &&
+        _lastImageSweep != null &&
+        _now() - _lastImageSweep! < 60000) {
+      return;
+    }
     final rows = await sources.database
         .customSelect(
           'SELECT * FROM artwork_disk_cache ORDER BY accessed_at DESC',
@@ -315,14 +357,15 @@ class EmbyCacheRepository {
         }
       }
     }
+    _lastImageSweep = _now();
   }
 
   Future<void> prewarm(Iterable<IndexedMedia> items, {int revision = 0}) async {
-    // Same key/size as visible posters; four workers rather than an unbounded
-    // Future list for thousands of entries. Playback never waits for warming.
+    // One background worker leaves three download slots for current pages.
+    // Same key/size as visible posters, so foreground requests can reuse work.
     final iterator = items.where((i) => i.posterPath != null).iterator;
     await Future.wait(
-      List.generate(4, (_) async {
+      List.generate(1, (_) async {
         while (!_disposed && iterator.moveNext()) {
           final item = iterator.current;
           try {
@@ -330,6 +373,7 @@ class EmbyCacheRepository {
               item.identity.sourceId,
               item.posterPath!,
               revision: revision,
+              priority: ArtworkPriority.background,
             );
           } catch (_) {}
         }
@@ -337,9 +381,17 @@ class EmbyCacheRepository {
     );
   }
 
-  Future<List<CachedVideo>> entries() async {
+  Future<List<CachedVideo>> entries({MediaIdentity? identity}) async {
     final rows = await sources.database
-        .customSelect('SELECT * FROM video_disk_cache')
+        .customSelect(
+          'SELECT * FROM video_disk_cache${identity == null ? '' : ' WHERE source_id = ? AND local_id = ?'}',
+          variables: [
+            if (identity != null) ...[
+              Variable(identity.sourceId),
+              Variable(identity.localId),
+            ],
+          ],
+        )
         .get();
     if (rows.isEmpty) return [];
     final root = await videoRoot();
@@ -433,14 +485,13 @@ class EmbyCacheRepository {
   }
 
   Future<({String path, String lease})?> acquire(MediaIdentity id) async {
-    final cached = (await entries()).where((e) => e.identity == id).firstOrNull;
+    final cached = (await entries(identity: id)).firstOrNull;
     if (cached == null) return null;
     final root = await videoRoot();
     return sources.database.transaction(() async {
       await _writeLock();
-      if (!(await entries()).any(
-        (e) => e.identity == id && e.bundle == cached.bundle,
-      )) {
+      if (!(await entries(identity: id))
+          .any((e) => e.identity == id && e.bundle == cached.bundle)) {
         return null;
       }
       if (!_token(cached.bundle) ||
@@ -476,9 +527,7 @@ class EmbyCacheRepository {
 
   Future<void> enqueue(IndexedMedia item, EmbyVideoQuality quality) async {
     final items = item.isSeries
-        ? (await sources.indexedSource(item.identity.sourceId))
-              .where((i) => i.parentId == item.identity.localId)
-              .toList()
+        ? await sources.indexedChildren(item.identity)
         : [item];
     for (final candidate in items) {
       if (candidate.remote == null ||
@@ -969,7 +1018,7 @@ class EmbyCacheRepository {
       task.cancellation.cancel();
     }
     for (final waiter in _imageWaiters) {
-      if (!waiter.isCompleted) waiter.complete();
+      if (!waiter.ready.isCompleted) waiter.ready.complete();
     }
     _imageWaiters.clear();
     await Future.wait(
@@ -984,6 +1033,7 @@ class EmbyCacheRepository {
         } catch (_) {}
       }),
     );
+    if (_ownsDecodes) decodes.dispose();
     tasks.dispose();
   }
 }

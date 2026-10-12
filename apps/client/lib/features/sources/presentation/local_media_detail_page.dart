@@ -16,10 +16,12 @@ import '../../playback/presentation/video_player_page.dart'
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
 import 'emby_media_actions.dart';
+import 'emby_video_context_menu.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
 import 'emby_detail_extras.dart';
 import 'emby_cache_actions.dart';
+import '../../library/presentation/local_video_actions.dart';
 
 /// Local-data counterpart of DetailView.swift / EpisodeListView.swift.
 /// Playback delegates to the independent window; extras and native material
@@ -133,11 +135,15 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                           source: source,
                           item: item,
                           detail: extras?.asData?.value.detail,
-                          artworkRevision: extras
-                              ?.asData
-                              ?.value
-                              .fetchedAt
-                              .millisecondsSinceEpoch,
+                          // Reading metadata is not an artwork invalidation.
+                          // Explicit refresh still fetches a new generation.
+                          artworkRevision: _detailRefresh == 0
+                              ? null
+                              : extras
+                                    ?.asData
+                                    ?.value
+                                    .fetchedAt
+                                    .millisecondsSinceEpoch,
                         ),
                       ),
                       if (extras != null)
@@ -189,6 +195,10 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
   }
 
   List<Widget> _series(MediaSource source, IndexedMedia item) {
+    final foreground =
+        source.kind == MediaSourceKind.emby && source.lastScan == null
+        ? ref.watch(embySeriesEpisodesProvider(item.identity))
+        : null;
     final result = ref.watch(sourceSeasonsProvider(item.identity));
     return result.when(
       loading: () => [_inset(const LinearProgressIndicator())],
@@ -210,6 +220,15 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
         final count = seasons.fold<int>(0, (n, s) => n + s.episodeCount);
         final grouped = seasons.length > 1;
         return [
+          if (foreground?.isLoading == true) _inset(const Text('正在读取服务端剧集…')),
+          if (foreground?.hasError == true)
+            _inset(
+              TextButton(
+                onPressed: () =>
+                    ref.invalidate(embySeriesEpisodesProvider(item.identity)),
+                child: const Text('剧集读取失败，重试'),
+              ),
+            ),
           _inset(
             Row(
               children: [
@@ -337,7 +356,9 @@ class _DetailHero extends StatelessWidget {
                         ),
                       ),
                       if (source.kind == MediaSourceKind.emby)
-                        EmbyMediaActions(item: item, favoriteOnly: true),
+                        EmbyMediaActions(item: item, favoriteOnly: true)
+                      else if (source.kind.isFileSource)
+                        LocalVideoActions(identity: item.identity),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -597,11 +618,7 @@ class _EpisodeRow extends ConsumerWidget {
       }
     }
 
-    return GestureDetector(
-      onSecondaryTapDown: source.kind == MediaSourceKind.emby
-          ? (details) =>
-                showEmbyEpisodeMenu(context, ref, item, details.globalPosition)
-          : null,
+    final row = GestureDetector(
       onDoubleTap:
           source.kind.isFileSource || source.kind == MediaSourceKind.emby
           ? () {
@@ -718,6 +735,9 @@ class _EpisodeRow extends ConsumerWidget {
         ),
       ),
     );
+    return source.kind == MediaSourceKind.emby
+        ? EmbyVideoContextMenu(item: item, child: row)
+        : row;
   }
 }
 
@@ -737,6 +757,7 @@ class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
     try {
       var identity = widget.item.identity;
       if (widget.item.isSeries) {
+        await prepareEmbySeries(ref, [identity]);
         final repository = ref.read(sourceRepositoryProvider);
         final seasons = await repository.seasons(identity);
         if (seasons.isEmpty) throw const SourceFailure('此媒体没有可播放文件。');

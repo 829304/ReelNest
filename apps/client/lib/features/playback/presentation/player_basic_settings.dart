@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../application/playback_session.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_queue.dart';
@@ -99,13 +100,15 @@ class PlayerBasicSettings extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: Slider(
-                      value: value.launchVolume,
-                      min: 0,
-                      max: 100,
-                      label: '${value.launchVolume.round()}%',
-                      onChanged: (v) =>
-                          change((o) => o.copyWith(launchVolume: v)),
+                    child: SliderOverlayScope(
+                      child: Slider(
+                        value: value.launchVolume,
+                        min: 0,
+                        max: 100,
+                        label: '${value.launchVolume.round()}%',
+                        onChanged: (v) =>
+                            change((o) => o.copyWith(launchVolume: v)),
+                      ),
                     ),
                   ),
                   Text(
@@ -313,20 +316,22 @@ class _PlayerSpeedControlState extends State<PlayerSpeedControl> {
               spacing: 9,
               children: [
                 Expanded(
-                  child: Slider(
-                    value: value,
-                    min: .5,
-                    max: 3,
-                    onChangeStart: (v) => setState(() => _drag = v),
-                    onChanged: (v) {
-                      final speed = snap(v);
-                      setState(() => _drag = speed);
-                      unawaited(widget.session.rate(speed, remember: false));
-                    },
-                    onChangeEnd: (v) async {
-                      await widget.session.rate(snap(v));
-                      if (mounted) setState(() => _drag = null);
-                    },
+                  child: SliderOverlayScope(
+                    child: Slider(
+                      value: value,
+                      min: .5,
+                      max: 3,
+                      onChangeStart: (v) => setState(() => _drag = v),
+                      onChanged: (v) {
+                        final speed = snap(v);
+                        setState(() => _drag = speed);
+                        unawaited(widget.session.rate(speed, remember: false));
+                      },
+                      onChangeEnd: (v) async {
+                        await widget.session.rate(snap(v));
+                        if (mounted) setState(() => _drag = null);
+                      },
+                    ),
                   ),
                 ),
                 SizedBox(

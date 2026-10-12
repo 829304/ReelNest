@@ -26,8 +26,11 @@ class ScanFileProcessed extends SourceScanEvent {
   final String? error;
 }
 
+enum SourceScanPhase { reading, persisting }
+
 class SourceScanProgress {
   const SourceScanProgress({
+    this.phase = SourceScanPhase.reading,
     this.totalFiles = 0,
     this.processedFiles = 0,
     this.importedItems = 0,
@@ -36,6 +39,7 @@ class SourceScanProgress {
     this.errors = const [],
   });
   final int totalFiles;
+  final SourceScanPhase phase;
   final int processedFiles;
   final int importedItems;
   final int skippedFiles;

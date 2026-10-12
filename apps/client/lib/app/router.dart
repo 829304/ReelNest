@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/home/presentation/home_page.dart';
+import '../features/home/presentation/home_collection_page.dart';
+import '../features/home/domain/home_snapshot.dart';
+import '../features/home/presentation/home_detail_page.dart';
 import '../features/health/presentation/library_health_page.dart';
 import '../features/library/presentation/library_page.dart';
 import '../features/library/presentation/browse_page.dart';
@@ -36,7 +39,51 @@ GoRouter createRouter({
       branches: [
         StatefulShellBranch(
           routes: [
-            GoRoute(path: '/', builder: (context, state) => const HomePage()),
+            GoRoute(
+              path: '/',
+              builder: (context, state) => const HomePage(),
+              routes: [
+                GoRoute(
+                  path: 'home/collection/:collection',
+                  builder: (context, state) {
+                    final collection = HomeCollection.values
+                        .where(
+                          (c) => c.name == state.pathParameters['collection'],
+                        )
+                        .firstOrNull;
+                    return collection == null
+                        ? const Center(child: Text('首页分类无效。'))
+                        : HomeCollectionPage(
+                            key: state.pageKey,
+                            collection: collection,
+                          );
+                  },
+                ),
+                GoRoute(
+                  path: 'home/media/:sourceId/:mediaKey',
+                  builder: (context, state) {
+                    try {
+                      final localId = utf8.decode(
+                        base64Url.decode(
+                          base64Url.normalize(
+                            state.pathParameters['mediaKey']!,
+                          ),
+                        ),
+                      );
+                      return HomeDetailPage(
+                        key: state.pageKey,
+                        identity: (
+                          sourceId: state.pathParameters['sourceId']!,
+                          localId: localId,
+                        ),
+                      );
+                    } on FormatException {
+                      return const Center(child: Text('媒体地址无效。'));
+                    }
+                  },
+                ),
+              ],
+            ),
           ],
         ),
         StatefulShellBranch(

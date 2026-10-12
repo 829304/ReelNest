@@ -8,7 +8,9 @@ import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../application/emby_library_providers.dart';
 import '../application/source_providers.dart';
+import '../application/emby_providers.dart';
 import '../domain/emby_library.dart';
+import 'source_alias_dialog.dart';
 
 class EmbySidebar extends ConsumerStatefulWidget {
   const EmbySidebar({super.key});
@@ -19,7 +21,10 @@ class EmbySidebar extends ConsumerStatefulWidget {
 class _EmbySidebarState extends ConsumerState<EmbySidebar> {
   static const _key = 'library.collapsedEmbySources';
   Set<String> _collapsed = {};
+  Set<String> _savedCollapsed = {};
   bool _ready = false;
+  Future<void> _pendingSave = Future.value();
+  int _toggleRevision = 0;
   @override
   void initState() {
     super.initState();
@@ -33,6 +38,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
                   ? {}
                   : (jsonDecode(value) as List).cast<String>().toSet();
               _ready = true;
+              _savedCollapsed = {..._collapsed};
             });
           }
         })
@@ -44,13 +50,23 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
   Future<void> _toggle(String id) async {
     final next = {..._collapsed};
     if (!next.remove(id)) next.add(id);
+    final revision = ++_toggleRevision;
+    setState(() => _collapsed = next);
+    final repository = ref.read(embyLibraryRepositoryProvider);
+    // Apply the interaction now; serialize persistence so rapid toggles cannot
+    // leave an older value on disk after a newer one.
+    final save = _pendingSave.then((_) async {
+      await repository.savePreference(_key, jsonEncode(next.toList()));
+      _savedCollapsed = next;
+    });
+    _pendingSave = save.catchError((Object _) {});
     try {
-      await ref
-          .read(embyLibraryRepositoryProvider)
-          .savePreference(_key, jsonEncode(next.toList()));
-      if (mounted) setState(() => _collapsed = next);
+      await save;
     } catch (_) {
       if (mounted) {
+        if (revision == _toggleRevision) {
+          setState(() => _collapsed = {..._savedCollapsed});
+        }
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('侧栏状态保存失败，请重试。')));
       }
@@ -58,27 +74,18 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
   }
 
   Future<void> _rename(MediaSource source) async {
-    final title = await showDialog<String>(
-      context: context,
-      builder: (_) => _RenameSourceDialog(name: source.name),
+    await showSourceAliasDialog(
+      context,
+      source: source,
+      repository: ref.read(sourceRepositoryProvider),
     );
-    if (title == null || !mounted) return;
-    try {
-      await ref
-          .read(sourceRepositoryProvider)
-          .updateSettings(source.id, name: title);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(sourceErrorMessage(error))));
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final sources = ref.watch(sourcesProvider);
+    final sources = ref.watch(sidebarSourcesProvider);
     return sources.when(
+      skipLoadingOnReload: true,
       loading: () => const SizedBox.shrink(),
       error: (_, _) => const Padding(
         padding: EdgeInsets.all(10),
@@ -96,19 +103,30 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
   }
 
   Widget _group(MediaSource source) {
-    final snapshot = ref.watch(embyVideoSnapshotProvider(source.id));
+    final catalog = ref.watch(embyBrowseCatalogProvider(source.id));
+    final sections = ref.watch(embySidebarSectionsProvider(source.id));
     final expanded = !_collapsed.contains(source.id);
     final rows =
         <({String label, IconData icon, EmbyVideoDestination destination})>[];
-    final data = snapshot.asData?.value;
-    if (data != null) {
+    final selected = source.options.selectedEmbyLibraryIDs;
+    final libraries =
+        (catalog.value ?? [])
+            .where(
+              (view) =>
+                  (selected.isEmpty || selected.contains(view.id)) &&
+                  view.collectionType?.toLowerCase() != 'music',
+            )
+            .toList()
+          ..sort((a, b) => libraryTitleCompare(a.name, b.name));
+    {
       for (final section in EmbyVideoSection.values) {
         final destination = (
           sourceId: source.id,
           section: section,
           libraryId: null as String?,
         );
-        if (data.scope(destination).isNotEmpty) {
+        if ((sections.value?.contains(section) ?? false) ||
+            (section == EmbyVideoSection.videos && libraries.isNotEmpty)) {
           rows.add((
             label: section.label,
             icon: switch (section) {
@@ -120,7 +138,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
           ));
         }
       }
-      for (final view in data.libraries) {
+      for (final view in libraries) {
         rows.add((
           label: view.name,
           icon: Icons.video_library_outlined,
@@ -163,7 +181,14 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.dns_outlined, size: 22),
+                  Image.asset(
+                    'assets/brands/emby.png',
+                    key: ValueKey('emby-source-logo-${source.id}'),
+                    width: 22,
+                    height: 22,
+                    fit: BoxFit.contain,
+                    excludeFromSemantics: true,
+                  ),
                   const SizedBox(width: 11),
                   Expanded(
                     child: Text(
@@ -176,7 +201,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
                       ),
                     ),
                   ),
-                  if (!expanded)
+                  if (!expanded && catalog.hasValue && sections.hasValue)
                     Text(
                       '${rows.length}',
                       style: const TextStyle(fontSize: 11),
@@ -190,10 +215,12 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
             ),
           ),
           if (expanded) ...[
-            if (snapshot.hasError)
+            if (sections.hasError || catalog.hasError)
               TextButton(
-                onPressed: () =>
-                    ref.invalidate(embyVideoSnapshotProvider(source.id)),
+                onPressed: () {
+                  ref.invalidate(embyBrowseCatalogProvider(source.id));
+                  ref.invalidate(embySidebarSectionsProvider(source.id));
+                },
                 child: const Text('库目录读取失败，重试'),
               ),
             for (final row in rows)
@@ -258,40 +285,4 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
       ),
     );
   }
-}
-
-class _RenameSourceDialog extends StatefulWidget {
-  const _RenameSourceDialog({required this.name});
-  final String name;
-  @override
-  State<_RenameSourceDialog> createState() => _RenameSourceDialogState();
-}
-
-class _RenameSourceDialogState extends State<_RenameSourceDialog> {
-  late final _controller = TextEditingController(text: widget.name);
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('重命名'),
-    content: TextField(
-      controller: _controller,
-      autofocus: true,
-      onSubmitted: (value) => Navigator.pop(context, value),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
-      ),
-      TextButton(
-        onPressed: () => Navigator.pop(context, _controller.text),
-        child: const Text('保存'),
-      ),
-    ],
-  );
 }

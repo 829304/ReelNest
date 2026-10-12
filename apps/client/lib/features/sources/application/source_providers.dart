@@ -41,6 +41,12 @@ final sourcesProvider = FutureProvider<List<MediaSource>>((ref) {
   return ref.watch(sourceRepositoryProvider).sources();
 });
 
+// Navigation needs source configuration, not aggregate media counts.
+final sidebarSourcesProvider = FutureProvider<List<MediaSource>>((ref) {
+  ref.watch(sourceChangesProvider);
+  return ref.watch(sourceRepositoryProvider).sources(includeCounts: false);
+});
+
 final sourceReachabilityProvider = FutureProvider<Map<String, bool>>((
   ref,
 ) async {

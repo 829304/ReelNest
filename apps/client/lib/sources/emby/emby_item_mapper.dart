@@ -3,15 +3,9 @@ import '../../api/emby/emby_item.dart';
 import '../../api/emby/emby_detail.dart';
 import '../../domain/media_source.dart';
 import '../../domain/remote_media_metadata.dart';
+import '../../domain/remote_media_policy.dart';
 
 /// EmbyService.mediaItem/syntheticSeriesParents; never stores authenticated URLs.
-double? _providerRating(Object? value) {
-  final rating = (value as num?)?.toDouble();
-  return rating != null && rating.isFinite && rating > 0 && rating <= 10
-      ? rating
-      : null;
-}
-
 class EmbyItemMapper {
   const EmbyItemMapper(this.sourceId, this.modified);
   final String sourceId;
@@ -29,7 +23,10 @@ class EmbyItemMapper {
     final duration = dto.integer('RunTimeTicks');
     final technical = EmbyTechnicalInfo.fromSource(media, ticks: duration);
     final position = user['PlaybackPositionTicks'] as int? ?? 0;
-    final rating = _providerRating(dto.data['CommunityRating']);
+    final percentage = (user['PlayedPercentage'] as num?)?.toDouble();
+    final rating = RemoteRatingPolicy.normalizedProviderRating(
+      dto.data['CommunityRating'] as num?,
+    );
     final parent = dto.type == 'episode'
         ? dto.text('SeriesId') ?? dto.text('ParentId')
         : null;
@@ -52,13 +49,17 @@ class EmbyItemMapper {
         externalId: dto.id,
         libraryId: library?.id,
         libraryName: library?.name,
+        collectionType: library?.collectionType,
         durationMs: duration == null
             ? null
             : (duration ~/ 10000).clamp(0, 1 << 53),
         positionMs: (position ~/ 10000).clamp(0, 1 << 53),
+        playedPercentage: percentage?.isFinite == true
+            ? percentage!.clamp(0, 100)
+            : null,
         watched: user['Played'] as bool? ?? false,
         favorite: user['IsFavorite'] as bool? ?? false,
-        rating: rating == null || !rating.isFinite ? null : rating.clamp(0, 10),
+        rating: rating,
         artist: (dto.data['Artists'] as List?)?.firstOrNull as String?,
         album: dto.text('Album'),
         genres: List.unmodifiable(
@@ -92,7 +93,13 @@ class EmbyItemMapper {
         externalId: id,
         libraryId: library?.id,
         libraryName: library?.name,
-        rating: _providerRating(episode.data['CommunityRating']),
+        collectionType: library?.collectionType,
+        genres: List.unmodifiable(
+          (episode.data['Genres'] as List?)?.cast<String>() ?? const <String>[],
+        ),
+        rating: RemoteRatingPolicy.normalizedProviderRating(
+          episode.data['CommunityRating'] as num?,
+        ),
       ),
     );
   }

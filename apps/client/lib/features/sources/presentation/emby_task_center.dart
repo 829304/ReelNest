@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../domain/source_scan.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
@@ -155,7 +156,12 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
                         ? '已取消'
                         : '已完成',
                     detail: entry.value.busy
-                        ? '已处理 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                        ? entry.value.progress.phase ==
+                                  SourceScanPhase.persisting
+                              ? '正在入库 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                              : entry.value.progress.totalFiles > 0
+                              ? '已处理 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                              : '已读取 ${entry.value.progress.processedFiles} 个媒体条目'
                         : entry.value.message ?? '操作已结束',
                     active: entry.value.busy,
                     progress: entry.value.progress.totalFiles == 0

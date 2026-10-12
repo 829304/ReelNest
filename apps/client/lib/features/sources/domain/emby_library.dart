@@ -110,6 +110,8 @@ class VideoLibraryEntry {
     this.watchlist = false,
     this.userRating,
     this.searchTerms = const [],
+    this.reportedProgress,
+    this.episodePlayback = const [],
   });
   final IndexedMedia item;
   final PlaybackRecord record;
@@ -117,15 +119,55 @@ class VideoLibraryEntry {
   final bool watchlist;
   final double? userRating;
   final List<String?> searchTerms;
+  final double? reportedProgress;
+
+  /// Read-only projection; never write an episode position into its parent.
+  final List<PlaybackRecord> episodePlayback;
   double get progress {
     final duration = record.duration.inMilliseconds;
-    if (duration <= 0) return 0;
+    if (duration <= 0) return (reportedProgress ?? 0).clamp(0, 1);
     return (record.position.inMilliseconds / duration).clamp(0, 1);
   }
 
   bool watched(double threshold) => record.watched || progress >= threshold;
   bool get hasTrace =>
-      record.position > Duration.zero || record.lastPlayedAt != null;
+      record.position > Duration.zero ||
+      record.lastPlayedAt != null ||
+      progress > 0 ||
+      record.watched;
+
+  bool isWatching(double threshold) {
+    if (record.watched) return false;
+    if (item.isSeries && episodePlayback.isNotEmpty) {
+      var trace = false, remaining = false;
+      for (final episode in episodePlayback) {
+        final duration = episode.duration.inMilliseconds;
+        final progress = duration > 0
+            ? episode.position.inMilliseconds / duration
+            : 0.0;
+        trace |=
+            episode.watched ||
+            episode.position > Duration.zero ||
+            episode.lastPlayedAt != null;
+        remaining |= !episode.watched && progress < threshold;
+      }
+      if (!remaining) return false;
+      if (trace) return true;
+    }
+    return hasTrace && !watched(threshold);
+  }
+
+  VideoLibraryEntry withEpisodePlayback(List<PlaybackRecord> records) =>
+      VideoLibraryEntry(
+        item: item,
+        record: record,
+        createdAt: createdAt,
+        watchlist: watchlist,
+        userRating: userRating,
+        searchTerms: searchTerms,
+        reportedProgress: reportedProgress,
+        episodePlayback: List.unmodifiable(records),
+      );
 }
 
 /// PinyinSearchMatcher's substring/full-pinyin/initial matching. No network or
@@ -184,7 +226,7 @@ List<VideoLibraryEntry> filterVideoLibrary(
   final result = scoped.where((e) {
     final matched = switch (settings.filter) {
       LibraryWatchFilter.all => true,
-      LibraryWatchFilter.watching => e.hasTrace && !e.watched(threshold),
+      LibraryWatchFilter.watching => e.isWatching(threshold),
       LibraryWatchFilter.unwatched => !e.watched(threshold),
       LibraryWatchFilter.watched => e.watched(threshold),
       LibraryWatchFilter.watchlist => e.watchlist,

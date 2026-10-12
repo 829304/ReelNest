@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../../domain/media_source.dart';
@@ -19,10 +21,13 @@ class PlaybackRepository {
   }
 
   Future<Map<MediaIdentity, PlaybackRecord>> readMany(
-    Iterable<MediaIdentity> identities,
-  ) async {
+    Iterable<MediaIdentity> identities, {
+    Map<MediaIdentity, PlaybackRecord> fallbacks = const {},
+  }) async {
     final ids = identities.toSet().toList();
-    final result = {for (final id in ids) id: PlaybackRecord(identity: id)};
+    final result = {
+      for (final id in ids) id: fallbacks[id] ?? PlaybackRecord(identity: id),
+    };
     for (var start = 0; start < ids.length; start += 200) {
       final batch = ids.skip(start).take(200).toList();
       final rows = await database
@@ -87,11 +92,40 @@ class PlaybackRepository {
         }
       });
 
+  String _epochKey(MediaIdentity id) =>
+      'playback.history.epoch.${jsonEncode([id.sourceId, id.localId])}';
+
+  Future<String> historyEpoch(MediaIdentity id) async =>
+      (await database
+              .customSelect(
+                'SELECT value FROM player_preferences WHERE key = ?',
+                variables: [Variable(_epochKey(id))],
+              )
+              .getSingleOrNull())
+          ?.read<String>('value') ??
+      '';
+
+  /// A delayed checkpoint from an already open player cannot restore a trace
+  /// cleared by a different window. Keep this marker in the existing prefs store.
+  Future<void> clearHistory(Iterable<MediaIdentity> identities) =>
+      database.transaction(() async {
+        final ids = identities.toSet();
+        for (final id in ids) {
+          final epoch = (int.tryParse(await historyEpoch(id)) ?? 0) + 1;
+          await database.customStatement(
+            'INSERT INTO player_preferences(key,value) VALUES (?,?) '
+            'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+            [_epochKey(id), '$epoch'],
+          );
+        }
+        await markWatched(ids, false);
+      });
   Future<void> save(
     MediaIdentity identity, {
     required Duration position,
     required Duration duration,
     DateTime? playedAt,
+    String? historyEpoch,
     bool autoMarkWatched = true,
     double watchedThreshold = .9,
   }) async {
@@ -99,6 +133,10 @@ class PlaybackRepository {
     if (duration <= Duration.zero || position < Duration.zero) return;
     final progress = position.inMilliseconds / duration.inMilliseconds;
     await database.transaction(() async {
+      if (historyEpoch != null &&
+          historyEpoch != await this.historyEpoch(identity)) {
+        return;
+      }
       final updatedAt =
           (playedAt ?? DateTime.now().toUtc()).millisecondsSinceEpoch;
       await database.customStatement(

@@ -7,6 +7,7 @@ import '../../../api/emby/emby_detail.dart';
 import '../../../domain/media_source.dart';
 import 'emby_connection_repository.dart';
 import 'source_repository.dart';
+import 'emby_browse_repository.dart';
 
 class EmbyDetailSnapshot {
   const EmbyDetailSnapshot(this.detail, this.fetchedAt, {this.refreshError});
@@ -28,6 +29,16 @@ class EmbyDetailRepository {
   final EmbyConnectionRepository connections;
   final DateTime Function() now;
   final Duration timeout;
+  // Session-only first paint; every visit still refreshes from the server.
+  final _personSnapshots =
+      <
+        ({String sourceId, String personKey}),
+        ({String scope, List<IndexedMedia> items})
+      >{};
+  String _scope(MediaSource source) => jsonEncode([
+    source.options.toJson(),
+    source.lastScan?.millisecondsSinceEpoch,
+  ]);
   Future<EmbyDetailSnapshot?> read(MediaIdentity id) async {
     final row = await sources.database
         .customSelect(
@@ -58,7 +69,8 @@ class EmbyDetailRepository {
     final token = cancellation ?? ScanCancellation();
     token.check();
     final item = await sources.media(id);
-    if ((await sources.source(id.sourceId)).kind != MediaSourceKind.emby) {
+    if ((await sources.source(id.sourceId, includeCounts: false)).kind !=
+        MediaSourceKind.emby) {
       throw const SourceFailure('此来源不支持 Emby 详情。');
     }
     final cached = await read(id);
@@ -122,30 +134,95 @@ class EmbyDetailRepository {
     }
   }
 
+  /// Query the server, not just the credits of previously opened details.
+  Future<List<IndexedMedia>> personWorks(
+    String sourceId,
+    String personKey, {
+    ScanCancellation? cancellation,
+  }) => personWorkPages(sourceId, personKey, cancellation: cancellation).last;
+
+  /// Publish each validated page without waiting for unrelated libraries. Each
+  /// emission is a new, sorted snapshot; later failures never erase prior pages.
+  Stream<List<IndexedMedia>> personWorkPages(
+    String sourceId,
+    String personKey, {
+    ScanCancellation? cancellation,
+  }) async* {
+    final token = cancellation ?? ScanCancellation();
+    final cursor = await EmbyBrowseRepository(
+      sources,
+      connections,
+    ).open(sourceId, personKey: personKey, cancellation: token);
+    final items = <String, IndexedMedia>{};
+    List<IndexedMedia> sorted() => items.values.toList()
+      ..sort((a, b) {
+        final year = (b.year ?? 0).compareTo(a.year ?? 0);
+        return year != 0 ? year : a.title.compareTo(b.title);
+      });
+    var emitted = false;
+    while (cursor.hasMore) {
+      for (final item in await cursor.next()) {
+        items[item.identity.localId] = item;
+      }
+      token.check();
+      if (items.isNotEmpty) {
+        emitted = true;
+        yield sorted();
+      }
+    }
+    token.check();
+    if (items.length <= 1000) {
+      final key = (sourceId: sourceId, personKey: personKey);
+      _personSnapshots.remove(key);
+      _personSnapshots[key] = (scope: _scope(cursor.source), items: sorted());
+      if (_personSnapshots.length > 16) {
+        _personSnapshots.remove(_personSnapshots.keys.first);
+      }
+    }
+    if (!emitted) yield [];
+  }
+
   /// Server identities cannot be joined across unrelated accounts. A person
   /// without an ID uses the same stable name key within this source.
-  Future<List<IndexedMedia>> personWorks(
+  Future<List<IndexedMedia>> cachedPersonWorks(
     String sourceId,
     String personKey,
   ) async {
+    final source = await sources.source(sourceId, includeCounts: false);
+    final key = (sourceId: sourceId, personKey: personKey);
+    final recent = _personSnapshots.remove(key);
+    if (recent != null && recent.scope == _scope(source)) {
+      _personSnapshots[key] = recent;
+      return List.of(recent.items);
+    }
     final rows = await sources.database
         .customSelect(
-          'SELECT local_id, value FROM remote_media_details WHERE source_id = ?',
-          variables: [Variable(sourceId)],
+          '''SELECT local_id FROM remote_media_details d
+             WHERE source_id = ? AND EXISTS (
+               SELECT 1 FROM json_each(d.value, '\$.people') p
+               WHERE json_extract(p.value, '\$.key') = ?
+             )''',
+          variables: [Variable(sourceId), Variable(personKey)],
         )
         .get();
+    final selected = source.options.selectedEmbyLibraryIDs;
     final result = <IndexedMedia>[];
+    final seen = <String>{};
     for (final row in rows) {
-      final detail = EmbyDetail.fromJson(
-        jsonDecode(row.read<String>('value')) as Map<String, dynamic>,
-      );
-      if (detail.people.any((p) => p.key == personKey)) {
-        result.add(
-          await sources.media((
-            sourceId: sourceId,
-            localId: row.read<String>('local_id'),
-          )),
-        );
+      var item = await sources.media((
+        sourceId: sourceId,
+        localId: row.read<String>('local_id'),
+      ));
+      if (item.parentId != null) {
+        item = await sources.media((
+          sourceId: sourceId,
+          localId: item.parentId!,
+        ));
+      }
+      if (item.type != 'music' &&
+          (selected.isEmpty || selected.contains(item.remote?.libraryId)) &&
+          seen.add(item.identity.localId)) {
+        result.add(item);
       }
     }
     result.sort((a, b) => (b.year ?? 0).compareTo(a.year ?? 0));

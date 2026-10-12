@@ -27,6 +27,7 @@ dependencies:
   media_kit_libs_video: 1.0.7
   desktop_multi_window: 0.3.1
   window_manager: 0.5.1
+  unorm_dart: 0.3.3
 
 dev_dependencies:
   flutter_test:

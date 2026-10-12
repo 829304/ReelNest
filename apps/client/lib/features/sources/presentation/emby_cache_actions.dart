@@ -13,9 +13,15 @@ import 'emby_offline_menu.dart';
 /// VideoCacheMenuItems' manual download/quality/remove operations. Series
 /// selections expand into their indexed episodes, retaining source identities.
 class EmbyCacheActions extends ConsumerWidget {
-  const EmbyCacheActions({required this.item, this.compact = false, super.key});
+  const EmbyCacheActions({
+    required this.item,
+    this.compact = false,
+    this.menuOnly = false,
+    super.key,
+  });
   final IndexedMedia item;
   final bool compact;
+  final bool menuOnly;
   Future<void> _run(
     BuildContext context,
     Future<void> Function() action,
@@ -73,6 +79,50 @@ class EmbyCacheActions extends ConsumerWidget {
             : entries.isEmpty
             ? '缓存到本地'
             : '已缓存 · ${entries.first.qualityLabel}';
+        if (menuOnly) {
+          final choices = options.isEmpty ? [EmbyVideoQuality.source] : options;
+          final label = entries.isEmpty ? '缓存到本地' : '重新缓存到本地';
+          Widget download(EmbyVideoQuality option, String text) =>
+              MenuItemButton(
+                onPressed: active || candidates.isEmpty
+                    ? null
+                    : () => unawaited(
+                        _run(context, () => repository.enqueue(item, option)),
+                      ),
+                child: Text(text),
+              );
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (choices.length == 1)
+                download(choices.first, label)
+              else
+                SubmenuButton(
+                  menuChildren: [
+                    for (final q in choices)
+                      download(q, '${q.label} · ${q.detail}'),
+                  ],
+                  child: Text(label),
+                ),
+              if (entries.isNotEmpty)
+                MenuItemButton(
+                  onPressed: () => unawaited(
+                    _run(context, () async {
+                      for (final entry in entries) {
+                        await repository.maintenance(remove: entry.identity);
+                      }
+                    }),
+                  ),
+                  child: const Text('删除缓存文件'),
+                ),
+              if (item.isSeries || item.parentId != null) ...[
+                const Divider(),
+                EmbyOfflineMenu(item: item, menuOnly: true),
+              ],
+            ],
+          );
+        }
         return Wrap(
           spacing: 4,
           runSpacing: 4,

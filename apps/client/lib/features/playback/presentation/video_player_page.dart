@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
@@ -133,17 +134,20 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     PlayerPanel panel,
     GlobalKey key,
     bool enabled,
-  ) => Tooltip(
-    message: label,
-    child: SizedBox(
-      key: key,
-      width: 27,
-      height: 30,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(),
-        onPressed: enabled ? () => unawaited(_panel(panel, key)) : null,
-        icon: PlayerSymbolIcon(symbol, color: _palette.primary),
+  ) => Semantics(
+    container: true,
+    child: Tooltip(
+      message: label,
+      child: SizedBox(
+        key: key,
+        width: 27,
+        height: 30,
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: enabled ? () => unawaited(_panel(panel, key)) : null,
+          icon: PlayerSymbolIcon(symbol, color: _palette.primary),
+        ),
       ),
     ),
   );
@@ -204,19 +208,22 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     VoidCallback? action, {
     double width = 27,
     Color? color,
-  }) => Tooltip(
-    message: label,
-    child: SizedBox(
-      width: width,
-      height: 30,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(),
-        onPressed: action,
-        icon: Icon(
-          icon,
-          size: 17,
-          color: color ?? Colors.white.withValues(alpha: .95),
+  }) => Semantics(
+    container: true,
+    child: Tooltip(
+      message: label,
+      child: SizedBox(
+        width: width,
+        height: 30,
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          onPressed: action,
+          icon: Icon(
+            icon,
+            size: 17,
+            color: color ?? Colors.white.withValues(alpha: .95),
+          ),
         ),
       ),
     ),
@@ -466,31 +473,33 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                               overlayRadius: 10,
                             ),
                           ),
-                          child: Slider(
-                            key: const ValueKey('video-timeline'),
-                            min: 0,
-                            max: duration > 0 ? duration : 1,
-                            value: position,
-                            onChangeStart: can
-                                ? (v) {
-                                    _show();
-                                    setState(() => _scrub = v);
-                                  }
-                                : null,
-                            onChanged: can
-                                ? (v) => setState(() => _scrub = v)
-                                : null,
-                            onChangeEnd: can
-                                ? (v) {
-                                    setState(() => _scrub = null);
-                                    unawaited(
-                                      session.seek(
-                                        Duration(milliseconds: v.toInt()),
-                                      ),
-                                    );
-                                    _show();
-                                  }
-                                : null,
+                          child: SliderOverlayScope(
+                            child: Slider(
+                              key: const ValueKey('video-timeline'),
+                              min: 0,
+                              max: duration > 0 ? duration : 1,
+                              value: position,
+                              onChangeStart: can
+                                  ? (v) {
+                                      _show();
+                                      setState(() => _scrub = v);
+                                    }
+                                  : null,
+                              onChanged: can
+                                  ? (v) => setState(() => _scrub = v)
+                                  : null,
+                              onChangeEnd: can
+                                  ? (v) {
+                                      setState(() => _scrub = null);
+                                      unawaited(
+                                        session.seek(
+                                          Duration(milliseconds: v.toInt()),
+                                        ),
+                                      );
+                                      _show();
+                                    }
+                                  : null,
+                            ),
                           ),
                         ),
                       ),

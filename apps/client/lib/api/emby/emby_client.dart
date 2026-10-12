@@ -396,6 +396,9 @@ class EmbyClient {
     String? parentId,
     required int start,
     int limit = 300,
+    bool videosOnly = false,
+    bool episodesOnly = false,
+    String? personKey,
     ScanCancellation? cancellation,
   }) async => EmbyItemPage.fromJson(
     await _request(
@@ -405,8 +408,22 @@ class EmbyClient {
       cancellation: cancellation,
       query: {
         'Recursive': 'true',
-        'IncludeItemTypes': 'Movie,Series,Episode,Audio',
-        'Fields': 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,MediaSources,ProviderIds,Genres',
+        'IncludeItemTypes': episodesOnly
+            ? 'Episode'
+            : videosOnly
+            ? personKey == null
+                  ? 'Movie,Series'
+                  : 'Movie,Series,Episode'
+            : 'Movie,Series,Episode,Audio',
+        if (videosOnly) 'SortBy': 'SortName',
+        if (videosOnly) 'SortOrder': 'Ascending',
+        if (personKey != null && !personKey.startsWith('name:'))
+          'PersonIds': personKey,
+        if (personKey != null && personKey.startsWith('name:'))
+          'Person': personKey.substring(5),
+        'Fields': videosOnly
+            ? 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,ProviderIds,Genres'
+            : 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,MediaSources,ProviderIds,Genres',
         'StartIndex': '$start',
         'Limit': '$limit',
         'ParentId': ?parentId,

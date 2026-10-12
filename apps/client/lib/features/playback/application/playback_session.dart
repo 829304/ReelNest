@@ -52,6 +52,7 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> Function()? waitForSurface;
   Future<void> _reports = Future.value();
   String? _playSessionId;
+  String _historyEpoch = '';
   bool _reportedStart = false;
   bool _progressPending = false;
   VideoClock? _pendingForcedProgress;
@@ -155,6 +156,7 @@ class PlaybackSession extends ChangeNotifier {
       String resource;
       String? localPath;
       String? nextCacheWarning;
+      final nextHistoryEpoch = await records.historyEpoch(identity);
       final record = await records.read(identity);
       final nextOptions = await preferences.options;
       final resume =
@@ -255,6 +257,7 @@ class PlaybackSession extends ChangeNotifier {
       engine = current;
       candidate = null;
       item = selected;
+      _historyEpoch = nextHistoryEpoch;
       filePath = localPath;
       cacheWarning = nextCacheWarning;
       _cacheLease = candidateLease;
@@ -527,15 +530,22 @@ class PlaybackSession extends ChangeNotifier {
       _reportedStart = false;
       _pendingForcedProgress = null;
     }
+    final epoch = _historyEpoch;
     final value = snapshot ?? clock;
     final next = _reports.then((_) async {
       try {
+        final cleared = epoch != await records.historyEpoch(selected.identity);
+        if (cleared && phase != EmbyPlaybackPhase.stopped) return;
         await emby!.reportPlayback(
           selected,
           playSessionId: sessionId,
           transcoding: !quality.original,
           phase: phase,
-          position: value.completed ? value.duration : value.position,
+          position: cleared
+              ? Duration.zero
+              : value.completed
+              ? value.duration
+              : value.position,
           duration: value.duration,
           paused: !value.playing,
         );
@@ -572,6 +582,7 @@ class PlaybackSession extends ChangeNotifier {
     final selected = item;
     final value = clock;
     final policy = options;
+    final epoch = _historyEpoch;
     if (!_hasClock || selected == null || value.duration <= Duration.zero) {
       return Future.value();
     }
@@ -583,6 +594,7 @@ class PlaybackSession extends ChangeNotifier {
               ? value.duration
               : value.position,
           duration: value.duration,
+          historyEpoch: epoch,
           autoMarkWatched: policy.autoMarkWatched,
           watchedThreshold: await preferences.watchedThreshold,
         );

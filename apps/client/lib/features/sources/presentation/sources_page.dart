@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
+import '../../../domain/source_scan.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/source_settings_draft.dart';
 import '../../../ui/widgets/page_content.dart';
@@ -16,6 +17,7 @@ import 'emby_sheets.dart';
 import '../application/emby_providers.dart';
 import 'source_page_sections.dart';
 import 'source_settings_sheet.dart';
+import 'source_alias_dialog.dart';
 
 class SourcesPage extends ConsumerStatefulWidget {
   const SourcesPage({super.key});
@@ -400,7 +402,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               ),
               Text(
                 source.kind == MediaSourceKind.emby
-                    ? '已读取 ${scan.progress.processedFiles} 个媒体条目'
+                    ? scan.progress.phase == SourceScanPhase.persisting
+                          ? '正在入库 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个媒体条目'
+                          : '已读取 ${scan.progress.processedFiles} 个媒体条目'
                     : '已处理 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个文件',
               ),
             ],
@@ -414,6 +418,18 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               spacing: 8,
               runSpacing: 8,
               children: [
+                OutlinedButton.icon(
+                  key: ValueKey('source-alias-${source.id}'),
+                  onPressed: _busy || scan.busy
+                      ? null
+                      : () => showSourceAliasDialog(
+                          context,
+                          source: source,
+                          repository: ref.read(sourceRepositoryProvider),
+                        ),
+                  icon: const Icon(Icons.edit_outlined, size: 17),
+                  label: const Text('设置别名'),
+                ),
                 FilledButton.tonal(
                   onPressed:
                       !source.kind.isFileSource &&

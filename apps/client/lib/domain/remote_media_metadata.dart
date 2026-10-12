@@ -4,8 +4,10 @@ class RemoteMediaMetadata {
     required this.externalId,
     this.libraryId,
     this.libraryName,
+    this.collectionType,
     this.durationMs,
     this.positionMs = 0,
+    this.playedPercentage,
     this.watched = false,
     this.favorite = false,
     this.rating,
@@ -21,9 +23,18 @@ class RemoteMediaMetadata {
     this.bitrate,
   });
   final String externalId;
-  final String? libraryId, libraryName, artist, album, mediaSourceId, container;
+  final String? libraryId,
+      libraryName,
+      collectionType,
+      artist,
+      album,
+      mediaSourceId,
+      container;
   final int? durationMs;
   final int positionMs;
+
+  /// Emby series often report a percentage without a runtime or position.
+  final double? playedPercentage;
   final bool watched, favorite;
   final double? rating;
   final List<String> genres;
@@ -34,8 +45,10 @@ class RemoteMediaMetadata {
     'externalId': externalId,
     'libraryId': libraryId,
     'libraryName': libraryName,
+    'collectionType': collectionType,
     'durationMs': durationMs,
     'positionMs': positionMs,
+    'playedPercentage': playedPercentage,
     'watched': watched,
     'favorite': favorite,
     'rating': rating,
@@ -55,8 +68,10 @@ class RemoteMediaMetadata {
         externalId: json['externalId'] as String,
         libraryId: json['libraryId'] as String?,
         libraryName: json['libraryName'] as String?,
+        collectionType: json['collectionType'] as String?,
         durationMs: json['durationMs'] as int?,
         positionMs: json['positionMs'] as int? ?? 0,
+        playedPercentage: (json['playedPercentage'] as num?)?.toDouble(),
         watched: json['watched'] as bool? ?? false,
         favorite: json['favorite'] as bool? ?? false,
         rating: (json['rating'] as num?)?.toDouble(),

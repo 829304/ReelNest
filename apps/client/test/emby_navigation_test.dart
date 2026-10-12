@@ -24,6 +24,8 @@ import 'package:reelnest/features/sources/data/emby_sync_repository.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/sources/domain/emby_library.dart';
 import 'package:reelnest/features/sources/presentation/local_media_artwork.dart';
+import 'package:reelnest/features/sources/presentation/local_media_detail_page.dart';
+import 'package:reelnest/features/sources/presentation/sources_page.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/storage/library_database.dart';
 
@@ -368,7 +370,7 @@ void main() {
       final after = (await library.snapshot(source.id)).entries.single;
       expect(after.watchlist, isTrue);
       expect(after.createdAt, before.createdAt);
-      expect(after.userRating, 8.4);
+      expect(after.userRating, 4);
       expect(after.item.remote!.rating, 5);
       server.catalog['movies'] = [];
       await sync.synchronize(source.id);
@@ -510,6 +512,220 @@ void main() {
         LibraryWatchFilter.all,
       );
     });
+    test('watching includes series, anime, documentaries and variety from episode progress on first open', () async {
+      final categories = {
+        'shows': '电视剧',
+        'anime': '动漫',
+        'docs': '纪录片',
+        'variety': '综艺',
+      };
+      server.views = {
+        'Items': [
+          {'Id': 'movies', 'Name': '电影', 'CollectionType': 'movies'},
+          for (final view in categories.entries)
+            {'Id': view.key, 'Name': view.value, 'CollectionType': 'tvshows'},
+        ],
+      };
+      server.catalog['movies'] = [
+        {
+          ..._movie('film', 'Film'),
+          'UserData': {'PlaybackPositionTicks': 200000000},
+        },
+      ];
+      for (final view in categories.entries) {
+        server.catalog[view.key] = [
+          {'Id': view.key, 'Name': view.value, 'Type': 'Series'},
+          {
+            ..._movie('${view.key}-1', 'First'),
+            'Type': 'Episode',
+            'SeriesId': view.key,
+            'SeriesName': view.value,
+            'IndexNumber': 1,
+            'UserData': {'PlaybackPositionTicks': 200000000},
+          },
+          {
+            ..._movie('${view.key}-2', 'Second'),
+            'Type': 'Episode',
+            'SeriesId': view.key,
+            'SeriesName': view.value,
+            'IndexNumber': 2,
+          },
+        ];
+      }
+      await sync.synchronize(source.id);
+      final count = server.requests.length;
+      final container = ProviderContainer(
+        overrides: [sourceRepositoryProvider.overrideWithValue(sources)],
+      );
+      addTearDown(container.dispose);
+      final result = await container.read(
+        embyVideoResultsProvider((
+          destination: dest(),
+          settings: const VideoLibrarySettings(
+            filter: LibraryWatchFilter.watching,
+          ),
+        )).future,
+      );
+      expect(result.map((e) => e.item.identity.localId).toSet(), {
+        'film',
+        ...categories.keys,
+      });
+      expect(result.every((e) => e.item.parentId == null), isTrue);
+      expect(
+        result
+            .where((e) => e.item.isSeries)
+            .every((e) => e.record.position == Duration.zero),
+        isTrue,
+      );
+      expect(server.requests.length, count);
+      final snapshot = await library.snapshot(source.id);
+      for (final view in categories.keys) {
+        expect(
+          filterVideoLibrary(
+            snapshot.scope(dest(view: view)),
+            const VideoLibrarySettings(filter: LibraryWatchFilter.watching),
+            .9,
+          ).single.item.identity.localId,
+          view,
+        );
+      }
+    });
+
+    test('series watching clears with child history, excludes completed series and refreshes after player notification', () async {
+      Map<String, dynamic> episode(
+        String parent,
+        int number, {
+        int position = 0,
+        bool played = false,
+      }) => {
+        ..._movie('$parent-$number', 'Episode $number'),
+        'Type': 'Episode',
+        'SeriesId': parent,
+        'SeriesName': parent,
+        'IndexNumber': number,
+        'UserData': {
+          'PlaybackPositionTicks': position * 10000000,
+          'Played': played,
+        },
+      };
+      server.catalog['shows'] = [
+        for (final id in ['partial', 'finished', 'never', 'next-up'])
+          {'Id': id, 'Name': id, 'Type': 'Series'},
+        episode('partial', 1, position: 20),
+        episode('partial', 2),
+        episode('finished', 1, played: true),
+        episode('never', 1),
+        episode('next-up', 1, played: true),
+        episode('next-up', 2),
+      ];
+      await sync.synchronize(source.id);
+      final container = ProviderContainer(
+        overrides: [sourceRepositoryProvider.overrideWithValue(sources)],
+      );
+      addTearDown(container.dispose);
+      final query = (
+        destination: dest(),
+        settings: const VideoLibrarySettings(
+          filter: LibraryWatchFilter.watching,
+        ),
+      );
+      final subscription = container.listen(
+        embyVideoResultsProvider(query),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+      Future<Set<String>> ids() async =>
+          (await container.read(embyVideoResultsProvider(query).future))
+              .map((e) => e.item.identity.localId)
+              .toSet();
+      expect(await ids(), {'partial', 'next-up'});
+      final records = PlaybackRepository(sources.database);
+      final id = (sourceId: source.id, localId: 'partial-1');
+      await records.clearHistory([id]);
+      refreshPlaybackViews(container, [source.id]);
+      expect(await ids(), {'next-up'});
+      await records.save(
+        id,
+        position: const Duration(seconds: 30),
+        duration: const Duration(seconds: 100),
+      );
+      refreshPlaybackViews(container, [source.id]);
+      expect(await ids(), {'partial', 'next-up'});
+      await records.markWatched([
+        (sourceId: source.id, localId: 'partial-1'),
+        (sourceId: source.id, localId: 'partial-2'),
+      ], true);
+      refreshPlaybackViews(container, [source.id]);
+      expect(await ids(), {'next-up'});
+    });
+
+    test('server PlayedPercentage without runtime survives persistence and local clear overrides it', () async {
+      server.catalog['shows'] = [
+        for (final entry in {
+          'partial': 40,
+          'finished': 100,
+          'never': 0,
+        }.entries)
+          {
+            'Id': entry.key,
+            'Name': entry.key,
+            'Type': 'Series',
+            'UserData': {'PlayedPercentage': entry.value},
+          },
+      ];
+      server.catalog['movies'] = [
+        {
+          ..._movie('film', 'Film'),
+          'UserData': {
+            'PlayedPercentage': 80,
+            'PlaybackPositionTicks': 200000000,
+          },
+        },
+      ];
+      await sync.synchronize(source.id);
+      final snapshot = await library.snapshot(source.id);
+      final series = snapshot.entryFor((
+        sourceId: source.id,
+        localId: 'partial',
+      ))!;
+      expect(series.record.duration, Duration.zero);
+      expect(series.record.position, Duration.zero);
+      expect(series.progress, .4);
+      expect(series.item.remote!.playedPercentage, 40);
+      expect(
+        RemoteMediaMetadata.fromJson(series.item.remote!.toJson())
+            .playedPercentage,
+        40,
+      );
+      expect(
+        filterVideoLibrary(
+          snapshot.scope(dest()),
+          const VideoLibrarySettings(filter: LibraryWatchFilter.watching),
+          .9,
+        ).map((e) => e.item.identity.localId).toSet(),
+        {'partial', 'film'},
+      );
+      expect(
+        snapshot.entryFor((sourceId: source.id, localId: 'film'))!.progress,
+        .2,
+      );
+      await PlaybackRepository(sources.database)
+          .clearHistory([(sourceId: source.id, localId: 'partial')]);
+      final cleared = await library.snapshot(source.id);
+      expect(
+        cleared.entryFor((sourceId: source.id, localId: 'partial'))!.progress,
+        0,
+      );
+      expect(
+        filterVideoLibrary(
+          cleared.scope(dest()),
+          const VideoLibrarySettings(filter: LibraryWatchFilter.watching),
+          .9,
+        ).map((e) => e.item.identity.localId),
+        ['film'],
+      );
+    });
+
     test('series search includes child title/season label without listing episodes at root', () async {
       server.catalog['shows'] = [
         {'Id': 'show', 'Name': 'A show', 'Type': 'Series'},
@@ -590,6 +806,9 @@ void main() {
             ProviderScope(
               overrides: [
                 sourceRepositoryProvider.overrideWithValue(sources),
+                sourceReachabilityProvider.overrideWith(
+                  (ref) async => {source.id: true},
+                ),
                 embyDetailProvider.overrideWith(
                   (ref, key) => Stream.value(
                     EmbyDetailSnapshot(
@@ -668,6 +887,18 @@ void main() {
             'shows',
           );
           expect(find.text('共 0 项'), findsOneWidget);
+          expect(
+            tester
+                .widget<Image>(
+                  find.byKey(ValueKey('emby-source-logo-${source.id}')),
+                )
+                .image,
+            isA<AssetImage>().having(
+              (image) => image.assetName,
+              'asset',
+              'assets/brands/emby.png',
+            ),
+          );
           await tester.tap(find.text('Emby 媒体库').first, buttons: 2);
           await tester.pumpAndSettle();
           await tester.tap(find.text('重命名'));
@@ -691,6 +922,46 @@ void main() {
             ),
             [source.id],
           );
+          // A top-level sidebar label opens its root, even when its branch
+          // currently contains a library or media detail route.
+          Future<void> openSources() async {
+            await tester.tap(find.byKey(const ValueKey('nav-媒体源')));
+            await tester.pumpAndSettle();
+            expect(
+              router.routerDelegate.currentConfiguration.uri.toString(),
+              '/sources',
+            );
+            expect(find.byType(SourcesPage), findsOneWidget);
+          }
+
+          await openSources();
+          await tester.tap(find.byKey(ValueKey('source-alias-${source.id}')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const ValueKey('source-alias-input')),
+            '客厅 Emby',
+          );
+          await tester.tap(find.text('保存'));
+          await tester.pumpAndSettle();
+          expect((await sources.source(source.id)).name, '客厅 Emby');
+          // Both the source card and sidebar observe the same persisted name.
+          expect(find.text('客厅 Emby'), findsNWidgets(2));
+          await openSources();
+          router.go(embyVideoLocation(dest(view: 'movies')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byType(LocalMediaCard).first);
+          await tester.pumpAndSettle();
+          expect(find.byType(LocalMediaDetailPage), findsOneWidget);
+          await openSources();
+          router.go(embyVideoLocation(dest(view: 'movies')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('nav-设置')));
+          await tester.pumpAndSettle();
+          expect(
+            router.routerDelegate.currentConfiguration.uri.path,
+            '/settings',
+          );
+          await openSources();
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
         },

@@ -7,9 +7,12 @@ import '../../../api/emby/emby_client.dart';
 import '../../../platform/secure_credential_store.dart';
 import '../data/emby_connection_repository.dart';
 import '../data/emby_sync_repository.dart';
+import '../data/emby_browse_repository.dart';
 import '../data/emby_detail_repository.dart';
 import '../data/emby_cache_repository.dart';
 import '../data/emby_offline_repository.dart';
+import '../data/artwork_image_pipeline.dart';
+import '../data/artwork_decode_queue.dart';
 import '../../../domain/media_source.dart';
 import 'source_providers.dart';
 
@@ -66,13 +69,27 @@ final embySyncProvider = Provider<EmbySyncRepository>(
   ),
 );
 
+final embyArtworkDecodeProvider = Provider<ArtworkDecodeQueue>((ref) {
+  final queue = ArtworkDecodeQueue();
+  ref.onDispose(queue.dispose);
+  return queue;
+});
+
 final embyCacheProvider = Provider<EmbyCacheRepository>((ref) {
   final cache = EmbyCacheRepository(
+    decodeQueue: ref.watch(embyArtworkDecodeProvider),
     sources: ref.watch(sourceRepositoryProvider),
     connections: ref.watch(embyConnectionProvider),
   );
   ref.onDispose(() => unawaited(cache.dispose()));
   return cache;
+});
+final embyImagePipelineProvider = Provider<ArtworkImagePipeline>((ref) {
+  final pipeline = ArtworkImagePipeline(
+    decodes: ref.watch(embyArtworkDecodeProvider),
+  );
+  ref.onDispose(pipeline.dispose);
+  return pipeline;
 });
 final embyOfflineProvider = Provider<EmbyOfflineRepository>((ref) {
   final repository = EmbyOfflineRepository(
@@ -96,11 +113,11 @@ final embyCacheCandidatesProvider = FutureProvider.autoDispose
       ref.watch(sourceChangesProvider);
       final sources = ref.watch(sourceRepositoryProvider);
       final item = await sources.media(id);
-      return item.isSeries
-          ? (await sources.indexedSource(id.sourceId))
-                .where((i) => i.parentId == id.localId)
-                .toList()
-          : [item];
+      if (item.isSeries) {
+        if (!ref.mounted) throw const ScanCancelled();
+        await ref.watch(embySeriesEpisodesProvider(item.identity).future);
+      }
+      return item.isSeries ? await sources.indexedChildren(id) : [item];
     });
 
 final embyDetailRepositoryProvider = Provider<EmbyDetailRepository>(
@@ -152,6 +169,7 @@ final embyDetailImageProvider = FutureProvider.autoDispose
             index: key.index,
             width: key.width,
             revision: key.revision,
+            priority: ArtworkPriority.detail,
           );
     });
 
@@ -172,3 +190,94 @@ final embyArtworkProvider = FutureProvider.autoDispose
             revision: key.revision,
           );
     });
+
+final embyBrowseRepositoryProvider = Provider<EmbyBrowseRepository>(
+  (ref) => EmbyBrowseRepository(
+    ref.watch(sourceRepositoryProvider),
+    ref.watch(embyConnectionProvider),
+  ),
+);
+
+/// This is deliberately independent of the full-index snapshot provider.
+final embyBrowseCatalogProvider = FutureProvider.autoDispose
+    .family<List<EmbyLibrary>, String>((ref, id) {
+      ref.watch(sourceChangesProvider);
+      final token = ScanCancellation();
+      ref.onDispose(token.cancel);
+      return ref.watch(embyBrowseRepositoryProvider).catalog(id, token);
+    });
+
+typedef EmbyPersonWorksKey = ({String sourceId, String personKey});
+
+class EmbyPersonWorks {
+  const EmbyPersonWorks(this.items, {this.complete = false, this.warning});
+  final List<IndexedMedia> items;
+  final bool complete;
+  final String? warning;
+}
+
+final embyPersonWorksProvider = StreamProvider.autoDispose
+    .family<EmbyPersonWorks, EmbyPersonWorksKey>((ref, key) async* {
+      final token = ScanCancellation();
+      ref.onDispose(token.cancel);
+      final repository = ref.watch(embyDetailRepositoryProvider);
+      final cached = await repository.cachedPersonWorks(
+        key.sourceId,
+        key.personKey,
+      );
+      token.check();
+      if (cached.isNotEmpty) yield EmbyPersonWorks(cached);
+      var cachedItems = cached;
+      try {
+        var items = <IndexedMedia>[];
+        await for (final page in repository.personWorkPages(
+          key.sourceId,
+          key.personKey,
+          cancellation: token,
+        )) {
+          token.check();
+          items = page;
+          // Partial pages cannot authoritatively remove already visible works.
+          cachedItems =
+              {
+                for (final item in cachedItems) item.identity.localId: item,
+                for (final item in page) item.identity.localId: item,
+              }.values.toList()..sort((a, b) {
+                final year = (b.year ?? 0).compareTo(a.year ?? 0);
+                return year != 0 ? year : a.title.compareTo(b.title);
+              });
+          yield EmbyPersonWorks(cachedItems);
+        }
+        token.check();
+        yield EmbyPersonWorks(items, complete: true);
+      } on ScanCancelled {
+        return;
+      } catch (_) {
+        token.check();
+        if (cachedItems.isEmpty) rethrow;
+        yield EmbyPersonWorks(cachedItems, warning: '服务器作品读取失败，仅显示已加载作品。');
+      }
+    });
+
+final embySeriesEpisodesProvider = FutureProvider.autoDispose
+    .family<void, MediaIdentity>((ref, id) {
+      final token = ScanCancellation();
+      ref.onDispose(token.cancel);
+      return ref.watch(embyBrowseRepositoryProvider).loadEpisodes(id, token);
+    });
+
+Future<void> prepareEmbySeries(
+  WidgetRef ref,
+  Iterable<MediaIdentity> identities,
+) async {
+  final sources = ref.read(sourceRepositoryProvider);
+  final browser = ref.read(embyBrowseRepositoryProvider);
+  for (final id in identities.toSet()) {
+    final item = await sources.media(id);
+    if (item.isSeries &&
+        item.remote != null &&
+        (await sources.source(id.sourceId)).kind == MediaSourceKind.emby) {
+      await browser.loadEpisodes(id, ScanCancellation());
+    }
+  }
+}

@@ -33,3 +33,11 @@
 
 
 2026-10-10 自动离线订阅增量：`VideoOfflineSubscription/VideoOfflinePolicy` → `domain/emby_offline_subscription.dart`；原订阅仓储和 AppState 维护 → `emby_offline_repository.dart`；`VideoCacheMenuItems/VideoOfflineSubscriptionLimitSheet` → `emby_offline_menu.dart`；`BackgroundTaskCenterView/LibraryHealthCenterView.storageCard` → `emby_task_center.dart`。Wi-Fi 出口条件由 `platform/network_status.dart` 适配，未知状态不放行。保留原选集窗口、暂停/到期及文件保留规则；不声称其他后台作业、完整视觉或三系统网络环境已验收，见 [订阅说明](../EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md)。
+
+| 原版源码 | ReelNest 位置 | 本轮映射 |
+|---|---|---|
+| VideoItemContextMenuItems.swift / VideoCacheMenuItems.swift | emby_video_context_menu.dart / emby_cache_actions.dart / emby_offline_menu.dart | 海报/单集右键、观看/想看/喜欢/评级/历史和缓存；公共集合/封面依赖另行迁移 |
+| LibraryView.swift / SelectionStore.swift / AppState+BatchSelection.swift | emby_video_library_page.dart / emby_library_selection_bar.dart / emby_library_repository.dart | 多选、可见范围全选、原版批量栏、事务和索引移除确认 |
+| AppColors.swift ArtworkImageCache / ArtworkDecodeCoordinator | artwork_image_pipeline.dart / artwork_decode_queue.dart | 512 MiB/1800 张、稳定版本键、3 路解码、4 路两行预热 |
+
+2026-10-10 Emby 评级/分类增量：EmbyService.normalizedProviderRating/seedUserRating → domain/remote_media_policy.dart 的 RemoteRatingPolicy；RemoteLibraryClassificationPolicy / AppState.classifiedEmbyTopLevelItem → RemoteLibraryClassificationPolicy / IndexedMedia.displayType。同步元数据保存 collectionType，补建系列继承题材，初始评级统一换算；原始播放类型和父子关系保持不变。原版依据及验证边界见 [评级与分类](../EMBY_CLASSIFICATION_RATING.zh-CN.md)，首页/公共分类页仍待消费投影。

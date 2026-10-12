@@ -79,12 +79,29 @@ class EmbyServerFixture {
           await itemsHandler!(request);
           return;
         }
+        final query = request.uri.queryParameters;
+        final included = query['IncludeItemTypes']?.split(',').toSet();
         final items =
-            catalog[request.uri.queryParameters['ParentId'] ?? ''] ?? const [];
-        final start = int.parse(request.uri.queryParameters['StartIndex']!);
+            (catalog[query['ParentId'] ?? ''] ?? const <Map<String, dynamic>>[])
+                .where(
+                  (item) => included == null || included.contains(item['Type']),
+                )
+                .where((item) {
+                  final id = query['PersonIds'], name = query['Person'];
+                  if (id == null && name == null) return true;
+                  return (item['People'] as List? ?? []).whereType<Map>().any(
+                    (p) => id != null ? p['Id'] == id : p['Name'] == name,
+                  );
+                })
+                .toList();
+        final start = int.parse(query['StartIndex']!);
+        final limit = int.parse(query['Limit']!);
         request.response.write(
           jsonEncode({
-            'Items': items.skip(start).take(itemPageSize).toList(),
+            'Items': items
+                .skip(start)
+                .take(itemPageSize < limit ? itemPageSize : limit)
+                .toList(),
             if (includeTotal) 'TotalRecordCount': items.length,
           }),
         );

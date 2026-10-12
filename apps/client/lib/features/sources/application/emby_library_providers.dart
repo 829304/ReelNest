@@ -2,6 +2,8 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../domain/media_source.dart';
+
 import '../data/emby_library_repository.dart';
 import '../domain/emby_library.dart';
 import '../../playback/data/player_preferences_repository.dart';
@@ -11,6 +13,11 @@ import 'emby_providers.dart';
 final embyLibraryRepositoryProvider = Provider<EmbyLibraryRepository>(
   (ref) => EmbyLibraryRepository(ref.watch(sourceRepositoryProvider)),
 );
+final embySidebarSectionsProvider = FutureProvider.autoDispose
+    .family<Set<EmbyVideoSection>, String>((ref, id) {
+      ref.watch(sourceChangesProvider);
+      return ref.watch(embyLibraryRepositoryProvider).sidebarSections(id);
+    });
 final embyVideoSnapshotProvider = FutureProvider.autoDispose
     .family<EmbyVideoSnapshot, String>((ref, id) {
       ref.watch(sourceChangesProvider);
@@ -36,17 +43,18 @@ final embyVideoResultsProvider = FutureProvider.autoDispose
       if (query.settings.cachedOnly) {
         final cached = await ref.watch(embyCachedVideosProvider.future);
         final identities = cached.map((c) => c.identity).toSet();
-        final parents = snapshot.entries
-            .where((e) => identities.contains(e.item.identity))
-            .map((e) => e.item.parentId)
-            .whereType<String>()
-            .toSet();
+        final parents = <MediaIdentity>{};
+        for (final id in identities) {
+          final parent = snapshot.entryFor(id)?.item.parentId;
+          if (parent != null) {
+            parents.add((sourceId: id.sourceId, localId: parent));
+          }
+        }
         scoped = scoped
             .where(
               (e) =>
                   identities.contains(e.item.identity) ||
-                  (e.item.isSeries &&
-                      parents.contains(e.item.identity.localId)),
+                  (e.item.isSeries && parents.contains(e.item.identity)),
             )
             .toList();
       }

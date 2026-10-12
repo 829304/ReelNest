@@ -1,5 +1,6 @@
 import 'source_media_type.dart';
 import 'remote_media_metadata.dart';
+import 'remote_media_policy.dart';
 import 'source_options.dart';
 
 enum MediaSourceKind {
@@ -99,6 +100,19 @@ class IndexedMedia {
   final String? backdropPath;
   final DateTime? updatedAt;
   final RemoteMediaMetadata? remote;
+
+  /// AppState.classifiedEmbyTopLevelItem: display classification only.
+  /// Stored type, episode hierarchy and playback identity stay unchanged.
+  String get displayType {
+    final metadata = remote;
+    if (metadata == null || parentId != null || type == 'music') return type;
+    return RemoteLibraryClassificationPolicy.inferredMediaType(
+      type: type,
+      libraryName: metadata.libraryName,
+      genres: metadata.genres,
+      collectionType: metadata.collectionType,
+    );
+  }
 
   String? get filePath => isSeries ? null : identity.localId;
 

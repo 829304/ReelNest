@@ -155,6 +155,11 @@ final _batchProvider = FutureProvider.autoDispose
       ref.watch(sourceChangesProvider);
       final repository = ref.watch(sourceRepositoryProvider);
       final playback = ref.watch(playbackRepositoryProvider);
+      final source = await repository.source(key.series.sourceId);
+      if (source.kind == MediaSourceKind.emby && source.lastScan == null) {
+        if (!ref.mounted) throw const ScanCancelled();
+        await ref.watch(embySeriesEpisodesProvider(key.series).future);
+      }
       final groups = key.oneSeason
           ? [key.season]
           : (await repository.seasons(key.series))
@@ -242,31 +247,5 @@ class _EmbyBatchWatchedButtonState
               if (mounted) setState(() => _busy = false);
             },
     );
-  }
-}
-
-Future<void> showEmbyEpisodeMenu(
-  BuildContext context,
-  WidgetRef ref,
-  IndexedMedia item,
-  Offset position,
-) async {
-  final watched =
-      ref.read(playbackRecordProvider(item.identity)).asData?.value.watched ??
-      false;
-  final choice = await showMenu<bool>(
-    context: context,
-    position: RelativeRect.fromLTRB(
-      position.dx,
-      position.dy,
-      position.dx,
-      position.dy,
-    ),
-    items: [
-      PopupMenuItem(value: !watched, child: Text(watched ? '清除已观看' : '标记为已观看')),
-    ],
-  );
-  if (choice != null && context.mounted) {
-    await markEmbyItems(context, ref, [item.identity], choice);
   }
 }

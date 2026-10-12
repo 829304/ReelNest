@@ -13,11 +13,13 @@ import '../../../api/emby/emby_detail.dart';
 import '../../../api/emby/emby_quality.dart';
 import '../../../api/emby/emby_download.dart';
 import '../../playback/data/playback_repository.dart';
+import '../../playback/domain/playback_record.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_options.dart';
 import '../../../storage/credential_store.dart';
 import '../../../storage/library_database.dart';
 import 'source_repository.dart';
+import 'emby_library_repository.dart';
 
 String newEmbyIdentity() {
   final bytes = List.generate(16, (_) => Random.secure().nextInt(256));
@@ -148,9 +150,7 @@ class EmbyConnectionRepository {
   }) => _serial('connect', () async {
     final api = await client;
     final session = await api.authenticate(server, username, password);
-    await api.libraries(
-      session,
-    ); // Validate the library response before saving.
+    final views = await api.libraries(session);
     _check();
     final id = newEmbyIdentity();
     try {
@@ -182,6 +182,7 @@ class EmbyConnectionRepository {
           'INSERT INTO player_preferences(key, value) VALUES(?, ?)',
           [_configKey(id), jsonEncode(config)],
         );
+        await EmbyLibraryRepository(sources).replaceViews(source.id, views);
         return source;
       });
     } catch (_) {
@@ -231,6 +232,66 @@ class EmbyConnectionRepository {
     }
   }
 
+  /// Foreground browsing must not queue behind a full-library HTTP request.
+  /// Only credential refresh is serialized; ordinary reads do not mutate auth.
+  Future<T> _foreground<T>(
+    String id,
+    Future<T> Function(EmbyClient, EmbySession) action, {
+    ScanCancellation? cancellation,
+  }) async {
+    _check();
+    cancellation?.check();
+    await _requireSource(id);
+    final credential = await _load(id);
+    final api = await client;
+    try {
+      final result = await action(api, credential.session);
+      cancellation?.check();
+      _check();
+      await _requireSource(id);
+      return result;
+    } on EmbyFailure catch (error) {
+      if (error.kind != EmbyError.authentication) rethrow;
+      return _serial(id, () async {
+        cancellation?.check();
+        await _requireSource(id);
+        return _authenticated(id, action, cancellation: cancellation);
+      });
+    }
+  }
+
+  Future<List<EmbyLibrary>> browseLibraries(
+    String id, {
+    ScanCancellation? cancellation,
+  }) => _foreground(
+    id,
+    (api, session) => api.libraries(session, cancellation: cancellation),
+    cancellation: cancellation,
+  );
+
+  Future<EmbyItemPage> browsePage(
+    String id, {
+    String? parentId,
+    String? personKey,
+    bool episodesOnly = false,
+    required int start,
+    int limit = 60,
+    ScanCancellation? cancellation,
+  }) => _foreground(
+    id,
+    (api, session) => api.itemPage(
+      session,
+      parentId: parentId,
+      start: start,
+      limit: limit,
+      videosOnly: true,
+      episodesOnly: episodesOnly,
+      personKey: personKey,
+      cancellation: cancellation,
+    ),
+    cancellation: cancellation,
+  );
+
   Future<EmbySession> session(String id) => _serial(id, () async {
     await _requireSource(id);
     return _authenticated(id, (api, value) async {
@@ -275,45 +336,27 @@ class EmbyConnectionRepository {
     int index = 0,
     int? maxWidth,
     ScanCancellation? cancellation,
-  }) async {
-    final credential = await _serial(id, () async {
-      cancellation?.check();
-      await _requireSource(id);
-      return _load(id);
-    });
-    final api = await client;
-    Future<Uint8List> fetch(EmbyClient api, EmbySession session) => api.artwork(
+  }) => _foreground(
+    id,
+    (api, session) => api.artwork(
       session,
       itemId,
       backdrop: backdrop,
       index: index,
       maxWidth: maxWidth,
       cancellation: cancellation,
-    );
-    try {
-      cancellation?.check();
-      final result = await fetch(api, credential.session);
-      _check();
-      return result;
-    } on EmbyFailure catch (error) {
-      if (error.kind != EmbyError.authentication) rethrow;
-      return _serial(id, () async {
-        cancellation?.check();
-        await _requireSource(id);
-        return _authenticated(id, fetch, cancellation: cancellation);
-      });
-    }
-  }
-
+    ),
+    cancellation: cancellation,
+  );
   Future<EmbyDetail> detail(
     IndexedMedia item, {
     ScanCancellation? cancellation,
-  }) => _serial(item.identity.sourceId, () async {
+  }) async {
     cancellation?.check();
     await _requireSource(item.identity.sourceId);
     final remote = item.remote;
     if (remote == null) throw const SourceFailure('此媒体没有远程详情。');
-    return _authenticated(
+    return _foreground(
       item.identity.sourceId,
       (api, session) => api.detail(
         session,
@@ -323,7 +366,7 @@ class EmbyConnectionRepository {
       ),
       cancellation: cancellation,
     );
-  });
+  }
 
   Future<List<EmbySubtitle>> subtitles(
     IndexedMedia item, {
@@ -394,8 +437,9 @@ class EmbyConnectionRepository {
   /// scheduleEmbyPlayedSync. A later failure must not skip remaining items.
   Future<int> markPlayed(
     Iterable<MediaIdentity> identities,
-    bool played,
-  ) async {
+    bool played, {
+    bool clearHistory = false,
+  }) async {
     final ids = identities.toSet().toList();
     if (ids.isEmpty) return 0;
     final sourceId = ids.first.sourceId;
@@ -411,7 +455,31 @@ class EmbyConnectionRepository {
         if (item.remote == null) throw const SourceFailure('此媒体没有远程状态。');
         items.add(item);
       }
-      await PlaybackRepository(sources.database).markWatched(ids, played);
+      final playback = PlaybackRepository(sources.database);
+      if (clearHistory) {
+        final records = await playback.readMany(
+          ids,
+          fallbacks: {
+            for (final item in items)
+              item.identity: PlaybackRecord(
+                identity: item.identity,
+                position: Duration(milliseconds: item.remote?.positionMs ?? 0),
+                lastPlayedAt: item.remote?.lastPlayedAt,
+              ),
+          },
+        );
+        items.removeWhere((item) {
+          final record = records[item.identity]!;
+          return record.position == Duration.zero &&
+              record.lastPlayedAt == null;
+        });
+        final traced = items.map((i) => i.identity).toSet();
+        ids.removeWhere((id) => !traced.contains(id));
+        if (ids.isEmpty) return 0;
+        await playback.clearHistory(ids);
+      } else {
+        await playback.markWatched(ids, played);
+      }
       sources.traceChanged();
       var failed = 0;
       if (source.options.remoteTraceSyncMode ==
@@ -442,7 +510,7 @@ class EmbyConnectionRepository {
     Duration start = Duration.zero,
     String? playSessionId,
     ScanCancellation? cancellation,
-  }) => _serial(item.identity.sourceId, () async {
+  }) async {
     final id = item.identity.sourceId;
     cancellation?.check();
     await _requireSource(id);
@@ -457,7 +525,7 @@ class EmbyConnectionRepository {
     if (selected == null) {
       throw const SourceFailure('此片源不支持所选画质。');
     }
-    return _authenticated(id, (api, session) async {
+    return _foreground(id, (api, session) async {
       await api.validate(session, cancellation: cancellation);
       return api.playbackResource(
         session,
@@ -468,7 +536,7 @@ class EmbyConnectionRepository {
         playSessionId: playSessionId ?? newEmbyIdentity(),
       );
     }, cancellation: cancellation);
-  });
+  }
 
   Future<EmbyDownloadProgress> downloadVideo(
     IndexedMedia item,
@@ -556,7 +624,8 @@ class EmbyConnectionRepository {
   }
 
   Future<void> _requireSource(String id) async {
-    if ((await sources.source(id)).kind != MediaSourceKind.emby) {
+    if ((await sources.source(id, includeCounts: false)).kind !=
+        MediaSourceKind.emby) {
       throw const SourceFailure('该来源不是 Emby。');
     }
   }

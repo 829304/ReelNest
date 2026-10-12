@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/api/emby/emby_client.dart';
 import 'package:reelnest/api/emby/emby_quality.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/domain/source_scan.dart';
 import 'package:reelnest/features/sources/application/emby_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/emby_cache_repository.dart';
@@ -15,6 +16,12 @@ import 'package:reelnest/features/sources/presentation/emby_offline_menu.dart';
 import 'package:reelnest/features/sources/presentation/emby_task_center.dart';
 import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/ui/widgets/source_sheet_button.dart';
+
+class _Scans extends SourceScans {
+  @override
+  Map<String, SourceScanState> build() => {};
+  void emit(SourceScanState value) => state = {'s': value};
+}
 
 class _Cache extends EmbyCacheRepository {
   _Cache({required super.sources, required super.connections});
@@ -149,6 +156,7 @@ void main() {
   Future<ProviderContainer> fixture(
     WidgetTester tester, {
     List<VideoCacheTask> tasks = const [],
+    _Scans? scans,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1088, 720);
@@ -178,6 +186,7 @@ void main() {
           sourcesProvider.overrideWith((_) async => <MediaSource>[]),
           embyCacheProvider.overrideWithValue(cache),
           embyOfflineProvider.overrideWithValue(offline),
+          if (scans != null) sourceScansProvider.overrideWith(() => scans),
         ],
       );
       addTearDown(() async {
@@ -209,6 +218,66 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+  testWidgets(
+    'sync task handles unknown totals then known progress and completion',
+    (tester) async {
+      final scans = _Scans();
+      final container = await fixture(tester, scans: scans);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: Scaffold(body: EmbyTaskCenterPage())),
+        ),
+      );
+      await tester.pumpAndSettle();
+      scans.emit(
+        const SourceScanState(
+          running: true,
+          progress: SourceScanProgress(
+            processedFiles: 31382,
+            importedItems: 31382,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('已读取 31382 个媒体条目'), findsOneWidget);
+      expect(find.textContaining('/ 0'), findsNothing);
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .value,
+        isNull,
+      );
+      scans.emit(
+        const SourceScanState(
+          running: true,
+          progress: SourceScanProgress(
+            totalFiles: 40000,
+            processedFiles: 31382,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('已处理 31382 / 40000'), findsOneWidget);
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .value,
+        closeTo(31382 / 40000, 0.00001),
+      );
+      scans.emit(const SourceScanState(message: '同步完成'));
+      await tester.pumpAndSettle();
+      expect(find.text('同步完成'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets(
     'task center keeps active first and supports resume, pause, cancel, retry and clearing',
     (tester) async {

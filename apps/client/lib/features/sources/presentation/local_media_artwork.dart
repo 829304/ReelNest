@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/emby_providers.dart';
+import '../data/artwork_image_pipeline.dart';
 
 import 'package:path/path.dart' as p;
 
@@ -19,51 +20,77 @@ class LocalMediaArtwork extends ConsumerWidget {
     required this.item,
     this.fit = BoxFit.cover,
     this.revision,
+    this.backdrop = false,
+    this.placeholder,
     super.key,
   });
   final MediaSource source;
   final IndexedMedia item;
   final BoxFit fit;
   final int? revision;
+  final bool backdrop;
+  final Widget? placeholder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final relative = item.posterPath;
-    final placeholder = LocalPosterPlaceholder(
-      title: item.cardTitle,
-      type: item.type,
-    );
+    final useBackdrop = backdrop && item.backdropPath != null;
+    final relative = useBackdrop ? item.backdropPath : item.posterPath;
+    final placeholder =
+        this.placeholder ??
+        LocalPosterPlaceholder(title: item.cardTitle, type: item.displayType);
     if (relative == null) return placeholder;
     if (source.kind == MediaSourceKind.emby) {
-      return ref
-          .watch(
-            embyArtworkProvider((
-              sourceId: source.id,
-              itemId: relative,
-              backdrop: false,
-              revision: math.max(
-                revision ?? 0,
-                source.lastScan?.millisecondsSinceEpoch ?? 0,
-              ),
-            )),
-          )
-          .when(
-            loading: () => placeholder,
-            error: (_, _) => placeholder,
-            data: (bytes) => Image(
-              image: ResizeImage(
-                MemoryImage(bytes),
-                width: 700,
-                height: 1050,
-                policy: ResizeImagePolicy.fit,
-              ),
-              fit: fit,
-              width: double.infinity,
-              height: double.infinity,
-              excludeFromSemantics: true,
-              errorBuilder: (_, _, _) => placeholder,
-            ),
+      final pipeline = ref.watch(embyImagePipelineProvider);
+      final key = (
+        sourceId: source.id,
+        itemId: relative,
+        backdrop: useBackdrop,
+        revision: math.max(
+          revision ?? 0,
+          source.lastScan?.millisecondsSinceEpoch ?? 0,
+        ),
+      );
+      return LayoutBuilder(
+        builder: (context, size) {
+          final target = posterDecodeSize(
+            size.maxWidth,
+            MediaQuery.devicePixelRatioOf(context),
           );
+          final imageKey = (
+            sourceId: key.sourceId,
+            itemId: key.itemId,
+            backdrop: key.backdrop,
+            index: 0,
+            width: target.width,
+            height: target.height,
+            revision: key.revision,
+          );
+          final cached = pipeline.preview(imageKey);
+          final preview = cached == null
+              ? placeholder
+              : Image(
+                  image: cached,
+                  fit: fit,
+                  width: double.infinity,
+                  height: double.infinity,
+                  excludeFromSemantics: true,
+                  errorBuilder: (_, _, _) => placeholder,
+                );
+          return Image(
+            image: pipeline.image(
+              imageKey,
+              () => ref.read(embyArtworkProvider(key).future),
+            ),
+            fit: fit,
+            width: double.infinity,
+            height: double.infinity,
+            excludeFromSemantics: true,
+            errorBuilder: (_, _, _) => placeholder,
+            frameBuilder: (_, child, frame, synchronous) =>
+                frame == null ? preview : child,
+          );
+        },
+      );
     }
     final path = p.joinAll([source.location, ...p.posix.split(relative)]);
     return LayoutBuilder(
@@ -262,21 +289,46 @@ class LocalMediaCard extends StatefulWidget {
     required this.source,
     required this.item,
     required this.onOpen,
+    this.selectionMode = false,
+    this.selected = false,
     super.key,
   });
   final MediaSource source;
   final IndexedMedia item;
   final VoidCallback onOpen;
+  final bool selectionMode, selected;
   @override
   State<LocalMediaCard> createState() => _LocalMediaCardState();
 }
 
 class _LocalMediaCardState extends State<LocalMediaCard> {
   bool _active = false;
+  late Widget _artwork;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateArtwork();
+  }
+
+  @override
+  void didUpdateWidget(LocalMediaCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.source, widget.source) ||
+        !identical(oldWidget.item, widget.item)) {
+      _updateArtwork();
+    }
+  }
+
+  void _updateArtwork() {
+    _artwork = LocalMediaArtwork(source: widget.source, item: widget.item);
+  }
+
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
     label: widget.item.cardTitle,
+    selected: widget.selectionMode ? widget.selected : null,
     child: Tooltip(
       message: widget.item.cardTitle,
       child: ClipRRect(
@@ -284,7 +336,7 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            LocalMediaArtwork(source: widget.source, item: widget.item),
+            _artwork,
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -317,11 +369,39 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: _active ? .38 : .18),
-                  width: _active ? 1.1 : .7,
+                  color: widget.selected && widget.selectionMode
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white.withValues(alpha: _active ? .38 : .18),
+                  width: widget.selected && widget.selectionMode
+                      ? 2.5
+                      : _active
+                      ? 1.1
+                      : .7,
                 ),
               ),
             ),
+            if (widget.selectionMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: Color(0x47000000),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      widget.selected
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 22,
+                      color: widget.selected
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.white,
+                    ),
+                  ),
+                ),
+              ),
             TextButton(
               onPressed: widget.onOpen,
               onHover: (v) => setState(() => _active = v),
