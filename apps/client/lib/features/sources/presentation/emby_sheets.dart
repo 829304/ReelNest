@@ -530,7 +530,15 @@ class _EmbyLibrarySheetState extends State<EmbyLibrarySheet> {
     });
     try {
       final libraries = await widget.repository.libraries(widget.source.id);
-      if (mounted) setState(() => _libraries = libraries);
+      if (mounted) {
+        setState(() {
+          _libraries = libraries
+              .where(
+                (library) => library.collectionType?.toLowerCase() != 'photos',
+              )
+              .toList();
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = sourceErrorMessage(e));
     } finally {

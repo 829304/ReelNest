@@ -1,11 +1,17 @@
 import 'dart:io';
+import 'dart:ui' show ImageByteFormat;
 
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:reelnest/app/reelnest_app.dart';
+import 'package:reelnest/app/runtime_observations.dart';
+import 'package:reelnest/app/router.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/domain/source_media_type.dart';
 import 'package:reelnest/domain/source_scan.dart';
@@ -13,21 +19,43 @@ import 'package:reelnest/domain/source_settings_draft.dart';
 import 'package:reelnest/features/health/application/health_providers.dart';
 import 'package:reelnest/features/health/application/missing_index_cleanup.dart';
 import 'package:reelnest/features/health/domain/local_health_evaluator.dart';
+import 'package:reelnest/features/health/presentation/library_health_page.dart';
+import 'package:reelnest/features/home/application/home_runtime_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/sources/presentation/source_settings_sheet.dart';
 import 'package:reelnest/sources/source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/theme/app_theme.dart';
 
 void main() {
-  Future<SourceRepository> fixture(WidgetTester tester) async {
+  Finder pageScroll() => find
+      .descendant(
+        of: find.byType(LibraryHealthPage),
+        matching: find.byType(Scrollable),
+      )
+      .first;
+  Future<void> reveal(WidgetTester tester, Finder target) async {
+    await tester.scrollUntilVisible(target, 180, scrollable: pageScroll());
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
+  }
+
+  Future<SourceRepository> fixture(
+    WidgetTester tester, {
+    int count = 1,
+    bool complete = false,
+  }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1088, 720);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final repository = SourceRepository(
       database: LibraryDatabase(NativeDatabase.memory()),
-      adapters: {MediaSourceKind.localFolder: _Files()},
+      adapters: {
+        MediaSourceKind.localFolder: _Files(count: count, complete: complete),
+      },
     );
     addTearDown(repository.close);
     await repository.add(
@@ -36,6 +64,150 @@ void main() {
       location: '/online',
     );
     return repository;
+  }
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'video scores and duplicate/detail ignore at minimum size: $brightness',
+      (tester) async {
+        final repository = await fixture(tester, count: 2, complete: true);
+        await repository.scan((await repository.sources()).single.id);
+        final router = createRouter();
+        addTearDown(router.dispose);
+        final preview = GlobalKey();
+        // Real fonts make this also exercise Chinese text widths, rather than
+        // relying solely on the test font. Other hosts keep their normal fallback.
+        if (Platform.isWindows) {
+          await tester.runAsync(() async {
+            for (final entry in {
+              'HealthPreview': 'C:/Windows/Fonts/msyh.ttc',
+              'MaterialIcons': 'C:/Users/hzx/development/fvm/versions/3.47.6/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+            }.entries) {
+              final file = File(entry.value);
+              if (!await file.exists()) continue;
+              final loader = FontLoader(entry.key);
+              loader.addFont(file.readAsBytes().then(ByteData.sublistView));
+              await loader.load();
+            }
+          });
+        }
+        var probes = 0;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sourceRepositoryProvider.overrideWithValue(repository),
+              localHealthEvaluatorProvider.overrideWithValue(
+                LocalHealthEvaluator(
+                  paths: p.Context(style: p.Style.posix),
+                  exists: (_) async {
+                    probes++;
+                    return true;
+                  },
+                ),
+              ),
+            ],
+            child: RepaintBoundary(
+              key: preview,
+              child: MaterialApp.router(
+                routerConfig: router,
+                theme:
+                    (brightness == Brightness.dark
+                            ? AppTheme.dark
+                            : AppTheme.light)
+                        .copyWith(
+                          textTheme:
+                              (brightness == Brightness.dark
+                                      ? AppTheme.dark
+                                      : AppTheme.light)
+                                  .textTheme
+                                  .apply(fontFamily: 'HealthPreview'),
+                        ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(LibraryHealthPage)),
+        );
+        container.read(observedTasksProvider.notifier).replace('test', [
+          for (var i = 0; i < 3; i++)
+            RuntimeTask(
+              id: '$i',
+              group: 'test',
+              sourceId: (await repository.sources()).single.id,
+              title: '任务 $i',
+              detail: '',
+              stateTitle: i == 0 ? '进行中' : '有错误',
+              active: i == 0,
+              startedAt: DateTime.utc(2026),
+            ),
+        ]);
+        await tester.pumpAndSettle();
+        int? homeScore() =>
+            container.read(homeRuntimeHealthProvider).totalScore;
+        String score(String title) => tester
+            .widget<Text>(find.byKey(ValueKey('health-overview-$title')))
+            .data!;
+        expect(score('健康评分'), '79%');
+        expect(score('资料完整'), '88%');
+        expect(score('来源可用'), '1/1');
+        expect(score('后台任务'), '1');
+        expect(find.text('2 个失败可处理'), findsOneWidget);
+        expect(homeScore(), 73);
+        expect(tester.takeException(), isNull);
+        // Keep the two native Windows previews; platform variants still validate
+        // the identical minimum desktop layout without overwriting these images.
+        if (defaultTargetPlatform == TargetPlatform.windows) {
+          await tester.runAsync(() async {
+            final boundary =
+                preview.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final image = await boundary.toImage(pixelRatio: 1);
+            try {
+              final bytes = await image.toByteData(format: ImageByteFormat.png);
+              final file = File('build/health-score/${brightness.name}.png');
+              await file.parent.create(recursive: true);
+              await file.writeAsBytes(bytes!.buffer.asUint8List());
+            } finally {
+              image.dispose();
+            }
+          });
+        }
+        final probeCount = probes;
+        final ignoreGroup = find.byTooltip('忽略此重复组，可在设置中恢复');
+        await reveal(tester, ignoreGroup);
+        await tester.tap(ignoreGroup);
+        await tester.pumpAndSettle();
+        expect(find.text('疑似重复条目'), findsNothing);
+        expect(homeScore(), 75);
+        for (var i = 0; i < 2; i++) {
+          final ignoreDetail = find.byTooltip('忽略此详情资料检查，可在设置中恢复').first;
+          await reveal(tester, ignoreDetail);
+          await tester.tap(ignoreDetail);
+          await tester.pumpAndSettle();
+        }
+        expect(homeScore(), 100);
+        expect(probes, probeCount);
+        await tester.tap(find.byKey(const ValueKey('nav-设置')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('恢复显示'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+        await tester.pumpAndSettle();
+        expect(score('健康评分'), '79%');
+        expect(homeScore(), 73);
+        expect(probes, probeCount);
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+        TargetPlatform.linux,
+      }),
+    );
   }
 
   testWidgets(
@@ -66,6 +238,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
       await tester.pumpAndSettle();
       expect(find.text('挂载源在线监测'), findsOneWidget);
+      await reveal(tester, find.text('缺封面等 3 项'));
       expect(find.text('缺封面等 3 项'), findsOneWidget);
       expect(tester.takeException(), isNull);
       final count = probes;
@@ -81,6 +254,7 @@ void main() {
       expect(find.text('0 项'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
       await tester.pumpAndSettle();
+      await reveal(tester, find.text('缺封面等 3 项'));
       expect(find.text('缺封面等 3 项'), findsOneWidget);
       expect(probes, count);
       expect(tester.takeException(), isNull);
@@ -141,7 +315,7 @@ void main() {
       await tester.scrollUntilVisible(
         find.text('移出索引'),
         180,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: pageScroll(),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('移出索引'));
@@ -153,7 +327,7 @@ void main() {
       await tester.scrollUntilVisible(
         find.text('清理失效索引'),
         -180,
-        scrollable: find.byType(Scrollable).last,
+        scrollable: pageScroll(),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('清理失效索引'));
@@ -287,7 +461,8 @@ void main() {
         );
         await tester.tap(find.text('打开'));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('media-type-photo')));
+        expect(find.byKey(const ValueKey('media-type-photo')), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('media-type-homeVideo')));
         await tester.pumpAndSettle();
         expect(find.text('参与元数据拉取'), findsNothing);
         await tester.tap(find.text('取消'));
@@ -313,6 +488,9 @@ void main() {
 }
 
 class _Files implements SourceAdapter {
+  _Files({this.count = 1, this.complete = false});
+  final int count;
+  final bool complete;
   @override
   Future<String> validateLocation(String location) async => location;
   @override
@@ -322,16 +500,22 @@ class _Files implements SourceAdapter {
     MediaSource source,
     ScanCancellation cancellation,
   ) async* {
-    yield const ScanCatalogued(1);
-    yield ScanFileProcessed(
-      path: 'Film.mkv',
-      item: IndexedMedia(
-        identity: (sourceId: source.id, localId: 'Film.mkv'),
-        title: 'Film',
-        type: 'movie',
-        bytes: 0,
-        modified: DateTime.utc(2026),
-      ),
-    );
+    yield ScanCatalogued(count);
+    for (var i = 0; i < count; i++) {
+      final path = i == 0 ? 'Film.mkv' : 'Film-$i.mkv';
+      yield ScanFileProcessed(
+        path: path,
+        item: IndexedMedia(
+          identity: (sourceId: source.id, localId: path),
+          title: 'Film',
+          type: 'movie',
+          bytes: 0,
+          modified: DateTime.utc(2026),
+          posterPath: complete ? 'poster.jpg' : null,
+          year: complete ? 2026 : null,
+          overview: complete ? 'Overview' : null,
+        ),
+      );
+    }
   }
 }

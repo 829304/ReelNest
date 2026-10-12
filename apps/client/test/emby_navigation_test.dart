@@ -292,12 +292,13 @@ void main() {
       EmbyVideoSection section = EmbyVideoSection.videos,
     }) => (sourceId: source.id, section: section, libraryId: view);
 
-    test('cache keeps named empty views, excludes music views and filters selected libraries', () async {
+    test('cache keeps named empty views, excludes music/photo views and filters selected libraries', () async {
       server.views = {
         'Items': [
           {'Id': 'movies', 'Name': '电影', 'CollectionType': 'movies'},
           {'Id': 'empty', 'Name': '空库', 'CollectionType': 'movies'},
           {'Id': 'music', 'Name': '音乐', 'CollectionType': 'music'},
+          {'Id': 'photos', 'Name': '照片', 'CollectionType': 'photos'},
         ],
       };
       server.catalog['movies'] = [_movie('m', '电影')];
@@ -312,6 +313,7 @@ void main() {
         containsAll(['movies', 'empty']),
       );
       expect(snapshot.libraries.map((v) => v.id), isNot(contains('music')));
+      expect(snapshot.libraries.map((v) => v.id), isNot(contains('photos')));
       expect(snapshot.entries.any((e) => e.item.type == 'music'), isTrue);
       expect(snapshot.scope(dest()).single.item.title, '电影');
       expect(snapshot.scope(dest(view: 'empty')), isEmpty);

@@ -1,5 +1,16 @@
 # ReelNest 客户端
 
-从仓库根目录阅读 [开发指南](../../docs/DEVELOPMENT.zh-CN.md)。在此目录使用 `fvm flutter` 运行命令，FVM 会读取根目录 `.fvmrc` 固定的 SDK 版本。
+这里是 ReelNest 的 Flutter 客户端包。第一阶段只开发和验收 Windows、macOS、Linux；iOS/Android 工程暂时保留。
 
-当前包含工程骨架、自适应导航、基础主题，以及独立于服务器登录的媒体源管理、目录选择、SQLite 索引、可取消扫描和本地浏览。旧 Mlink 试验只保留代码与隔离测试入口。播放器、元数据读取、其他平台文件授权和 Emby/Jellyfin/Plex 直连仍待实现。详见 [本地媒体源与索引](../../docs/LOCAL_SOURCES.zh-CN.md) 与 [实施计划](../../docs/FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md)。
+当前已接入本地视频来源、SQLite 索引与浏览、视频播放及基础设置、Emby 视频闭环，以及首页 H1、H2 推荐/搜索/状态和 H3 布局编排。旧 Mlink 试验只保留代码与隔离回归入口；Jellyfin、Plex、音乐及其他原版模块仍按项目计划迁移。实现状态不代表已经完成三桌面端原生和原版 UI 验收。
+
+Flutter 版本由仓库根目录 `.fvmrc` 固定。在本目录执行：
+
+```sh
+fvm flutter pub get --enforce-lockfile
+fvm flutter analyze --fatal-infos
+fvm flutter test
+fvm flutter run -d windows
+```
+
+完整环境、构建和原生验证说明见[开发指南](../../docs/DEVELOPMENT.zh-CN.md)；产品边界见[项目边界](../../docs/PROJECT_SCOPE.zh-CN.md)；当前下一批见[阶段记录](../../docs/NEXT_STAGE.zh-CN.md)。

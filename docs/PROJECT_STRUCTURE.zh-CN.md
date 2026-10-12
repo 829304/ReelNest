@@ -1,10 +1,14 @@
 # ReelNest 项目结构与模块设计
 
-2026-10-10 补充：Emby 画质规划与流式下载位于 `api/emby/emby_quality.dart` / `emby_download.dart`；图片及视频缓存清单、下载协调和清理保护位于 `features/sources/data/emby_cache_repository.dart`，UI 为 `emby_cache_actions.dart` 与设置中的 `video_cache_settings.dart`。播放会话仅获取/释放缓存租约，不直接下载或维护目录。实现范围见 [画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)。
+更新：2026-10-12。
 
-更新：2026-10-09。正常入口为独立目录来源管理；用户确认本地媒体完成后优先接入 Emby。第一阶段仅 Windows/macOS/Linux，完整目标结构仍在逐步实现。
+照片模块已按用户 2026-10-12 的决定移出当前实现范围，暂不建立相册、照片查看器或系统照片库模块；基础照片类型识别和隔离保留，影视图片管线继续使用。
 
-状态：已有 `apps/client`、平台工程、外壳、CI、文件来源/索引、本地基础播放及字幕/音轨面板、Emby E1 连接与选库、E2 同步/浏览及 E3 电影/剧集播放闭环。下文仍含目标布局；独立 packages、完整播放器和正式远程连接器尚未完成。实际范围见[本地媒体源与索引](LOCAL_SOURCES.zh-CN.md)、[播放与续播](LOCAL_PLAYBACK.zh-CN.md)、[字幕/音轨](PLAYER_TRACKS.zh-CN.md)。
+当前已有 `apps/client`、五个平台工程模板、桌面外壳、CI、文件来源与索引、本地视频播放、健康与设置、Emby 视频闭环，以及首页 H1、H2 推荐与跨来源视频搜索。正常入口包含首页、媒体源、仪表盘和设置；Mlink 媒体库/服务器模块只保留为隔离历史路径。第一阶段仍只开发和验收 Windows、macOS、Linux。
+
+当前只有一个 Flutter 包；`packages/`、`contracts/` 等目录仍是边界稳定后的目标结构，不代表已经建立。Jellyfin、Plex、ReelNest Server、音乐及其他原版模块尚待迁移，完整播放器和三桌面端 UI/原生验收也未完成。[首页运行状态摘要](HOME_RUNTIME_STATUS.zh-CN.md)已接通，共享被动状态位于 `app/runtime_observations.dart`，纯模型位于 `domain/runtime_status.dart`。[首页编排](HOME_LAYOUT_EDITOR.zh-CN.md)位于 `features/home`，布局纯规则、SQLite 偏好仓库、串行保存控制器和编辑组件分别独立；当前下一批为首页桌面交互与真实数据验收，见[首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)；实现总览见[文档索引](README.md)。
+
+Emby 画质与流式下载位于 `api/emby/emby_quality.dart` / `emby_download.dart`；图片及视频缓存清单、下载协调和清理保护位于 `features/sources/data/emby_cache_repository.dart`，UI 为 `emby_cache_actions.dart` 与设置中的 `video_cache_settings.dart`。播放会话仅获取/释放缓存租约，不直接下载或维护目录。实现范围见[画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)。
 
 ## 1. 设计原则
 
@@ -19,7 +23,7 @@
 
 ## 2. 目标目录
 
-### 当前实际布局与下一项连接器
+### 当前实际布局
 
 当前只有 `apps/client` 一个 Flutter 包，依赖与锁文件在该目录维护；`packages/`、`contracts/` 尚未建立，不为计划中的模块预建空包。当前共享实现位于 `apps/client/lib`：
 
@@ -29,7 +33,7 @@
 | `shell/` | 桌面侧栏和内容框架；移动 shell 模板保留但不推进 |
 | `domain/` | 来源、媒体身份、索引、配置草稿、扫描事件等公共模型与规则 |
 | `features/` | 按用户功能组织页面、状态协调与仓储：当前有来源、首页、设置，以及旧试验的媒体库/服务器模块 |
-| `features/health/` | 本地健康规则、异步检测与缓存、忽略持久化、仪表盘本地监测区域及恢复设置；与文件扫描分开 |
+| `features/health/` | 视频健康公式、本地/Emby 核心检查、本地重复/详情缺口、异步检测与缓存、忽略持久化、仪表盘概览及恢复设置；与文件扫描分开；首页只读被动结果 |
 | `sources/filesystem/` | 本地文件夹、移动盘、已挂载 NAS 的枚举、过滤、文件名解析及本地元数据 |
 | `api/` | 纯协议请求与响应处理；已接入 `emby/` 登录/库协议；`mlink/` 为隔离保留的试验实现 |
 | `features/playback/` | 视频会话、续播/轨道偏好、字幕发现/语言匹配、独立窗口与控制面板 |

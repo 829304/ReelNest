@@ -13,10 +13,12 @@ import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../sources/application/source_providers.dart';
 import '../application/health_providers.dart';
+import '../../../app/runtime_observations.dart';
+import 'health_overview.dart';
 import '../../sources/presentation/emby_task_center.dart';
 
-/// LibraryHealthCenterView's local source / video metadata / missing file
-/// sections. Other dashboard sections remain separate, unfinished ports.
+/// LibraryHealthCenterView's video scores, source/file checks and metadata /
+/// duplicate candidates. Music, URL connectors and metadata repair are separate.
 class LibraryHealthPage extends ConsumerStatefulWidget {
   const LibraryHealthPage({super.key});
   @override
@@ -291,11 +293,17 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     if (snapshot.inventory.sources.isEmpty) {
       return [
         _HealthCard(
-          title: '尚未添加媒体源',
-          status: '暂无媒体库',
+          title: snapshot.configurationSources.isEmpty
+              ? '尚未添加媒体源'
+              : '没有可检测的视频媒体源',
+          status: snapshot.configurationSources.isEmpty ? '暂无媒体库' : '视频检测范围为空',
           accent: const Color(0xFF0EA5E9),
           children: [
-            const Text('添加媒体源后，可在这里查看片库健康状态。'),
+            Text(
+              snapshot.configurationSources.isEmpty
+                  ? '添加媒体源后，可在这里查看片库健康状态。'
+                  : '当前没有参与视频检测的媒体源；音乐后续单独实现，照片已移出当前范围。',
+            ),
             const SizedBox(height: 12),
             SourceSheetButton(
               label: '管理媒体源',
@@ -309,6 +317,20 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     final missing = snapshot.missingItems;
     final gaps = snapshot.metadataGapItems;
     return [
+      if (snapshot.evaluationComplete) ...[
+        HealthOverview(
+          snapshot: snapshot,
+          tasks: ref.watch(observedTasksProvider),
+        ),
+        if (snapshot.partialIndex)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              '当前检测仅覆盖已载入的媒体；完整同步后可重新检测。',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+      ],
       _heading('监测中心', '挂载源在线状态与元数据缺口集中管理，不再在下方重复列出。'),
       _HealthCard(
         title: '挂载源在线监测',
@@ -318,7 +340,7 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
         accent: const Color(0xFF0EA5E9),
         children: [
           if (sources.isEmpty)
-            const Text('尚未添加媒体源，先到「媒体源」接入本地或网络媒体库。')
+            const Text('没有需要检测挂载路径的本地来源；远程视频资料检查显示在下方。')
           else
             LayoutBuilder(
               builder: (context, constraints) {
@@ -440,7 +462,6 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
         ],
       ),
       _heading('健康详情', '失效文件、失效链接、重复条目与影视详情资料集中处理。'),
-      // Do not claim every original health category passed while they are absent.
       if (missing.isEmpty)
         const Text('未发现失效文件。', style: TextStyle(fontSize: 11))
       else
@@ -533,8 +554,162 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
               ),
           ],
         ),
+      ..._advancedSections(snapshot, palette),
     ];
   }
+
+  List<Widget> _advancedSections(
+    LibraryHealthSnapshot snapshot,
+    SourceSheetPalette palette,
+  ) {
+    final details = snapshot.detailGapItems;
+    final rows = snapshot.duplicateRows;
+    return [
+      if (rows.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        _HealthCard(
+          title: '疑似重复条目',
+          status: '${snapshot.duplicates.length} 组',
+          accent: palette.accent,
+          children: [
+            const Text(
+              '按标题、类型和年份列出候选项，需要手动核对。',
+              style: TextStyle(fontSize: 11),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 430),
+              child: ListView.builder(
+                shrinkWrap: true,
+                primary: false,
+                itemCount: rows.length,
+                itemBuilder: (context, index) {
+                  final row = rows[index];
+                  return row.header
+                      ? Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${row.item.title} · ${row.group.length} 项',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            _action(
+                              '忽略此重复组，可在设置中恢复',
+                              SourceGlyph.eyeOff,
+                              _saving
+                                  ? null
+                                  : () => _ignore(duplicateIssueKey(row.group)),
+                            ),
+                          ],
+                        )
+                      : _healthItemRow(
+                          row.item,
+                          '${row.item.displayType} · ${row.item.year ?? '未知年份'} · ${row.item.identity.localId}',
+                        );
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+      if (details.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        _HealthCard(
+          title: '影视详情资料不完整',
+          status: '${details.length} 项',
+          accent: palette.accent,
+          children: [
+            const Text(
+              '区分缺少人物、艺术照、外部 ID 或推荐；查看详情核对已有资料。',
+              style: TextStyle(fontSize: 11),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 430),
+              child: ListView.builder(
+                shrinkWrap: true,
+                primary: false,
+                itemCount: details.length,
+                itemBuilder: (_, index) {
+                  final item = details[index];
+                  final id = item.identity;
+                  return _healthItemRow(
+                    item,
+                    '缺少${snapshot.detailGaps[id]!.join('、')}',
+                    issue: (
+                      kind: HealthIssueKind.detailMetadata,
+                      sourceId: id.sourceId,
+                      localId: id.localId,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+      if (snapshot.evaluationComplete &&
+          snapshot.missing.isEmpty &&
+          rows.isEmpty &&
+          details.isEmpty &&
+          snapshot.unhealthyURLs.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(top: 14),
+          child: Text('未发现其他待处理项。', style: TextStyle(fontSize: 11)),
+        ),
+    ];
+  }
+
+  Widget _healthItemRow(
+    IndexedMedia item,
+    String description, {
+    HealthIssueKey? issue,
+  }) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 7),
+    child: Row(
+      children: [
+        Expanded(
+          child: Tooltip(
+            message: description,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.cardTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  description,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SourceSheetButton(
+          label: '查看详情',
+          height: 30,
+          horizontalPadding: 9,
+          onPressed: () => _open(item),
+        ),
+        if (issue != null)
+          _action(
+            '忽略此详情资料检查，可在设置中恢复',
+            SourceGlyph.eyeOff,
+            _saving ? null : () => _ignore(issue),
+          ),
+      ],
+    ),
+  );
 
   Widget _sourceRow(
     MediaSource source,

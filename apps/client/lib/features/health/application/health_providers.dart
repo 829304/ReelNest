@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../app/runtime_observations.dart';
 import '../../../domain/library_health.dart';
 import '../../../domain/media_source.dart';
 import '../../sources/application/source_providers.dart';
 import '../data/health_repository.dart';
 import '../domain/local_health_evaluator.dart';
+import '../domain/video_health_evaluator.dart';
 import 'missing_index_cleanup.dart';
 
 final missingIndexCleanupProvider = Provider<MissingIndexCleanup>(
@@ -49,7 +51,8 @@ final rawLibraryHealthProvider = FutureProvider<LibraryHealthSnapshot>((
   });
   final inventory = await repository.inventory();
   cancellation.check();
-  return evaluator.evaluate(inventory, cancellation: cancellation);
+  return VideoHealthEvaluator(evaluator)
+      .evaluate(inventory, cancellation: cancellation);
 });
 
 final ignoredHealthIssuesProvider = FutureProvider<Set<HealthIssueKey>>((ref) {
@@ -62,12 +65,23 @@ final ignoredHealthIssuesProvider = FutureProvider<Set<HealthIssueKey>>((ref) {
 final libraryHealthProvider = FutureProvider<LibraryHealthSnapshot>((
   ref,
 ) async {
+  final revision = ref.watch(sourceChangesProvider).value ?? 0;
   final raw = ref.watch(rawLibraryHealthProvider.future);
   final ignored = ref.watch(ignoredHealthIssuesProvider.future);
   // Attach error handlers to both futures immediately: a settings read can
   // fail while a slow NAS probe is still pending.
   final results = await Future.wait<Object>([raw, ignored], eagerError: true);
-  return (results[0] as LibraryHealthSnapshot).excluding(
+  final snapshot = (results[0] as LibraryHealthSnapshot).excluding(
     results[1] as Set<HealthIssueKey>,
   );
+  if (ref.mounted) {
+    ref.read(observedHealthProvider.notifier).record(snapshot, revision);
+    final rawSnapshot = results[0] as LibraryHealthSnapshot;
+    ref.read(observedReachabilityProvider.notifier).recordAll({
+      for (final source in rawSnapshot.localSources)
+        if (source.options.includeInHealthCheck)
+          source: !rawSnapshot.offline.contains(source.id),
+    });
+  }
+  return snapshot;
 });

@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 
-/// SourcesView.swift / MediaTypeGridPicker, including its original order.
+/// SourcesView.swift / MediaTypeGridPicker, retaining order except photos,
+/// which the user removed from the current product scope.
 /// SF Symbol assets remain a separate parity item; no Material substitutes.
 class MediaTypeGridPicker extends StatelessWidget {
   const MediaTypeGridPicker({
@@ -24,7 +25,6 @@ class MediaTypeGridPicker extends StatelessWidget {
     SourceMediaType.variety,
     SourceMediaType.homeVideo,
     SourceMediaType.music,
-    SourceMediaType.photo,
     SourceMediaType.other,
     SourceMediaType.privateCollection,
   ];

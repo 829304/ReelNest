@@ -340,10 +340,23 @@ class SourceRepository {
       if (type == SourceMediaType.music && minimum > 5 * 1024 * 1024) {
         minimum = 512 * 1024;
       }
+      final nextOptions = options ?? current.options;
+      final previousLibraries = current.options.selectedEmbyLibraryIDs.toSet();
+      final nextLibraries = nextOptions.selectedEmbyLibraryIDs.toSet();
+      // An empty selection means all libraries. A completed narrower snapshot
+      // cannot certify newly selected libraries, even if their next sync fails.
+      // Invalidate in the settings transaction; keep media and playback intact.
+      final expandsEmbyScope =
+          current.kind == MediaSourceKind.emby &&
+          previousLibraries.isNotEmpty &&
+          (nextLibraries.isEmpty ||
+              !previousLibraries.containsAll(nextLibraries));
       await database.customStatement(
         '''
         UPDATE sources SET name = ?, recursive = ?, ignore_hidden = ?,
-          media_type = ?, minimum_file_size = ?, options = ?, updated_at = ? WHERE id = ?
+          media_type = ?, minimum_file_size = ?, options = ?,
+          last_scan = CASE WHEN ? = 1 THEN NULL ELSE last_scan END,
+          updated_at = ? WHERE id = ?
       ''',
         [
           title,
@@ -351,7 +364,8 @@ class SourceRepository {
           (ignoreHidden ?? current.ignoreHidden) ? 1 : 0,
           type.storageValue,
           minimum,
-          jsonEncode((options ?? current.options).toJson()),
+          jsonEncode(nextOptions.toJson()),
+          expandsEmbyScope ? 1 : 0,
           DateTime.now().toUtc().millisecondsSinceEpoch,
           id,
         ],

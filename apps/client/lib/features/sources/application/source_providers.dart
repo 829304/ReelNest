@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/runtime_observations.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_scan.dart';
 import '../../../domain/source_settings_draft.dart';
@@ -53,14 +54,15 @@ final sourceReachabilityProvider = FutureProvider<Map<String, bool>>((
   final repository = ref.watch(sourceRepositoryProvider);
   final sources = await ref.watch(sourcesProvider.future);
   final results = await Future.wait(
-    sources.map(
-      (source) async => MapEntry(
-        source.id,
-        source.kind == MediaSourceKind.emby
-            ? await ref.read(embyConnectionProvider).isReachable(source)
-            : await repository.isReachable(source),
-      ),
-    ),
+    sources.map((source) async {
+      final online = source.kind == MediaSourceKind.emby
+          ? await ref.read(embyConnectionProvider).isReachable(source)
+          : await repository.isReachable(source);
+      if (ref.mounted) {
+        ref.read(observedReachabilityProvider.notifier).record(source, online);
+      }
+      return MapEntry(source.id, online);
+    }),
   );
   return Map.fromEntries(results);
 });
@@ -129,6 +131,8 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
   bool _disposed = false;
   bool _draining = false;
   bool _updatingSettings = false;
+  final _runtimeIDs = <String, String>{};
+  int _runtimeSequence = 0;
 
   @override
   Map<String, SourceScanState> build() {
@@ -146,11 +150,49 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
   }
 
   void _set(String id, SourceScanState value) {
-    if (ref.mounted) state = {...state, id: value};
+    if (!ref.mounted) return;
+    if (!(_runtimeIDs.containsKey(id)) ||
+        (value.busy && state[id]?.busy != true)) {
+      _runtimeIDs[id] = 'scan:$id:${++_runtimeSequence}';
+    }
+    state = {...state, id: value};
+    _publishRuntimeTasks();
   }
 
   void clearFinished() {
     state = Map.fromEntries(state.entries.where((e) => e.value.busy));
+    _publishRuntimeTasks();
+  }
+
+  void _publishRuntimeTasks() {
+    ref.read(observedTasksProvider.notifier).replace('scan', [
+      for (final entry in state.entries)
+        RuntimeTask(
+          id: _runtimeIDs[entry.key]!,
+          group: 'scan',
+          sourceId: entry.key,
+          title: '完整扫描',
+          detail:
+              entry.value.message ??
+              (entry.value.progress.totalFiles > 0
+                  ? '已处理 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                  : '已读取 ${entry.value.progress.processedFiles} 个媒体条目'),
+          stateTitle: entry.value.queued
+              ? '等待中'
+              : entry.value.running
+              ? '进行中'
+              : entry.value.cancelled
+              ? '已取消'
+              : entry.value.failed
+              ? '有错误'
+              : '已完成',
+          active: entry.value.busy,
+          startedAt: DateTime.now(),
+          progress: entry.value.progress.totalFiles > 0
+              ? entry.value.progress.fraction
+              : null,
+        ),
+    ]);
   }
 
   void cancel(String id) {

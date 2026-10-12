@@ -446,7 +446,8 @@ EmbyVideoSnapshot _buildSnapshot(_SnapshotData data) {
           .where(
             (v) =>
                 (selected.isEmpty || selected.contains(v.id)) &&
-                v.collectionType?.toLowerCase() != 'music',
+                v.collectionType?.toLowerCase() != 'music' &&
+                v.collectionType?.toLowerCase() != 'photos',
           )
           .toList()
         ..sort((a, b) => libraryTitleCompare(a.name, b.name));

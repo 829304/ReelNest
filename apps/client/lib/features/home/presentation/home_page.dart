@@ -8,13 +8,18 @@ import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../sources/application/source_providers.dart';
 import '../application/home_providers.dart';
+import '../application/home_layout_provider.dart';
 import '../data/home_repository.dart';
 import '../domain/home_snapshot.dart';
+import '../domain/home_layout.dart';
+import '../domain/home_recommendation.dart';
 import 'widgets/home_video_row.dart';
 import 'widgets/home_hero.dart';
 import 'widgets/home_page_background.dart';
 import 'widgets/home_header.dart';
 import 'widgets/home_search_results.dart';
+import 'widgets/home_runtime_status.dart';
+import 'widgets/home_layout_editor.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -24,6 +29,11 @@ class HomePage extends ConsumerStatefulWidget {
 
 class _HomePageState extends ConsumerState<HomePage> {
   final _search = TextEditingController();
+  final _scroll = ScrollController();
+  final _viewportKey = GlobalKey();
+  HomeModule? _dragged;
+  Timer? _dragScroll;
+  double _dragVelocity = 0;
   Timer? _debounce;
   String _query = '';
   void _submit() {
@@ -37,9 +47,39 @@ class _HomePageState extends ConsumerState<HomePage> {
     _debounce = Timer(const Duration(milliseconds: 180), _submit);
   }
 
+  void _endDrag() {
+    _dragScroll?.cancel();
+    _dragScroll = null;
+    _dragVelocity = 0;
+    if (mounted && _dragged != null) setState(() => _dragged = null);
+  }
+
+  void _updateDrag(DragUpdateDetails details) {
+    final box = _viewportKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !_scroll.hasClients) return;
+    final y = box.globalToLocal(details.globalPosition).dy;
+    const edge = 64.0;
+    final bottom = box.size.height - 64;
+    _dragVelocity = y < edge
+        ? -((edge - y) / 3).clamp(2.0, 22.0)
+        : y > bottom
+        ? ((y - bottom) / 3).clamp(2.0, 22.0)
+        : 0.0;
+    _dragScroll ??= Timer.periodic(const Duration(milliseconds: 16), (_) {
+      if (!mounted || _dragged == null || !_scroll.hasClients) return;
+      final next = (_scroll.offset + _dragVelocity).clamp(
+        0.0,
+        _scroll.position.maxScrollExtent,
+      );
+      if (next != _scroll.offset) _scroll.jumpTo(next);
+    });
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
+    _dragScroll?.cancel();
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -79,6 +119,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     List<MediaSource> sources,
     SourceSheetPalette palette,
   ) {
+    final layoutState = ref.watch(homeLayoutProvider);
+    final layoutController = ref.read(homeLayoutProvider.notifier);
     final eligible = sources.where(HomeRepository.accepts).toList();
     final recommendation = ref.watch(homeRecommendationProvider);
     final modules = {
@@ -124,112 +166,191 @@ class _HomePageState extends ConsumerState<HomePage> {
         : h >= 18 && h < 23
         ? '晚上好'
         : '夜深了';
-    return CustomScrollView(
-      key: const PageStorageKey('home-overview'),
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(36, 28, 36, 0),
-          sliver: SliverToBoxAdapter(
-            child: HomeHeader(
-              greeting: greeting,
-              controller: _search,
-              onChanged: _changed,
-              onSubmit: _submit,
-            ),
-          ),
-        ),
-        if (sources.isEmpty)
-          SliverPadding(
-            padding: const EdgeInsets.all(36),
-            sliver: SliverToBoxAdapter(
-              child: _empty(
-                context,
-                palette,
-                '媒体源待添加',
-                '接入本地文件夹、移动硬盘、网络挂载或 Emby 媒体库后，ReelNest 会整理索引。',
-              ),
-            ),
-          )
-        else if (_query.isNotEmpty)
-          HomeSearchResults(key: ValueKey(_query), query: _query)
-        else ...[
-          if (recommendation.value?.hero.isNotEmpty == true)
+    return Stack(
+      key: _viewportKey,
+      children: [
+        CustomScrollView(
+          key: const PageStorageKey('home-overview'),
+          controller: _scroll,
+          slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(12, 22, 12, 0),
+              padding: const EdgeInsets.fromLTRB(36, 28, 36, 0),
               sliver: SliverToBoxAdapter(
-                child: HomeHero(board: recommendation.value!),
-              ),
-            ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(36, 22, 36, 0),
-            sliver: SliverToBoxAdapter(
-              child: _stats(stats, palette, ready == 0 && eligible.isNotEmpty),
-            ),
-          ),
-          if (loading || partial)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
-              sliver: SliverToBoxAdapter(
-                child: Text(
-                  loading ? '正在整理媒体库… 已有内容可先浏览。' : '显示已载入的内容；完整同步后将补齐统计与记录。',
-                  style: TextStyle(fontSize: 12, color: palette.secondary),
+                child: HomeHeader(
+                  greeting: greeting,
+                  controller: _search,
+                  onChanged: _changed,
+                  onSubmit: _submit,
                 ),
               ),
             ),
-          if (errors.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
-              sliver: SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final error in errors.values)
-                      Text(error, style: const TextStyle(fontSize: 12)),
-                    TextButton(
-                      onPressed: () {
-                        ref.invalidate(homeVideoPageProvider);
-                        ref.invalidate(homeSourceStatsProvider);
-                        ref.invalidate(homeSeedProvider);
-                        ref.invalidate(homeRecommendationCandidatesProvider);
-                      },
-                      child: const Text('重试'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          for (final c in HomeCollection.values)
-            if (modules[c]!.items.isNotEmpty)
+            if (sources.isEmpty)
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(36, 22, 36, 0),
+                padding: const EdgeInsets.all(36),
                 sliver: SliverToBoxAdapter(
-                  child: HomeVideoRow(
-                    key: ValueKey(c),
-                    collection: c,
-                    items: modules[c]!.items,
+                  child: _empty(
+                    context,
+                    palette,
+                    '媒体源待添加',
+                    '接入本地文件夹、移动硬盘、网络挂载或 Emby 媒体库后，ReelNest 会整理索引。',
                   ),
                 ),
-              ),
-          if (!hasCards &&
-              !loading &&
-              errors.isEmpty &&
-              stats.movies + stats.series == 0)
-            SliverPadding(
-              padding: const EdgeInsets.all(36),
-              sliver: SliverToBoxAdapter(
-                child: _empty(
-                  context,
-                  palette,
-                  '还没有可展示的视频',
-                  '媒体源中的公开影视内容会在这里汇总。',
+              )
+            else if (_query.isNotEmpty)
+              HomeSearchResults(key: ValueKey(_query), query: _query)
+            else ...[
+              if (loading || partial)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: Text(
+                      loading
+                          ? '正在整理媒体库… 已有内容可先浏览。'
+                          : '显示已载入的内容；完整同步后将补齐统计与记录。',
+                      style: TextStyle(fontSize: 12, color: palette.secondary),
+                    ),
+                  ),
                 ),
+              if (errors.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final error in errors.values)
+                          Text(error, style: const TextStyle(fontSize: 12)),
+                        TextButton(
+                          onPressed: () {
+                            ref.invalidate(homeVideoPageProvider);
+                            ref.invalidate(homeSourceStatsProvider);
+                            ref.invalidate(homeSeedProvider);
+                            ref.invalidate(
+                              homeRecommendationCandidatesProvider,
+                            );
+                          },
+                          child: const Text('重试'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              for (final module in layoutState.layout.added)
+                if (layoutState.editing ||
+                    _hasModuleContent(module, recommendation.value, modules))
+                  SliverToBoxAdapter(
+                    key: ValueKey('home-module-${module.name}'),
+                    child: HomeEditableModule(
+                      module: module,
+                      editing: layoutState.editing,
+                      enabled: !layoutState.finishing,
+                      canHide: layoutState.layout.added.length > 1,
+                      dragged: _dragged,
+                      onStart: () => setState(() => _dragged = module),
+                      onMove: layoutController.move,
+                      onEnd: _endDrag,
+                      onUpdate: _updateDrag,
+                      onHide: () => layoutController.hide(module),
+                      padding: EdgeInsets.fromLTRB(
+                        module == HomeModule.hero ? 12 : 36,
+                        22,
+                        module == HomeModule.hero ? 12 : 36,
+                        0,
+                      ),
+                      child: _moduleContent(
+                        module,
+                        recommendation.value,
+                        modules,
+                        stats,
+                        palette,
+                        ready == 0 && eligible.isNotEmpty,
+                      ),
+                    ),
+                  ),
+              if (!hasCards &&
+                  !loading &&
+                  errors.isEmpty &&
+                  stats.movies + stats.series == 0)
+                SliverPadding(
+                  padding: const EdgeInsets.all(36),
+                  sliver: SliverToBoxAdapter(
+                    child: _empty(
+                      context,
+                      palette,
+                      '还没有可展示的视频',
+                      '媒体源中的公开影视内容会在这里汇总。',
+                    ),
+                  ),
+                ),
+              if (!layoutState.editing)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(36, 8, 36, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: HomeLayoutFooter(
+                      state: layoutState,
+                      onEdit: () {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        layoutController.begin();
+                      },
+                      onRetry: layoutController.retryLoad,
+                    ),
+                  ),
+                ),
+              if (layoutState.editing)
+                const SliverToBoxAdapter(child: SizedBox(height: 82)),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: 28)),
+          ],
+        ),
+        if (layoutState.editing && _query.isEmpty && sources.isNotEmpty)
+          Positioned(
+            left: 14,
+            right: 14,
+            bottom: 14,
+            child: Center(
+              child: HomeLayoutEditorDock(
+                state: layoutState,
+                controller: layoutController,
               ),
             ),
-        ],
-        const SliverToBoxAdapter(child: SizedBox(height: 28)),
+          ),
       ],
     );
   }
+
+  bool _hasModuleContent(
+    HomeModule module,
+    HomeRecommendation? board,
+    Map<HomeCollection, HomeCollectionState> collections,
+  ) => switch (module) {
+    HomeModule.hero => board?.hero.isNotEmpty == true,
+    HomeModule.stats || HomeModule.dashboard => true,
+    _ => collections[module.collection]?.items.isNotEmpty == true,
+  };
+
+  Widget _moduleContent(
+    HomeModule module,
+    HomeRecommendation? board,
+    Map<HomeCollection, HomeCollectionState> collections,
+    HomeStats stats,
+    SourceSheetPalette palette,
+    bool loading,
+  ) => switch (module) {
+    HomeModule.hero =>
+      board?.hero.isNotEmpty == true
+          ? HomeHero(board: board!)
+          : const SizedBox.shrink(),
+    HomeModule.stats => _stats(stats, palette, loading),
+    HomeModule.dashboard => const HomeRuntimeStatus(),
+    _ =>
+      collections[module.collection]?.items.isNotEmpty == true
+          ? HomeVideoRow(
+              key: ValueKey(module.collection!),
+              collection: module.collection!,
+              items: collections[module.collection]!.items,
+            )
+          : const SizedBox.shrink(),
+  };
 
   Widget _empty(
     BuildContext context,

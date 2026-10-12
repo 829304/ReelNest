@@ -49,6 +49,9 @@ class MediaSource {
   final SourceOptions options;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// Successful scan/snapshot for the current scope. Emby scope expansion
+  /// invalidates this marker without deleting the previously indexed media.
   final DateTime? lastScan;
   final int itemCount;
   final int missingCount;

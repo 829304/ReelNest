@@ -37,6 +37,8 @@ class LocalHealthEvaluator {
   Future<LibraryHealthSnapshot> evaluate(
     LibraryInventory inventory, {
     required ScanCancellation cancellation,
+    // Keep all roots for overlap/privacy safety while probing only this scope.
+    Set<String>? sourceScope,
   }) async {
     final sources = inventory.sources.where((s) => s.kind.isFileSource).toList()
       ..sort((a, b) => b.location.length.compareTo(a.location.length));
@@ -67,7 +69,8 @@ class LocalHealthEvaluator {
     }
 
     for (final source in sources) {
-      if (source.options.includeInHealthCheck &&
+      if ((sourceScope == null || sourceScope.contains(source.id)) &&
+          source.options.includeInHealthCheck &&
           (!await probe(source.location) ||
               (sourceAvailable != null && !await sourceAvailable!(source)))) {
         offline.add(source.id);

@@ -1,77 +1,127 @@
 # ReelNest 文档
 
-本目录统一保存映栖 ReelNest 的规划与设计文档。更新时间：2026-10-12。
+更新时间：2026-10-12。
 
-**当前约束：MediaLib 的 Flutter 重构，第一阶段仅 Windows/macOS/Linux；功能、UI 与交互一致，不自行新增、删除或修改功能。** [项目边界](PROJECT_SCOPE.zh-CN.md)替代此前“五端同时推进”“简化 UI 后期再重做”等假设。
+本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
-品牌约定：客户端 **ReelNest**，自有服务端及对应可选来源 **ReelNest Server**。原 MediaLib 名称只用于源码出处、历史记录及必要的兼容说明。
+## 当前快照
 
-当前目标是 MediaLib 的 Flutter 多平台重构：直接管理本地文件夹、移动硬盘、已挂载 NAS，以及 Emby/Jellyfin/Plex。此前“依赖 MediaLib 服务端、先做 Mlink 客户端”的规划已撤销。第一轮已实现独立目录来源、扫描、索引和浏览，Mlink 试验路由只用于回归测试；完整目标仍按实施计划推进。
+- 当前主线：首页 H3 布局编排已接通，接下来进行首页桌面交互与真实数据验收。
+- 最近完成：首页 H1、H2 推荐/搜索/状态、H3 编排、视频健康评分、首页进度/清除修复，以及来源刷新期间的页面状态保留。
+- 最新记录：全量 **564 项 Dart 测试、静态分析、Windows Release 构建通过**；启动退出两次复测通过，首次退出超时及边界见[视频健康评分](HEALTH_SCORE.zh-CN.md)。
+- 尚未由该记录证明：真实 Emby 完整操作、实际滚动帧率、macOS/Linux 原生运行、三桌面端原版 UI 对照。
+- 音乐后续作为独立大模块统一迁移；Jellyfin、Plex、ReelNest Server 等原有来源仍在完整范围内。
+- WebDAV 设置备份是后续明确新增功能，当前不实施。
+- 用户于 2026-10-12 明确暂不实现照片模块：照片/相册、照片搜索和首页照片墙移出当前入口、计划与验收范围，恢复需重新确认；影视图片功能保留。后续调整与验证见[照片范围记录](PHOTO_SCOPE_DECISION.zh-CN.md)。
 
-2026-10-12 最新验证：全量 **482 项 Dart 测试、静态分析、Windows Release 构建与启动检查通过**。首页 H1 已接入跨来源视频模块、分页和播放刷新，详见[实现记录](HOME_H1.zh-CN.md)；后续修复系列在“正在观看”中缺失的问题，见 [Emby 导航记录](EMBY_NAVIGATION.zh-CN.md)。H2 首批接入推荐轮播、剧集推荐与高分精选，见 [推荐实现记录](HOME_H2_RECOMMENDATIONS.zh-CN.md)；百分比进度、清除记录与远程失败提示见 [首页修复记录](HOME_PROGRESS_FIXES_2026-10-12.zh-CN.md)，本轮页面状态保留与最新构建结果见 [来源刷新修复记录](SOURCE_PAGE_LIFECYCLE_FIX_2026-10-12.zh-CN.md)。真实 Emby 完整操作、滚动帧率及三端原生对照仍须分别验收。下文 412/408 项与原生测试结果属于 2026-10-11/10 的历史批次。
+当前任务和完成条件见[首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)与[当前阶段记录](NEXT_STAGE.zh-CN.md)。历史测试数字只代表对应批次，不覆盖后续代码。
+
+## 阅读顺序
+
+1. [项目边界与一致性要求](PROJECT_SCOPE.zh-CN.md)：产品范围、平台、品牌、数据库和验收约束。
+2. [当前阶段记录](NEXT_STAGE.zh-CN.md)：当前下一批及从早期本地来源到首页的实施时间线。
+3. [首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)：当前 H1 → H2 → H3 主线和验收条件。
+4. [项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)：代码布局、职责和依赖方向。
+5. [开发指南](DEVELOPMENT.zh-CN.md)：环境、命令、构建、CI 和原生验证边界。
+6. [原版一致性核对清单](design/ORIGINAL_PARITY_AUDIT.zh-CN.md)：源码依据、当前迁移摘要、现有偏差和历史审计。
+7. [三桌面端实现与验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md)：按平台区分自动化、原生、真实环境和 UI 对照。
+
+文档作者和模块负责人还应阅读[文档维护规范](DOCUMENTATION_GUIDE.zh-CN.md)；涉及持久化时阅读[数据字典](DATA_DICTIONARY.zh-CN.md)。
+
+若文档叙述冲突，按“用户最新明确要求与 `AGENTS.md` → 项目边界 → 原版指定源码基线 → 当前代码/测试与最新专项记录 → 历史计划”的顺序判断。
+
+## 项目约束与设计
+
+| 文档 | 用途 |
+|---|---|
+| [项目边界与一致性要求](PROJECT_SCOPE.zh-CN.md) | 权威范围、三桌面端、功能/UI 一致性及数据库原则 |
+| [文档维护规范](DOCUMENTATION_GUIDE.zh-CN.md) | 文档类型、状态、验证等级、更新与归档规则 |
+| [模块规格模板](templates/MODULE_SPEC_TEMPLATE.zh-CN.md) | 新模块或重大补齐使用的统一规格模板 |
+| [Flutter 重构实施计划](FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md) | 完整来源范围、阶段目标和验收标准 |
+| [项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md) | 当前与目标目录、模块职责及依赖方向 |
+| [数据字典](DATA_DICTIONARY.zh-CN.md) | 当前 SQLite schema、媒体身份、缓存和敏感数据边界 |
+| [三桌面端实现与验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md) | Windows、macOS、Linux 的实现状态与验证证据 |
+| [原版源码映射](design/SOURCE_MAPPING.md) | Swift/SwiftUI 到 Flutter 的来源映射 |
+| [原版一致性核对清单](design/ORIGINAL_PARITY_AUDIT.zh-CN.md) | 已读源码、当前偏差及验收缺口 |
+| [原版缺陷防引入清单](design/ORIGINAL_DEFECT_GUARDS.zh-CN.md) | 远程读取、缓存提交、重下载和 FFmpeg 回归要求 |
+| [初始化决策](decisions/0001-client-bootstrap.md) | 初始化时期的应用标识、依赖和工程选择 |
+| [GitHub 仓库与发布规划](GITHUB_REPOSITORY_PLAN.zh-CN.md) | 仓库、分支、CI、版本、签名与发布安排 |
+| [设置云备份与恢复计划](CLOUD_SETTINGS_PLAN.zh-CN.md) | 后续 WebDAV 设置备份；尚未实现 |
+
+## 首页
+
+| 文档 | 状态与内容 |
+|---|---|
+| [首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md) | 当前计划；H1 基础闭环、H2 推荐/搜索/状态、H3 编排与桌面验收 |
+| [首页 H1 实现记录](HOME_H1.zh-CN.md) | 跨来源统计、续播/历史、想看/收藏、最近剧集、分页与刷新 |
+| [首页 H2 推荐实现记录](HOME_H2_RECOMMENDATIONS.zh-CN.md) | 每日推荐、剧集推荐、高分精选、封面配色和后台计算 |
+| [首页跨来源视频搜索](HOME_SEARCH.zh-CN.md) | 搜索字段、分组、可取消后台匹配、来源隔离及详情返回 |
+| [首页运行状态](HOME_RUNTIME_STATUS.zh-CN.md) | 来源、基础健康和任务摘要，读取不触发扫描，检测范围与验证记录 |
+| [视频健康评分](HEALTH_SCORE.zh-CN.md) | 原版首页/仪表盘公式、本地/Emby 视频范围、重复/详情缺口、忽略恢复与验证 |
+| [首页编排](HOME_LAYOUT_EDITOR.zh-CN.md) | 原版编辑入口、拖动/隐藏/恢复、串行持久化与失败重试、桌面组件验证 |
+| [首页进度与清除修复](HOME_PROGRESS_FIXES_2026-10-12.zh-CN.md) | 百分比进度、记录区分及远程失败提示 |
+
+## 本地来源与公共浏览
 
 | 文档 | 内容 |
 |---|---|
-| [Emby 启动侧栏修复（2026-10-12）](EMBY_STARTUP_NAVIGATION_2026-10-12.zh-CN.md) | 缓存目录先显示、移除完整快照依赖、加载数量与展开响应修复 |
-| [首次剧集播放与分页保护（2026-10-12）](EMBY_BROWSE_FIXES_2026-10-12.zh-CN.md) | 首次右键播放按需准备、延迟分页版本校验；102 项相关测试通过及全量时序失败记录 |
-| [首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md) | H1 视频基础闭环 → H2 推荐/搜索/状态 → H3 编排与桌面验收；原版规则与性能边界 |
-| [首页 H1 实现记录](HOME_H1.zh-CN.md) | 跨来源视频统计、续播/历史/想看/收藏/最近剧集、分页与刷新；性能和验收边界 |
-| [首页 H2 推荐实现记录](HOME_H2_RECOMMENDATIONS.zh-CN.md) | 原版每日推荐、剧集推荐、高分精选、封面配色、后台计算和 473 项回归；搜索与运行状态待后续 |
-| [首页进度与清除修复（2026-10-12）](HOME_PROGRESS_FIXES_2026-10-12.zh-CN.md) | 百分比进度、本地覆盖与同步记录区分、远程写回失败提示；479 项回归与新版 Release |
-| [来源刷新与页面生命周期（2026-10-12）](SOURCE_PAGE_LIFECYCLE_FIX_2026-10-12.zh-CN.md) | 刷新保留滚动、多选及分页游标，详情不误报来源移除；482 项回归与新版 Release |
-| [媒体源别名与 Emby 图标](SOURCE_ALIASES.zh-CN.md) | 侧栏 Logo、媒体源页设置别名、保存失败重试与本机持久化 |
-| [媒体库滚动优化记录（2026-10-11）](TEST_REPORT_2026-10-11.zh-CN.md) | 卡片索引查询、按显示尺寸解码、轻量图片校验；412 项测试与实机验收边界 |
-| [Emby 首次浏览与人物作品](EMBY_LOADING.zh-CN.md) | 前台首屏/滚动分页、后台 SQLite 批量写入、演员完整作品和实测入口 |
-| [项目边界与一致性要求](PROJECT_SCOPE.zh-CN.md) | 用户确认的范围、原版 UI/行为验收与已有偏差 |
-| [下一阶段实施安排](NEXT_STAGE.zh-CN.md) | 原版基线、桌面主框架、本地来源还原与三桌面端验收 |
-| [设置云备份与恢复计划](CLOUD_SETTINGS_PLAN.zh-CN.md) | 用户确认的后续新增功能：WebDAV 设置备份；尚未实现，不改变当前优先级 |
-| [本地媒体库回归记录（2026-10-08）](TEST_REPORT_2026-10-08.zh-CN.md) | 71 项测试结果，含批量添加部分失败、Windows 隐藏属性及健康/设置/系列回归 |
-| [无媒体库与 NAS 的测试方案](MEDIA_TESTING.zh-CN.md) | 合成样本、可播放资源、SMB 共享模拟、平台验证与当前覆盖边界 |
-| [原版一致性核对清单](design/ORIGINAL_PARITY_AUDIT.zh-CN.md) | 原源码入口、已读规则、当前偏差、第一批落地范围及验收缺口 |
-| [原版缺陷防引入清单](design/ORIGINAL_DEFECT_GUARDS.zh-CN.md) | 旧项目暂不修复；迁移时验证远程读取上限、缓存安全提交与 FFmpeg 进程管理 |
-| [开发指南](DEVELOPMENT.zh-CN.md) | SDK、运行命令、验证结果和本地环境限制 |
-| [本地视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 当前状态总表、固定剩余功能范围、验收边界与后续顺序建议 |
-| [本地视频播放与续播](LOCAL_PLAYBACK.zh-CN.md) | 原版源码规则、独立窗口、进度存储、基本控制与未迁移项 |
-| [播放队列与播完行为](PLAYER_QUEUE.zh-CN.md) | 同系列队列、相邻项、三种播完行为、安全切换及原生 EOF 验证 |
-| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、语言偏好、音轨/输出、增强及原生渲染验证 |
-| [本地媒体源与索引](LOCAL_SOURCES.zh-CN.md) | 第一轮纠偏实现、目录扫描、SQLite、来源隔离与验证边界 |
-| [Windows 构建与冒烟](WINDOWS_SMOKE.zh-CN.md) | C 盘构建、7 项自动化测试、EXE 启动结果及未覆盖范围 |
-| [原版源码映射](design/SOURCE_MAPPING.md) | SwiftUI 到 Flutter 的迁移来源与范围 |
-| [Mlink 连接试验记录](MLINK_CONNECTION.zh-CN.md) | 历史登录/会话实现，停止作为产品主线扩展 |
-| [媒体浏览与详情](LIBRARY_BROWSING.zh-CN.md) | 现有 Mlink 试验路径与可复用界面；待解除来源耦合 |
-| [系列摘要接口试验记录](SERIES_API.zh-CN.md) | 历史服务端扩展，不再是新应用依赖，不执行部署 |
-| [初始化决策](decisions/0001-client-bootstrap.md) | 应用标识、依赖、布局和 CI 选择 |
-| [项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md) | 目录布局、模块职责、依赖方向、播放器和平台适配边界 |
-| [Flutter 重构实施计划](FLUTTER_IMPLEMENTATION_PLAN.zh-CN.md) | 旧项目复用边界、功能范围、开发阶段与验收标准 |
-| [GitHub 仓库与发布规划](GITHUB_REPOSITORY_PLAN.zh-CN.md) | 仓库组织、分支、五端构建、版本与发布 |
+| [本地媒体源与索引](LOCAL_SOURCES.zh-CN.md) | 目录来源、扫描、SQLite、来源隔离和平台边界 |
+| [媒体源别名与 Emby 图标](SOURCE_ALIASES.zh-CN.md) | 侧栏 Logo、来源别名和持久化 |
+| [来源刷新与页面生命周期](SOURCE_PAGE_LIFECYCLE_FIX_2026-10-12.zh-CN.md) | 刷新期间保留滚动、多选、分页游标和详情状态 |
+| [媒体库进入详情的海报闪烁修复](POSTER_TRANSITION_2026-10-12.zh-CN.md) | 页面切换时的海报占位与过渡修复 |
+| [无媒体库与 NAS 的测试方案](MEDIA_TESTING.zh-CN.md) | 合成媒体、可播放样本、SMB 模拟和平台验证 |
 
-`design/` 保存源码映射与界面参考，`decisions/` 保存重要技术决策。目录树中的计划项不代表代码已经实现。
+## 视频播放
 
-最新自动化测试共 **408 项通过，静态分析通过**。人物横向滚动已补齐；Windows 播放器关闭后的原生卡住/崩溃仍未通过重复验收，启动冒烟通过不能替代这一项，详见当日测试记录。Emby 视频导航、播放/转码、图片磁盘/内存缓存与预加载、手动/自动离线下载，以及海报/单集右键和多选批量操作已接入。本批 Windows 原生回归及 Release 更新结果见 [2026-10-10 记录](TEST_REPORT_2026-10-10.zh-CN.md)。公共集合/封面管理、完整 UI、macOS 持久目录授权、三端系统环境、公共搜索/分类与 TMDB 扩展仍待迁移/验收；首页已接入 H1 视频首批能力，推荐/搜索/状态与编排仍按 H2/H3 推进；音乐后续独立实现。当前维护初始数据库结构，没有开发版本升级链或自动清库。旧 MediaLib 的系列摘要试验分支未部署，不作为后续任务依赖。
+| 文档 | 内容 |
+|---|---|
+| [本地视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 已实现、固定剩余范围及验收边界 |
+| [本地视频播放与续播](LOCAL_PLAYBACK.zh-CN.md) | 独立窗口、进度、基础控制和失败保护 |
+| [播放队列与播完行为](PLAYER_QUEUE.zh-CN.md) | 同系列队列、相邻项和三种结束行为 |
+| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置 |
+| [基础播放设置与防休眠](PLAYER_BASIC_SETTINGS.zh-CN.md) | 倍速、续播、已看阈值、音量和平台防休眠 |
 
-2026-10-09 修复空库启动和数据库错误提示，见 [空库启动测试记录](TEST_REPORT_2026-10-09.zh-CN.md)。
+## Emby 视频
 
-- [基础播放设置与防休眠](PLAYER_BASIC_SETTINGS.zh-CN.md)：实现范围、原版默认规则、Windows 验证与平台边界。
+| 文档 | 内容 |
+|---|---|
+| [Emby 基础闭环计划](EMBY_PLAN.zh-CN.md) | E1–E3 的历史阶段计划和验收范围 |
+| [连接与选库（E1）](EMBY_CONNECTION.zh-CN.md) | 登录、凭据、选库、恢复与重新认证 |
+| [分页同步与浏览（E2）](EMBY_SYNC.zh-CN.md) | 分页、完整快照、取消/失败保护和基础浏览 |
+| [播放与进度同步（E3）](EMBY_PLAYBACK.zh-CN.md) | 鉴权播放、续播、队列、痕迹模式和上报 |
+| [收藏、已看与服务器字幕](EMBY_ACTIONS_SUBTITLES.zh-CN.md) | 状态写回/回滚、批量观看和文本字幕 |
+| [服务器详情、演职员与艺术照](EMBY_DETAILS.zh-CN.md) | 详情缓存、人员、图片和技术信息 |
+| [视频媒体库导航与浏览](EMBY_NAVIGATION.zh-CN.md) | 来源树、分库、筛选、排序和导航 |
+| [首次浏览与人物作品](EMBY_LOADING.zh-CN.md) | 前台分页、后台批量索引和服务器人物作品 |
+| [画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md) | 转码画质、图片/视频缓存、手动离线和容量维护 |
+| [自动离线订阅与任务入口](EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md) | 订阅范围、暂停/到期、网络策略和任务控制 |
+| [右键、多选与图片内存缓存](EMBY_LIBRARY_ACTIONS.zh-CN.md) | 菜单、批量栏、索引移除和解码缓存 |
+| [初始评级与显示分类](EMBY_CLASSIFICATION_RATING.zh-CN.md) | 评分换算和顶层分类投影 |
+| [启动侧栏修复](EMBY_STARTUP_NAVIGATION_2026-10-12.zh-CN.md) | 缓存目录先显示、加载数量和展开响应 |
+| [首次剧集播放与分页保护](EMBY_BROWSE_FIXES_2026-10-12.zh-CN.md) | 按需播放准备和延迟分页版本校验 |
+| [演员作品与详情加载优化](EMBY_DETAIL_PERFORMANCE_2026-10-11.zh-CN.md) | 详情读取与人物作品性能修正 |
 
-- [Emby 基础闭环计划](EMBY_PLAN.zh-CN.md)：下一阶段三批交付、源码依据与验收范围。
+## 验证与性能记录
 
-- [Emby 连接与选库（E1）](EMBY_CONNECTION.zh-CN.md)：登录、安全凭据、选库、会话恢复与重新认证；E1 历史批次范围，后续见 E2/E3。
+这些文档记录的是特定提交或批次，数字不能脱离日期当作当前总状态。
 
-- [Emby 分页同步与浏览（E2）](EMBY_SYNC.zh-CN.md)：完整快照替换、取消/失败保护、海报和基本电影/季集详情；后续播放见 E3。
+| 文档 | 范围 |
+|---|---|
+| [2026-10-08 本地媒体库回归](TEST_REPORT_2026-10-08.zh-CN.md) | 本地来源、扫描、健康和设置 |
+| [2026-10-09 空库启动与错误显示](TEST_REPORT_2026-10-09.zh-CN.md) | 数据库启动、本地播放和 Emby E1/E2 等当日批次 |
+| [2026-10-10 Emby 导航、画质与缓存](TEST_REPORT_2026-10-10.zh-CN.md) | Emby 视频批次及 Windows 原生场景 |
+| [2026-10-11 媒体库滚动优化](TEST_REPORT_2026-10-11.zh-CN.md) | 卡片索引、显示尺寸解码和图片校验 |
+| [数据库读取与关闭优化](DATABASE_PERFORMANCE_2026-10-11.zh-CN.md) | 后台读取、事务关闭和性能边界 |
+| [前端性能补充检查](FRONTEND_PERFORMANCE_AUDIT_2026-10-11.zh-CN.md) | 页面和图片管线补充审计 |
+| [播放器关闭后主界面响应检查](FRONTEND_CLOSE_AUDIT_2026-10-11.zh-CN.md) | Windows 关窗、重开和主界面响应 |
+| [Windows 构建与冒烟](WINDOWS_SMOKE.zh-CN.md) | 初始化时期的 Windows 构建与 7 项测试；历史记录 |
 
-- [Emby 播放与进度同步（E3）](EMBY_PLAYBACK.zh-CN.md)：鉴权 mpv 网络播放、续播/队列、三种痕迹模式及有界播放上报；首页 H1 已接入播放通知刷新。
+## 历史试验资料
 
-- [Emby 收藏、已看与服务器字幕](EMBY_ACTIONS_SUBTITLES.zh-CN.md)：状态写回/回滚、整季批量标记、按需下载服务器文本字幕与安全清理；完整详情和导航仍待迁移。
+以下内容保留用于追溯，不是当前产品架构或下一批开发入口：
 
-- [Emby 服务器详情、演职员与艺术照](EMBY_DETAILS.zh-CN.md)：30 天缓存、人员入口、图片预览、相关链接和媒体技术信息；完整人物/TMDB、导航及视觉差异仍待迁移。
+- [Mlink 服务器连接试验](MLINK_CONNECTION.zh-CN.md)：历史登录/会话实现。
+- [媒体浏览与详情试验](LIBRARY_BROWSING.zh-CN.md)：早期 Mlink 数据路径和可复用界面记录。
+- [系列摘要接口试验](SERIES_API.zh-CN.md)：旧 MediaLib 服务端扩展，未部署且不再作为依赖。
 
-- [Emby 视频媒体库导航与浏览](EMBY_NAVIGATION.zh-CN.md)：来源树、分库、搜索/筛选/排序、本机想看与目录原子提交；含尚未等效的公共搜索和 UI 项。
-
-- [Emby 画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)：转码画质、图片持久缓存/预热、手动离线下载及字幕、容量维护与缓存安全提交；自动订阅等原有能力仍待迁移。
-
-
-- [Emby 自动离线订阅与任务入口](EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md)：未看窗口、整季/全系列、暂停/到期、网络策略、队列控制及静态缓存用量；公共任务系统和视觉验收仍有缺口。
-
-- [Emby 右键、多选与图片内存缓存](EMBY_LIBRARY_ACTIONS.zh-CN.md)：原版菜单与批量栏、索引移除、历史清理代次、512 MiB 解码缓存和两行预热。
-
-- [Emby 初始评级与显示分类](EMBY_CLASSIFICATION_RATING.zh-CN.md)：10 分社区评分到 1–5 星、库名/题材/库类型优先级、顶层展示投影及身份保护。
+`design/` 保存原版源码与一致性资料，`decisions/` 保存技术决策。计划文档中的目录或能力不代表代码已经实现；实现记录中的自动化通过也不替代真实服务器和三桌面端验收。

@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/runtime_observations.dart';
 import '../../../api/emby/emby_client.dart';
 import '../../../platform/secure_credential_store.dart';
 import '../data/emby_connection_repository.dart';
@@ -81,6 +82,45 @@ final embyCacheProvider = Provider<EmbyCacheRepository>((ref) {
     sources: ref.watch(sourceRepositoryProvider),
     connections: ref.watch(embyConnectionProvider),
   );
+  void publishTasks() {
+    ref.read(observedTasksProvider.notifier).replace('cache', [
+      for (final task in cache.tasks.value.values)
+        RuntimeTask(
+          id: 'cache:${task.token}',
+          group: 'cache',
+          sourceId: task.item.identity.sourceId,
+          title: '缓存 · ${task.item.cardTitle}',
+          detail: task.error ?? '${task.received ~/ (1024 * 1024)} MB 已下载',
+          stateTitle: switch (task.state) {
+            VideoCacheTaskState.queued => '等待中',
+            VideoCacheTaskState.downloading => '进行中',
+            VideoCacheTaskState.paused => '已暂停',
+            VideoCacheTaskState.saving => '正在保存',
+            VideoCacheTaskState.complete => '已完成',
+            VideoCacheTaskState.failed => '有错误',
+            VideoCacheTaskState.cancelled => '已取消',
+          },
+          active: const {
+            VideoCacheTaskState.queued,
+            VideoCacheTaskState.downloading,
+            VideoCacheTaskState.paused,
+            VideoCacheTaskState.saving,
+          }.contains(task.state),
+          startedAt: DateTime.now(),
+          isCache: true,
+          hidesDetail: const {
+            'private',
+            'privateCollection',
+          }.contains(task.item.type),
+          progress: (task.expected ?? 0) > 0
+              ? (task.received / task.expected!).clamp(0, 1)
+              : null,
+        ),
+    ]);
+  }
+
+  cache.tasks.addListener(publishTasks);
+  ref.onDispose(() => cache.tasks.removeListener(publishTasks));
   ref.onDispose(() => unawaited(cache.dispose()));
   return cache;
 });

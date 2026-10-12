@@ -50,6 +50,7 @@ void main() {
       const EmbyLibrary(id: 'movies', name: '电影', collectionType: 'movies'),
       const EmbyLibrary(id: 'empty', name: '空库', collectionType: 'movies'),
       const EmbyLibrary(id: 'music', name: '音乐', collectionType: 'music'),
+      const EmbyLibrary(id: 'photos', name: '照片', collectionType: 'photos'),
     ]);
   });
   tearDown(() => sources.close());
@@ -175,6 +176,7 @@ void main() {
       expect(find.text('电影'), findsOneWidget);
       expect(find.text('空库'), findsOneWidget);
       expect(find.text('音乐'), findsNothing);
+      expect(find.text('照片'), findsNothing);
       expect(find.text('全部视频'), findsOneWidget);
       // A later sync replaces the directory without loading a media snapshot.
       await library.replaceViews(source.id, [

@@ -114,7 +114,8 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
             .where(
               (view) =>
                   (selected.isEmpty || selected.contains(view.id)) &&
-                  view.collectionType?.toLowerCase() != 'music',
+                  view.collectionType?.toLowerCase() != 'music' &&
+                  view.collectionType?.toLowerCase() != 'photos',
             )
             .toList()
           ..sort((a, b) => libraryTitleCompare(a.name, b.name));

@@ -39,6 +39,7 @@ void main() {
         );
         await tester.tap(find.text('Open'));
         await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('media-type-photo')), findsNothing);
         expect(
           tester
               .widget<TextButton>(

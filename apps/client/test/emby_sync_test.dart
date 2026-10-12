@@ -6,10 +6,16 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reelnest/api/emby/emby_client.dart';
 import 'package:reelnest/api/emby/emby_item.dart';
 import 'package:reelnest/app/reelnest_app.dart';
+import 'package:reelnest/domain/library_health.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/domain/source_options.dart';
+import 'package:reelnest/features/health/domain/local_health_evaluator.dart';
+import 'package:reelnest/features/health/domain/video_health_evaluator.dart';
+import 'package:reelnest/features/sources/data/emby_browse_repository.dart';
 import 'package:reelnest/features/sources/application/emby_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/emby_connection_repository.dart';
@@ -111,6 +117,159 @@ void main() {
       (await sources.browse(source.id)).items
           .map((i) => i.identity.localId)
           .toList();
+
+  Future<LibraryHealthSnapshot> health() async => VideoHealthEvaluator(
+    LocalHealthEvaluator(
+      paths: p.context,
+      exists: (_) async =>
+          throw StateError('remote health must not probe local paths'),
+    ),
+  ).evaluate(await sources.inventory(), cancellation: ScanCancellation());
+
+  for (final outcome in ['failure', 'cancel', 'commit failure']) {
+    test(
+      'expanded Emby scope stays partial after $outcome until complete sync',
+      () async {
+        server.catalog['movies'] = [movie('old')];
+        server.catalog['shows'] = [movie('added')];
+        await connections.selectLibraries(
+          source.id,
+          all: false,
+          selected: ['movies'],
+        );
+        await sync.synchronize(source.id);
+        expect((await health()).partialIndex, isFalse);
+        expect((await sources.source(source.id)).lastScan, isNotNull);
+        await connections.selectLibraries(
+          source.id,
+          all: false,
+          selected: ['movies', 'shows'],
+        );
+        expect((await health()).partialIndex, isTrue);
+        expect(await ids(), ['old']);
+
+        if (outcome == 'cancel') {
+          final entered = Completer<void>(), release = Completer<void>();
+          addTearDown(() {
+            if (!release.isCompleted) release.complete();
+          });
+          server.itemsHandler = (request) async {
+            if (request.uri.queryParameters['ParentId'] == 'shows') {
+              if (!entered.isCompleted) entered.complete();
+              await release.future;
+            }
+            try {
+              request.response.write(
+                jsonEncode({
+                  'Items': [movie('old')],
+                  'TotalRecordCount': 1,
+                }),
+              );
+              await request.response.close();
+            } catch (_) {
+              /* Cancellation closes the fixture request. */
+            }
+          };
+          final work = sync.synchronize(source.id);
+          final failed = expectLater(work, throwsA(isA<ScanCancelled>()));
+          await entered.future;
+          sources.cancel(source.id);
+          await failed.timeout(const Duration(seconds: 2));
+          release.complete();
+        } else if (outcome == 'failure') {
+          server.itemsHandler = (request) async {
+            if (request.uri.queryParameters['ParentId'] == 'shows') {
+              request.response.statusCode = 503;
+            } else {
+              request.response.write(
+                jsonEncode({
+                  'Items': [movie('old')],
+                  'TotalRecordCount': 1,
+                }),
+              );
+            }
+            await request.response.close();
+          };
+          await expectLater(
+            sync.synchronize(source.id),
+            throwsA(isA<SourceFailure>()),
+          );
+        } else {
+          await sources.database.customStatement(
+            "CREATE TRIGGER reject_added BEFORE INSERT ON media WHEN NEW.local_id = 'added' BEGIN SELECT RAISE(ABORT, 'fixture'); END",
+          );
+          await expectLater(sync.synchronize(source.id), throwsA(anything));
+          await sources.database.customStatement('DROP TRIGGER reject_added');
+        }
+        expect((await sources.source(source.id)).lastScan, isNull);
+        expect((await health()).partialIndex, isTrue);
+        expect(await ids(), ['old']);
+
+        // Foreground browsing may cache B, but is not a complete A+B snapshot.
+        server.itemsHandler = null;
+        final cursor = await EmbyBrowseRepository(
+          sources,
+          connections,
+        ).open(source.id, libraryId: 'shows', cancellation: ScanCancellation());
+        expect((await cursor.next()).map((item) => item.identity.localId), [
+          'added',
+        ]);
+        expect((await health()).partialIndex, isTrue);
+        expect((await sources.source(source.id)).lastScan, isNull);
+        await sync.synchronize(source.id);
+        expect((await health()).partialIndex, isFalse);
+        expect((await sources.source(source.id)).lastScan, isNotNull);
+        expect(await ids(), containsAll(['old', 'added']));
+      },
+    );
+  }
+
+  test('all-library expansion invalidates completion; subsets, ordering and unrelated edits preserve it', () async {
+    server.catalog['movies'] = [movie('old')];
+    await sync.synchronize(source.id);
+    final completed = (await sources.source(source.id)).lastScan;
+    await connections.selectLibraries(
+      source.id,
+      all: false,
+      selected: ['movies'],
+    );
+    expect((await sources.source(source.id)).lastScan, completed);
+    expect((await health()).partialIndex, isFalse);
+    await connections.selectLibraries(source.id, all: true, selected: []);
+    expect((await sources.source(source.id)).lastScan, isNull);
+    expect((await health()).partialIndex, isTrue);
+    await sync.synchronize(source.id);
+    final refreshed = (await sources.source(source.id)).lastScan;
+    await connections.selectLibraries(
+      source.id,
+      all: false,
+      selected: ['movies', 'shows'],
+    );
+    await connections.selectLibraries(
+      source.id,
+      all: false,
+      selected: ['shows', 'movies'],
+    );
+    await sources.updateSettings(source.id, name: '别名');
+    await connections.selectLibraries(
+      source.id,
+      all: false,
+      selected: ['movies'],
+      metadata: false,
+      health: false,
+    );
+    expect((await sources.source(source.id)).lastScan, refreshed);
+    // The repository guard applies even when settings are saved without the UI.
+    final current = await sources.source(source.id);
+    await sources.updateSettings(
+      source.id,
+      options: SourceOptions.fromJson({
+        ...current.options.toJson(),
+        'selectedEmbyLibraryIDs': ['movies', 'shows'],
+      }),
+    );
+    expect((await sources.source(source.id)).lastScan, isNull);
+  });
 
   test('real paginated requests map metadata, deduplicate libraries and synthesize series', () async {
     server.catalog['movies'] = [movie('m1'), movie('m2'), movie('m3')];

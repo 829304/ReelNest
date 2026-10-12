@@ -23,7 +23,7 @@ class MissingIndexCleanup {
   ) => repository.removeRevalidatedMissing(requested, (inventory) async {
     // A confirmation for the old location/settings cannot authorize a new one.
     if (_sourcesKey(inventory.sources) !=
-        _sourcesKey(displayed.inventory.sources)) {
+        _sourcesKey(displayed.configurationSources)) {
       throw const SourceFailure('媒体源状态已变化，请重新检测后再清理。');
     }
     final evaluator = LocalHealthEvaluator(
