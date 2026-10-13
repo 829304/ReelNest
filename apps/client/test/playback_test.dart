@@ -431,6 +431,151 @@ void main() {
       resourcesClosed = true;
     },
   );
+  testWidgets(
+    'A–B shortcut after a failed open does not dereference an empty selection',
+    (tester) async {
+      Future<void> finish(Future<void> operation) async {
+        var done = false;
+        operation.then((_) => done = true);
+        for (var i = 0; i < 150 && !done; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+        expect(done, isTrue, reason: 'Player operation did not settle');
+      }
+
+      final missing = (sourceId: film.sourceId, localId: 'missing.mkv');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VideoPlayerPage(
+            identity: missing,
+            session: session,
+            closeWindow: () async {},
+            setFullscreen: (_) async {},
+          ),
+        ),
+      );
+      await finish(session.open(missing));
+      await tester.pump();
+      expect(session.engine, isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await finish(session.refreshQueue());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(session.precision.value.loop.start, isNull);
+      await tester.pumpWidget(const SizedBox());
+      await finish(session.close(discardProgress: true));
+      session.dispose();
+      await finish(sources.close());
+      resourcesClosed = true;
+    },
+  );
+  testWidgets(
+    'precision UI exposes markers, loop state, frame steps and shortcuts',
+    (tester) async {
+      Future<void> waitUntil(bool Function() done) async {
+        for (var i = 0; i < 150; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+          if (done()) return;
+        }
+        fail('Precision player UI did not settle');
+      }
+
+      Future<void> finish(Future<void> future) async {
+        var done = false;
+        future.then((_) => done = true);
+        await waitUntil(() => done);
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VideoPlayerPage(
+            identity: film,
+            session: session,
+            closeWindow: () async {},
+            setFullscreen: (_) async {},
+          ),
+        ),
+      );
+      await waitUntil(
+        () =>
+            !session.loading &&
+            session.clock.duration > Duration.zero &&
+            session.precision.value.identity == film &&
+            session.precision.value.supported,
+      );
+      // Native engines continue emitting clocks after open; mirror that first
+      // post-loading tick so the control availability projection updates.
+      engines.single.emit();
+      await tester.pump();
+
+      final markerTooltip = find.byTooltip('章节与播放标记');
+      expect(markerTooltip, findsOneWidget);
+      final markerButton = find.descendant(
+        of: markerTooltip,
+        matching: find.byType(IconButton),
+      );
+      expect(tester.widget<IconButton>(markerButton).onPressed, isNotNull);
+      await tester.tap(markerButton);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('player-marker-panel')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('add-playback-bookmark')));
+      await waitUntil(() => session.precision.value.bookmarks.length == 1);
+      final bookmark = session.precision.value.bookmarks.single;
+      expect(
+        find.byKey(ValueKey('playback-marker-${bookmark.id}')),
+        findsOneWidget,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ValueKey('timeline-marker-${bookmark.id}')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await waitUntil(() => session.precision.value.loop.start != null);
+      expect(session.precision.value.loop.end, isNull);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await waitUntil(
+        () => session.clock.position == const Duration(seconds: 5),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await waitUntil(() => session.precision.value.loop.end != null);
+      expect(find.byKey(const ValueKey('ab-loop-indicator')), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await waitUntil(() => session.precision.value.loop.start == null);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.comma);
+      await waitUntil(() => engines.single.frameSteps.length == 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.period);
+      await waitUntil(() => engines.single.frameSteps.length == 2);
+      expect(engines.single.frameSteps, [true, false]);
+
+      await tester.tapAt(const Offset(400, 260), buttons: 2);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('player-precision-menu')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('toggle-current-loop')));
+      await waitUntil(() => session.precision.value.loop.loopCurrentItem);
+      expect(engines.single.loopCurrentItem, isTrue);
+
+      await tester.pumpWidget(const SizedBox());
+      await finish(session.close());
+      session.dispose();
+      await finish(sources.close());
+      resourcesClosed = true;
+    },
+  );
   for (final discard in [false, true]) {
     testWidgets(
       'failed close dialog: ${discard ? 'explicit discard' : 'failed retry stays usable and later closes'}',

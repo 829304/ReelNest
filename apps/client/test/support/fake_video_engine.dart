@@ -3,8 +3,50 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:reelnest/player/video_engine.dart';
 import 'package:reelnest/player/video_tracks.dart';
+import 'package:reelnest/player/video_timeline.dart';
 
-class FakeVideoEngine implements VideoEngine {
+class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
+  List<VideoChapter> chapterList = const [];
+  final chapterEvents = StreamController<List<VideoChapter>>.broadcast(
+    sync: true,
+  );
+  bool loopCurrentItem = false;
+  bool failChapters = false;
+  Duration? abStart;
+  Duration? abEnd;
+  final frameSteps = <bool>[];
+  @override
+  List<VideoChapter> get chapters => chapterList;
+  @override
+  Stream<List<VideoChapter>> get chapterChanges => chapterEvents.stream;
+  @override
+  Future<void> refreshChapters() async {
+    if (failChapters) throw StateError('Chapter read failure');
+  }
+
+  @override
+  Future<void> setLoopCurrentItem(bool enabled) async {
+    _checkControl();
+    loopCurrentItem = enabled;
+  }
+
+  @override
+  Future<void> setABLoop(Duration? start, Duration? end) async {
+    _checkControl();
+    abStart = start;
+    abEnd = end;
+  }
+
+  @override
+  Future<void> stepFrame({required bool backward}) async {
+    _checkControl();
+    frameSteps.add(backward);
+    emit(
+      playing: false,
+      position: clock.position + Duration(milliseconds: backward ? -40 : 40),
+    );
+  }
+
   final events = StreamController<VideoClock>.broadcast(sync: true);
   VideoClock value = const VideoClock();
   Duration? openedAt;
@@ -184,5 +226,6 @@ class FakeVideoEngine implements VideoEngine {
     disposals++;
     await events.close();
     await trackEvents.close();
+    await chapterEvents.close();
   }
 }

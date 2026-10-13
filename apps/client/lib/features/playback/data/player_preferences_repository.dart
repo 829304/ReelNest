@@ -66,6 +66,11 @@ class PlayerPreferencesRepository {
   Future<void> rememberEndAction(VideoEndAction value) =>
       _write('global.videoPlaybackEndAction', value.name);
 
+  Future<bool> get loopCurrentItem async =>
+      await _read('global.videoLoopCurrentItem') == 'true';
+  Future<void> rememberLoopCurrentItem(bool enabled) =>
+      _write('global.videoLoopCurrentItem', '$enabled');
+
   Future<PlaybackOptions> get options async {
     final raw = await _read('global.playbackOptions');
     final value = raw == null

@@ -8,6 +8,8 @@ import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
+import '../application/playback_timeline_controller.dart';
+import 'player_precision_controls.dart';
 import 'player_track_popovers.dart';
 import 'player_visuals.dart';
 
@@ -37,6 +39,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   bool _hoverControls = false;
   double? _scrub;
   Timer? _hideTimer;
+  Timer? _noticeTimer;
+  String? _notice;
   bool _popoverActive = false;
   PlayerPalette _palette = const PlayerPalette();
   MediaIdentity? _paletteIdentity;
@@ -46,6 +50,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   final _episodeButton = GlobalKey();
   final _settingsButton = GlobalKey();
   final _qualityButton = GlobalKey();
+  final _markerButton = GlobalKey();
   PlaybackSession get session => widget.session;
   @override
   void initState() {
@@ -59,6 +64,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _noticeTimer?.cancel();
     if (session.waitForSurface == _waitForSurface) {
       session.waitForSurface = null;
     }
@@ -121,6 +127,53 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         panel: panel,
         session: session,
         palette: _palette,
+      );
+    } finally {
+      _popoverActive = false;
+      if (mounted) _show();
+    }
+  }
+
+  void _showNotice(String message) {
+    if (!mounted) return;
+    _noticeTimer?.cancel();
+    setState(() => _notice = message);
+    _noticeTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _notice = null);
+    });
+  }
+
+  Future<void> _cycleABLoop() async {
+    _show();
+    await session.cycleABLoop();
+    if (!mounted || session.controlError != null) return;
+    final loop = session.precision.value.loop;
+    if (loop.start == null) return;
+    _showNotice(
+      loop.end == null
+          ? 'A-B 循环：A 点 ${formatPrecisionTime(loop.start!)}'
+          : 'A-B 循环：${formatPrecisionTime(loop.start!)} - ${formatPrecisionTime(loop.end!)}',
+    );
+  }
+
+  Future<void> _clearABLoop() async {
+    _show();
+    await session.clearABLoop();
+    if (mounted && session.controlError == null) {
+      _showNotice('A-B 循环已清除');
+    }
+  }
+
+  Future<void> _precisionMenu(Offset position) async {
+    _popoverActive = true;
+    _show();
+    try {
+      await showPlayerPrecisionMenu(
+        context,
+        position: position,
+        session: session,
+        palette: _palette,
+        onNotice: _showNotice,
       );
     } finally {
       _popoverActive = false;
@@ -257,6 +310,22 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         _show();
         unawaited(session.mute());
       },
+      const SingleActivator(LogicalKeyboardKey.keyB): () =>
+          unawaited(_cycleABLoop()),
+      const SingleActivator(LogicalKeyboardKey.keyB, shift: true): () =>
+          unawaited(_clearABLoop()),
+      const SingleActivator(LogicalKeyboardKey.comma): () {
+        _show();
+        unawaited(session.stepFrame(backward: true));
+      },
+      const SingleActivator(LogicalKeyboardKey.period): () {
+        _show();
+        unawaited(session.stepFrame());
+      },
+      const SingleActivator(LogicalKeyboardKey.home): () {
+        _show();
+        unawaited(session.seek(Duration.zero));
+      },
       const SingleActivator(LogicalKeyboardKey.escape): () =>
           unawaited(_fullscreen ? _full() : requestClose()),
     },
@@ -276,6 +345,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                   behavior: HitTestBehavior.translucent,
                   onTap: _show,
                   onDoubleTap: () => unawaited(_full()),
+                  onSecondaryTapDown: (details) =>
+                      unawaited(_precisionMenu(details.globalPosition)),
                   child: const SizedBox.expand(),
                 ),
                 if (session.loading)
@@ -340,20 +411,59 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                     ),
                   ),
                 ),
+                if (_notice != null)
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: IgnorePointer(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 58),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 160),
+                          child: Container(
+                            key: ValueKey(_notice),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: .62),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: .16),
+                                width: .8,
+                              ),
+                            ),
+                            child: Text(
+                              _notice!,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
                     padding: const EdgeInsets.all(18),
                     child: ValueListenableBuilder<VideoClock>(
                       valueListenable: session.timeline,
-                      builder: (context, value, _) => AnimatedOpacity(
-                        duration: const Duration(milliseconds: 160),
-                        opacity: _controls || !value.playing ? 1 : 0,
-                        child: IgnorePointer(
-                          ignoring: !_controls && value.playing,
-                          child: _bar(value),
-                        ),
-                      ),
+                      builder: (context, value, _) =>
+                          ValueListenableBuilder<PlaybackTimelineState>(
+                            valueListenable: session.precision,
+                            builder: (context, precision, _) => AnimatedOpacity(
+                              duration: const Duration(milliseconds: 160),
+                              opacity: _controls || !value.playing ? 1 : 0,
+                              child: IgnorePointer(
+                                ignoring: !_controls && value.playing,
+                                child: _bar(value, precision),
+                              ),
+                            ),
+                          ),
                     ),
                   ),
                 ),
@@ -365,7 +475,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     ),
   );
 
-  Widget _bar(VideoClock value) {
+  Widget _bar(VideoClock value, PlaybackTimelineState precision) {
     final can =
         !session.loading &&
         session.error == null &&
@@ -473,33 +583,45 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                               overlayRadius: 10,
                             ),
                           ),
-                          child: SliderOverlayScope(
-                            child: Slider(
-                              key: const ValueKey('video-timeline'),
-                              min: 0,
-                              max: duration > 0 ? duration : 1,
-                              value: position,
-                              onChangeStart: can
-                                  ? (v) {
-                                      _show();
-                                      setState(() => _scrub = v);
-                                    }
-                                  : null,
-                              onChanged: can
-                                  ? (v) => setState(() => _scrub = v)
-                                  : null,
-                              onChangeEnd: can
-                                  ? (v) {
-                                      setState(() => _scrub = null);
-                                      unawaited(
-                                        session.seek(
-                                          Duration(milliseconds: v.toInt()),
-                                        ),
-                                      );
-                                      _show();
-                                    }
-                                  : null,
-                            ),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SliderOverlayScope(
+                                child: Slider(
+                                  key: const ValueKey('video-timeline'),
+                                  min: 0,
+                                  max: duration > 0 ? duration : 1,
+                                  value: position,
+                                  onChangeStart: can
+                                      ? (v) {
+                                          _show();
+                                          setState(() => _scrub = v);
+                                        }
+                                      : null,
+                                  onChanged: can
+                                      ? (v) => setState(() => _scrub = v)
+                                      : null,
+                                  onChangeEnd: can
+                                      ? (v) {
+                                          setState(() => _scrub = null);
+                                          unawaited(
+                                            session.seek(
+                                              Duration(milliseconds: v.toInt()),
+                                            ),
+                                          );
+                                          _show();
+                                        }
+                                      : null,
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: PlayerTimelineMarkers(
+                                  duration: value.duration,
+                                  state: precision,
+                                  palette: _palette,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -589,6 +711,14 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                               PlayerPanel.audio,
                               _audioButton,
                               can,
+                            ),
+                            const SizedBox(width: 5),
+                            _panelButton(
+                              '章节与播放标记',
+                              PlayerSymbol.bookmark,
+                              PlayerPanel.markers,
+                              _markerButton,
+                              can && precision.identity != null,
                             ),
                           ],
                         ),

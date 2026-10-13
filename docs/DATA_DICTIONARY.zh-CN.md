@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-12
+- 最后更新：2026-10-13
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -64,6 +64,7 @@ library/reelnest.sqlite
 | `media` | 持久 | 来源隔离的媒体索引 | `(source_id, local_id)` |
 | `media_activity` | 持久 | 媒体最近发生有效活动的时间 | `(source_id, local_id)` |
 | `playback_states` | 持久 | 播放位置、时长、已看和最后播放时间 | `(source_id, local_id)` |
+| `playback_markers` | 持久 | 内嵌章节、手动章节和书签等播放标记 | `(source_id, local_id, id)` |
 | `media_library_preferences` | 持久 | 本机想看与人工评级 | `(source_id, local_id)` |
 | `player_preferences` | 持久 | 播放器、库视图及模块键值偏好 | `key` |
 | `remote_media_metadata` | 持久 | 无凭据的远程列表元数据 JSON | `(source_id, local_id)` |
@@ -167,6 +168,20 @@ library/reelnest.sqlite
 | `last_played_at` | 本机最后播放时间 |
 
 播放记录只保存仍存在的非系列媒体。远程服务器痕迹另存在远程元数据中，并按来源的同步模式协调。
+
+### `playback_markers`
+
+| 字段 | 含义 |
+|---|---|
+| `source_id`, `local_id`, `id` | 来源隔离的标记身份，删除媒体时级联清理 |
+| `kind`, `title` | 标记类型和名称；当前执行入口为章节、手动章节及书签 |
+| `start_us`, `end_us` | 起止时间，微秒；结束时间可空 |
+| `origin` | `embedded`、`manual` 或 `automatic` |
+| `review_status` | `accepted`、`pending` 或 `rejected`；当前手动/内嵌标记归一为 accepted |
+| `detector_identifier`, `confidence` | 自动候选来源与置信度的模型字段，当前未实现识别执行链路 |
+| `created_at`, `updated_at` | UTC 毫秒时间 |
+
+非空内嵌章节快照在事务内替换该媒体的内嵌章节，保留手动标记；空快照及转码部分时间轴不会清除已保存的完整章节。删除接口只删除指定媒体的手动标记。单片循环开关保存于 `player_preferences` 的 `global.videoLoopCurrentItem`；A/B 点仅在会话内保存，不写数据库。详见[高级播放接口与规则](PLAYER_PRECISION_BACKEND.zh-CN.md)。
 
 ### `media_library_preferences`
 
@@ -285,6 +300,19 @@ library/reelnest.sqlite
 `scan_stage` 是每个数据库连接内的 TEMP 表，只记录当前运行的 `run_id + local_id`。成功扫描/同步后用它判断本轮完整覆盖范围内的旧索引；失败、取消、离线、权限异常或挂载身份变化时不能据此把整库条目标记为删除。
 
 TEMP 表不随数据库文件持久化，也不属于备份范围。
+
+## 照片数据范围
+
+2026-10-12 用户明确暂不实现照片模块。照片/相册来源入口、照片查看器、系统照片库、照片搜索和首页照片墙不属于当前产品与验收范围；恢复这些能力需用户重新确认。
+
+该决定不授权删除已有数据或磁盘文件。当前数据层继续遵守以下边界：
+
+- 已存在的照片来源、索引和媒体文件不得自动删除；本项目未发布，不为此次范围调整增加历史 schema 或升级分支。
+- 必要的照片文件类型识别、既有数据读取和与影视聚合的隔离可以保留，但不能据此重新暴露照片产品入口。
+- 影视海报、背景图、演员头像、剧照和 `artwork_disk_cache` 属于视频元数据与图片缓存，不属于被移除的照片媒体模块。
+- 搜索、首页、健康评分和远程选库默认排除照片媒体；若只为保护既有数据执行缺失检测或清理保护，文档与界面不得把它描述为照片功能恢复。
+
+详细产品决定和回归证据见[照片范围记录](PHOTO_SCOPE_DECISION.zh-CN.md)。
 
 ## 凭据与敏感数据
 

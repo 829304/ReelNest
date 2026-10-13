@@ -11,9 +11,18 @@ import '../../../domain/media_source.dart';
 import '../application/playback_session.dart';
 import 'player_behavior_settings.dart';
 import 'player_basic_settings.dart';
+import 'player_precision_controls.dart';
 import 'player_visuals.dart';
 
-enum PlayerPanel { subtitles, audio, volume, episodes, settings, quality }
+enum PlayerPanel {
+  subtitles,
+  audio,
+  volume,
+  episodes,
+  settings,
+  quality,
+  markers,
+}
 
 Future<void> showPlayerPanel(
   BuildContext context, {
@@ -36,6 +45,7 @@ Future<void> showPlayerPanel(
       PlayerPanel.episodes => 320.0,
       PlayerPanel.settings => 420.0,
       PlayerPanel.quality => 300.0,
+      PlayerPanel.markers => 330.0,
     }).clamp(0, screen.width - 16).toDouble();
     final bottom = (screen.height - anchor.top + 6)
         .clamp(8, screen.height - 80)
@@ -47,6 +57,8 @@ Future<void> showPlayerPanel(
               ? 540
               : panel == PlayerPanel.settings
               ? 520
+              : panel == PlayerPanel.markers
+              ? 480
               : 420,
         )
         .toDouble();
@@ -99,6 +111,7 @@ class PlayerTrackPopover extends StatefulWidget {
 
 class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
   double? _draftVolume;
+  final _markerPanelUpdates = ValueNotifier<int>(0);
   PlaybackSession get session => widget.session;
   PlayerPalette get palette => widget.palette;
   @override
@@ -116,6 +129,12 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
     }
   }
 
+  @override
+  void dispose() {
+    _markerPanelUpdates.dispose();
+    super.dispose();
+  }
+
   void _refreshServerSubtitles() {
     if (widget.panel == PlayerPanel.subtitles && session.item?.remote != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,7 +145,9 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([session, session.tracks, session.volumeLevel]),
+    animation: widget.panel == PlayerPanel.markers
+        ? _markerPanelUpdates
+        : Listenable.merge([session, session.tracks, session.volumeLevel]),
     builder: (context, _) => Material(
       type: MaterialType.transparency,
       child: Container(
@@ -170,6 +191,9 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
                   PlayerPanel.episodes => _episodes(),
                   PlayerPanel.settings => _settings(),
                   PlayerPanel.quality => _quality(),
+                  PlayerPanel.markers => [
+                    PlayerMarkerPanel(session: session, palette: palette),
+                  ],
                 },
                 if (session.controlError != null)
                   Text(

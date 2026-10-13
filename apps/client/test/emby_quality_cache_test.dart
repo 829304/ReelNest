@@ -13,6 +13,9 @@ import 'package:reelnest/api/emby/emby_quality.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/data/playback_marker_repository.dart';
+import 'package:reelnest/features/playback/domain/playback_marker.dart';
+import 'package:reelnest/player/video_timeline.dart';
 import 'package:reelnest/features/sources/data/emby_cache_repository.dart';
 import 'package:reelnest/features/sources/application/emby_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
@@ -283,6 +286,170 @@ void main() {
       player.dispose();
     }
   });
+
+  for (final wholeFilm in [false, true]) {
+    test(
+      'transcoded loop prepares a full timeline and preserves pause (whole=$wholeFilm)',
+      () async {
+        final engines = <FakeVideoEngine>[];
+        final player = PlaybackSession(
+          sources: sources,
+          records: PlaybackRepository(sources.database),
+          emby: connections,
+          createEngine: () {
+            final engine = FakeVideoEngine();
+            engines.add(engine);
+            return engine;
+          },
+        );
+        try {
+          await player.open(film.identity);
+          engines.last.emit(position: const Duration(seconds: 20));
+          await player.toggle();
+          await player.volume(63);
+          await player.rate(1.5);
+          await player.selectQuality(player.qualityOptions.last);
+          expect(
+            Uri.parse(engines.last.openedPath!)
+                .queryParameters['StartTimeTicks'],
+            '200000000',
+          );
+          if (wholeFilm) {
+            await player.setLoopCurrentItem(true);
+          } else {
+            await player.cycleABLoop();
+          }
+          expect(
+            Uri.parse(engines.last.openedPath!)
+                    .queryParameters['StartTimeTicks'] ??
+                '0',
+            '0',
+          );
+          expect(engines.last.openedAt, const Duration(seconds: 20));
+          expect(player.clock.position, const Duration(seconds: 20));
+          expect(player.clock.playing, isFalse);
+          expect(player.clock.volume, 63);
+          expect(player.clock.rate, 1.5);
+          if (wholeFilm) {
+            expect(engines.last.loopCurrentItem, isTrue);
+          } else {
+            expect(engines.last.abStart, const Duration(seconds: 20));
+            await player.seek(const Duration(seconds: 30));
+            await player.cycleABLoop();
+            expect(engines.last.abEnd, const Duration(seconds: 30));
+            await player.selectQuality(player.qualityOptions[1]);
+            expect(
+              Uri.parse(engines.last.openedPath!)
+                      .queryParameters['StartTimeTicks'] ??
+                  '0',
+              '0',
+            );
+            expect(engines.last.abStart, const Duration(seconds: 20));
+            expect(engines.last.abEnd, const Duration(seconds: 30));
+            await player.clearABLoop();
+            expect(engines.last.abStart, isNull);
+            expect(engines.last.abEnd, isNull);
+          }
+        } finally {
+          await player.close();
+          player.dispose();
+        }
+      },
+    );
+  }
+
+  test('failed full-timeline preparation preserves old transcoded playback and loops remain off', () async {
+    var failOpen = false;
+    final player = PlaybackSession(
+      sources: sources,
+      records: PlaybackRepository(sources.database),
+      emby: connections,
+      createEngine: () => FakeVideoEngine()..failOpen = failOpen,
+    );
+    try {
+      await player.open(film.identity);
+      (player.engine as FakeVideoEngine).emit(
+        position: const Duration(seconds: 20),
+      );
+      await player.selectQuality(player.qualityOptions.last);
+      final previous = player.engine;
+      failOpen = true;
+      await player.setLoopCurrentItem(true);
+      expect(player.engine, same(previous));
+      expect(player.error, isNull);
+      expect(player.controlError, isNotNull);
+      expect(player.clock.playing, isTrue);
+      expect(player.precision.value.loop.loopCurrentItem, isFalse);
+    } finally {
+      await player.close();
+      player.dispose();
+    }
+  });
+
+  test(
+    'transcoded suffix chapter snapshot cannot erase a full chapter list',
+    () async {
+      final engines = <FakeVideoEngine>[];
+      final player = PlaybackSession(
+        sources: sources,
+        records: PlaybackRepository(sources.database),
+        emby: connections,
+        createEngine: () {
+          final engine = FakeVideoEngine()
+            ..chapterList = engines.isEmpty
+                ? const [
+                    VideoChapter(
+                      index: 0,
+                      title: 'Beginning',
+                      time: Duration.zero,
+                    ),
+                    VideoChapter(
+                      index: 1,
+                      title: 'Later',
+                      time: Duration(seconds: 40),
+                    ),
+                  ]
+                : const [
+                    VideoChapter(
+                      index: 0,
+                      title: 'Partial',
+                      time: Duration(seconds: 20),
+                    ),
+                  ];
+          engines.add(engine);
+          return engine;
+        },
+      );
+      try {
+        await player.open(film.identity);
+        engines.last.emit(position: const Duration(seconds: 20));
+        await player.selectQuality(player.qualityOptions.last);
+        expect(player.precision.value.chapters.map((m) => m.title), [
+          'Beginning',
+          'Later',
+        ]);
+        await player.addBookmark(at: const Duration(seconds: 25));
+        final saved = await PlaybackMarkerRepository(sources.database)
+            .read(film.identity);
+        expect(
+          saved
+              .where((m) => m.kind == PlaybackMarkerKind.chapter)
+              .map((m) => m.title),
+          ['Beginning', 'Later'],
+        );
+        expect(
+          saved
+              .where((m) => m.kind == PlaybackMarkerKind.bookmark)
+              .single
+              .start,
+          const Duration(seconds: 25),
+        );
+      } finally {
+        await player.close();
+        player.dispose();
+      }
+    },
+  );
 
   test(
     'persistent artwork is reused without network and isolated by source',

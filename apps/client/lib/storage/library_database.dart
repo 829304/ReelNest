@@ -186,6 +186,19 @@ class LibraryDatabase extends GeneratedDatabase {
             ON DELETE CASCADE
         )
       ''');
+      // Current module-owned marker table; no historical schema branches.
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS playback_markers (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, id TEXT NOT NULL,
+          kind TEXT NOT NULL, title TEXT NOT NULL, start_us INTEGER NOT NULL,
+          end_us INTEGER, origin TEXT NOT NULL, review_status TEXT NOT NULL,
+          detector_identifier TEXT, confidence REAL,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id,local_id,id),
+          FOREIGN KEY(source_id,local_id) REFERENCES media(source_id,local_id)
+            ON DELETE CASCADE
+        )
+      ''');
       // Current connector-owned metadata table; no historical schema branches.
       await customStatement('''
         CREATE TABLE IF NOT EXISTS remote_media_metadata (

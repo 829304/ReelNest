@@ -17,7 +17,7 @@
 | 桌面外壳与导航 | 首页、媒体源、仪表盘、设置及 Emby 来源树已接入 | 原版完整侧栏分组、状态/播放卡片、字体/材质、键盘和三端对照未完成 | [项目结构](../PROJECT_STRUCTURE.zh-CN.md)、下方源码盘点 |
 | 首页视频 | H1 基础闭环、H2 推荐/搜索/状态、视频健康评分及 H3 布局编排已接入；照片墙按用户决定移除 | 音乐/网址/详情补全依赖、手动集合模块及三端原生/原版对照待完成 | [首页计划](../HOME_IMPLEMENTATION_PLAN.zh-CN.md)、[健康评分](../HEALTH_SCORE.zh-CN.md)、[编排](../HOME_LAYOUT_EDITOR.zh-CN.md)、[运行状态](../HOME_RUNTIME_STATUS.zh-CN.md)、[搜索记录](../HOME_SEARCH.zh-CN.md) |
 | 本地媒体源 | 目录选择、扫描、索引、浏览、健康和设置已接入 | 三步向导、完整元数据执行依赖、macOS 持久授权、移动盘/NAS 三端实测和完整 UI 待完成 | [本地来源](../LOCAL_SOURCES.zh-CN.md) |
-| 本地视频播放器 | 播放、续播、字幕/音轨、队列和基础设置已接入 | 在线字幕、剩余原版控制/窗口能力、macOS/Linux 原生及完整视觉待完成 | [播放器盘点](../PLAYER_STATUS.zh-CN.md) |
+| 本地视频播放器 | 播放、续播、字幕/音轨、队列和基础设置已接入；章节/书签、循环及逐帧底层与首批 UI 已接入 | 在线字幕、时间轴预览、片头片尾策略、剩余原版控制/窗口能力、macOS/Linux 原生及完整视觉待完成 | [播放器盘点](../PLAYER_STATUS.zh-CN.md)、[高级播放首批](../PLAYER_PRECISION_BACKEND.zh-CN.md) |
 | Emby 视频 | 登录/选库、同步/浏览、详情、播放/状态、字幕、缓存/离线及批量操作已接入 | 真实 Emby 完整 V6、公共集合/分类依赖、三端原生和 UI 对照待完成 | [Emby 导航](../EMBY_NAVIGATION.zh-CN.md)、[平台矩阵](../PLATFORM_VERIFICATION_MATRIX.zh-CN.md) |
 | Jellyfin | 原版入口和范围已确认 | 独立协议差异、连接/浏览/播放/状态及 UI 尚未迁移 | `EmbyService.swift` 及调用链 |
 | Plex | 原版入口和范围已确认 | 地址/Token 认证、选库、浏览、播放和状态尚未迁移 | `PlexService.swift` |

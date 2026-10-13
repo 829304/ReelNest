@@ -6,11 +6,13 @@ import 'package:reelnest/app/reelnest_app.dart';
 import 'package:reelnest/app/service_providers.dart';
 import 'package:reelnest/shell/desktop_shell.dart';
 import 'package:reelnest/shell/mobile_shell.dart';
+import 'package:reelnest/shell/sidebar_components.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/theme/design_tokens.dart';
 
 void main() {
   Future<void> start(WidgetTester tester, Size size) async {
@@ -41,6 +43,29 @@ void main() {
     (tester) async {
       await start(tester, const Size(1280, 800));
       expect(find.byType(DesktopShell), findsOneWidget);
+      expect(find.byType(AppSidebarSectionHeader), findsNWidgets(2));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('desktop-sidebar'))).width,
+        DesignTokens.sidebarIdealWidth,
+      );
+      await tester.drag(
+        find.byKey(const ValueKey('desktop-sidebar-resizer')),
+        const Offset(100, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSize(find.byKey(const ValueKey('desktop-sidebar'))).width,
+        DesignTokens.sidebarMaxWidth,
+      );
+      await tester.drag(
+        find.byKey(const ValueKey('desktop-sidebar-resizer')),
+        const Offset(-100, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSize(find.byKey(const ValueKey('desktop-sidebar'))).width,
+        DesignTokens.sidebarMinWidth,
+      );
       await tester.tap(find.text('前往媒体源添加'));
       await tester.pumpAndSettle();
       expect(find.text('媒体源待添加'), findsOneWidget);

@@ -120,6 +120,7 @@ enum PlayerSymbol {
   episodes,
   settings,
   quality,
+  bookmark,
 }
 
 class PlayerSymbolIcon extends StatelessWidget {
@@ -206,6 +207,13 @@ class _SymbolPainter extends CustomPainter {
           path.lineTo(x, 14);
           path.lineTo(x + 4, 14);
         }
+      case PlayerSymbol.bookmark:
+        path.moveTo(6, 3);
+        path.lineTo(18, 3);
+        path.lineTo(18, 21);
+        path.lineTo(12, 17);
+        path.lineTo(6, 21);
+        path.close();
       case PlayerSymbol.audio:
         path.addOval(const Rect.fromLTWH(1, 1, 22, 22));
         for (final pair in [

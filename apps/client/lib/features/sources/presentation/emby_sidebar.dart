@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/media_source.dart';
-import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../shell/sidebar_components.dart';
+import '../../../ui/theme/app_palette.dart';
 import '../application/emby_library_providers.dart';
 import '../application/source_providers.dart';
 import '../application/emby_providers.dart';
@@ -152,11 +153,31 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
       }
     }
     final uri = GoRouter.of(context).routerDelegate.currentConfiguration.uri;
+    final sourceSelected =
+        uri.pathSegments.length >= 2 &&
+        uri.pathSegments[0] == 'sources' &&
+        uri.pathSegments[1] == source.id;
     return Padding(
-      padding: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.only(top: 8),
       child: Column(
         children: [
-          GestureDetector(
+          AppSidebarGroupHeader(
+            label: source.name,
+            expanded: expanded,
+            count: catalog.hasValue && sections.hasValue ? rows.length : 0,
+            leading: AppSidebarIconChip(
+              active: sourceSelected,
+              icon: Padding(
+                padding: const EdgeInsets.all(3),
+                child: Image.asset(
+                  'assets/brands/emby.png',
+                  key: ValueKey('emby-source-logo-${source.id}'),
+                  fit: BoxFit.contain,
+                  excludeFromSemantics: true,
+                ),
+              ),
+            ),
+            onTap: _ready ? () => _toggle(source.id) : null,
             onSecondaryTapDown: (details) async {
               final choice = await showMenu<String>(
                 context: context,
@@ -172,48 +193,6 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
               );
               if (choice == 'rename' && mounted) await _rename(source);
             },
-            child: TextButton(
-              onPressed: _ready ? () => _toggle(source.id) : null,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 9,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Image.asset(
-                    'assets/brands/emby.png',
-                    key: ValueKey('emby-source-logo-${source.id}'),
-                    width: 22,
-                    height: 22,
-                    fit: BoxFit.contain,
-                    excludeFromSemantics: true,
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Text(
-                      source.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (!expanded && catalog.hasValue && sections.hasValue)
-                    Text(
-                      '${rows.length}',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  Icon(
-                    expanded ? Icons.expand_more : Icons.chevron_right,
-                    size: 15,
-                  ),
-                ],
-              ),
-            ),
           ),
           if (expanded) ...[
             if (sections.hasError || catalog.hasError)
@@ -229,8 +208,8 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
                 row.label,
                 row.icon,
                 row.destination,
-                uri.path ==
-                        Uri(pathSegments: ['', 'sources', source.id]).path &&
+                sourceSelected &&
+                    uri.pathSegments.length == 2 &&
                     uri.queryParameters['library'] ==
                         row.destination.libraryId &&
                     (uri.queryParameters['section'] ?? 'videos') ==
@@ -247,43 +226,14 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
     IconData icon,
     EmbyVideoDestination destination,
     bool selected,
-  ) {
-    final palette = SourceSheetPalette(
-      Theme.of(context).brightness == Brightness.dark,
-    );
-    return Padding(
-      padding: const EdgeInsets.only(left: 22),
-      child: Material(
-        color: selected
-            ? palette.selectedTint.withValues(alpha: .13)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => context.go(embyVideoLocation(destination)),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            child: Row(
-              children: [
-                Icon(icon, size: 22, color: palette.text),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      color: palette.text,
-                      fontWeight: selected ? FontWeight.bold : FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  ) => AppSidebarRow(
+    key: ValueKey(
+      'emby-sidebar-${destination.sourceId}-${destination.section.name}-${destination.libraryId ?? 'all'}',
+    ),
+    label: label,
+    indented: true,
+    selected: selected,
+    leading: Icon(icon, size: 18, color: context.appPalette.secondary),
+    onTap: () => context.go(embyVideoLocation(destination)),
+  );
 }

@@ -12,9 +12,13 @@ import '../../sources/data/emby_connection_repository.dart';
 import '../../sources/data/emby_cache_repository.dart';
 import '../../../player/video_engine.dart';
 import '../../../player/video_tracks.dart';
+import '../../../player/video_timeline.dart';
 import '../../sources/data/source_repository.dart';
 import '../data/playback_repository.dart';
 import '../data/player_preferences_repository.dart';
+import '../data/playback_marker_repository.dart';
+import '../domain/playback_marker.dart';
+import 'playback_timeline_controller.dart';
 import '../domain/sidecar_subtitle.dart';
 import '../domain/track_language_matcher.dart';
 import '../domain/video_queue.dart';
@@ -38,6 +42,14 @@ class PlaybackSession extends ChangeNotifier {
            preferences ?? PlayerPreferencesRepository(sources.database);
   final SourceRepository sources;
   final PlaybackRepository records;
+  late final _precision = PlaybackTimelineController(
+    PlaybackMarkerRepository(sources.database),
+    preferences,
+  );
+
+  /// Low-frequency chapter/bookmark/loop state. Observe separately from the
+  /// playback clock; send all user commands through this session.
+  ValueListenable<PlaybackTimelineState> get precision => _precision;
   final VideoEngine Function() createEngine;
   final Duration checkpointInterval;
   final PlayerPreferencesRepository preferences;
@@ -106,6 +118,7 @@ class PlaybackSession extends ChangeNotifier {
   final closeRequests = ValueNotifier<int>(0);
   StreamSubscription<VideoClock>? _subscription;
   StreamSubscription<VideoTrackState>? _trackSubscription;
+  StreamSubscription<List<VideoChapter>>? _chapterSubscription;
   Timer? _checkpoint;
   Future<void> _operations = Future.value();
   Future<void> _writes = Future.value();
@@ -129,6 +142,7 @@ class PlaybackSession extends ChangeNotifier {
     Duration? at,
     bool force = false,
     bool autoplay = true,
+    bool fullTimeline = false,
   }) async {
     if (_closed || _closing != null) return;
     if (!force &&
@@ -138,6 +152,9 @@ class PlaybackSession extends ChangeNotifier {
       return;
     }
     final previous = engine;
+    final previousLoop = force && item?.identity == identity
+        ? _precision.value.loop
+        : const PlaybackLoopState();
     final wasPlaying = clock.playing;
     VideoEngine? candidate;
     String? candidateLease;
@@ -159,6 +176,7 @@ class PlaybackSession extends ChangeNotifier {
       final nextHistoryEpoch = await records.historyEpoch(identity);
       final record = await records.read(identity);
       final nextOptions = await preferences.options;
+      final loopCurrentItem = await preferences.loopCurrentItem;
       final resume =
           at ??
           record.resume(
@@ -193,14 +211,24 @@ class PlaybackSession extends ChangeNotifier {
           resource = localPath = cached.path;
         } else {
           playSessionId = newEmbyIdentity();
+          // A suffix generated at the resume point cannot loop the entire
+          // film or an A point before that offset. Request a full timeline for
+          // native loop controls, while still opening at the user's position.
+          final resourceStart =
+              !targetQuality.original &&
+                  (fullTimeline ||
+                      loopCurrentItem ||
+                      previousLoop.start != null)
+              ? Duration.zero
+              : resume;
           resource = (await emby!.preparePlayback(
             selected,
             quality: targetQuality,
-            start: resume,
+            start: resourceStart,
             playSessionId: playSessionId,
           )).uri.toString();
-          if (!targetQuality.original && resume.inMilliseconds > 1000) {
-            streamOffset = resume;
+          if (!targetQuality.original && resourceStart.inMilliseconds > 1000) {
+            streamOffset = resourceStart;
           }
         }
       } else {
@@ -250,6 +278,13 @@ class PlaybackSession extends ChangeNotifier {
       await current.setSubtitleDelay(
         (await preferences.number('videoDefaultSubtitleDelay', 0)).clamp(-3, 3),
       );
+      final precisionEngine = current is VideoTimelineEngine
+          ? current as VideoTimelineEngine
+          : null;
+      if (precisionEngine != null) {
+        await precisionEngine.setLoopCurrentItem(loopCurrentItem);
+        await precisionEngine.setABLoop(previousLoop.start, previousLoop.end);
+      }
       if (_closed || _closing != null) return;
       // Commit only after the target can actually decode. Until this point a
       // rejected target leaves the old session, clocks and controls intact.
@@ -297,6 +332,13 @@ class PlaybackSession extends ChangeNotifier {
           unawaited(_controls(() => _applyTrackPreferences(current)));
         }
       });
+      if (precisionEngine != null) {
+        _chapterSubscription = precisionEngine.chapterChanges.listen((_) {
+          if (engine == current && !loading) {
+            unawaited(refreshTimeline());
+          }
+        });
+      }
       _subscription = current.changes.listen(
         (value) {
           if (engine == current) _observe(value);
@@ -309,6 +351,23 @@ class PlaybackSession extends ChangeNotifier {
       );
       notifyListeners();
       tracks.value = current.tracks;
+      try {
+        await _precision.attach(
+          identity,
+          precisionEngine,
+          offset: streamOffset,
+          duration: streamOffset == Duration.zero
+              ? current.clock.duration
+              : Duration(milliseconds: selected.remote?.durationMs ?? 0),
+          loop: PlaybackLoopState(
+            loopCurrentItem: loopCurrentItem,
+            start: previousLoop.start,
+            end: previousLoop.end,
+          ),
+        );
+      } catch (_) {
+        controlError = '章节或书签读取失败，可以刷新后重试。';
+      }
       try {
         await _applyTrackPreferences(current);
       } catch (_) {
@@ -409,6 +468,18 @@ class PlaybackSession extends ChangeNotifier {
     }
     await save(completed: true);
     if (saveError != null || engine != finished) return;
+    if (_precision.value.loop.loopCurrentItem ||
+        _precision.value.loop.hasRange) {
+      // Native loops normally never emit terminal EOF. Do not advance the
+      // episode queue if a backend delivers one at the loop boundary.
+      await _seek(
+        _precision.value.loop.hasRange
+            ? _precision.value.loop.start!
+            : Duration.zero,
+      );
+      await engine?.play();
+      return;
+    }
     switch (endAction) {
       case VideoEndAction.holdLastFrame:
         break;
@@ -629,7 +700,8 @@ class PlaybackSession extends ChangeNotifier {
     }
     unawaited(_reportRemote(EmbyPlaybackPhase.progress, force: true));
   });
-  Future<void> seek(Duration target) => _command(() async {
+  Future<void> seek(Duration target) => _command(() => _seek(target));
+  Future<void> _seek(Duration target) async {
     if (_closed ||
         loading ||
         error != null ||
@@ -664,7 +736,77 @@ class PlaybackSession extends ChangeNotifier {
       ),
     );
     unawaited(_reportRemote(EmbyPlaybackPhase.progress, force: true));
+  }
+
+  Future<void> refreshTimeline() =>
+      _controls(() => _precision.refresh(), failureMessage: '章节或书签读取失败，请重试。');
+  Future<void> addBookmark({Duration? at}) => _controls(
+    () => _precision.addManual(PlaybackMarkerKind.bookmark, _markerTime(at)),
+    failureMessage: '书签保存失败，请重试。',
+  );
+  Future<void> addChapter({Duration? at}) => _controls(
+    () => _precision.addManual(PlaybackMarkerKind.chapter, _markerTime(at)),
+    failureMessage: '章节保存失败，请重试。',
+  );
+  Future<void> deletePlaybackMarker(String id) => _controls(
+    () => _precision.deleteManual(id),
+    failureMessage: '播放标记删除失败，请重试。',
+  );
+  Duration _markerTime(Duration? at) => Duration(
+    microseconds: (at ?? clock.position).inMicroseconds.clamp(
+      0,
+      clock.duration.inMicroseconds,
+    ),
+  );
+
+  Future<void> seekPlaybackMarker(String id) => _controls(() async {
+    final marker = _precision.value.markers
+        .where((m) => m.id == id && m.isAcceptedForPlayback)
+        .firstOrNull;
+    if (marker != null) await _seek(marker.start);
   });
+
+  Future<void> _ensureFullLoopTimeline() async {
+    if (_streamOffset <= Duration.zero ||
+        quality.original ||
+        filePath != null) {
+      return;
+    }
+    await _open(
+      item!.identity,
+      targetQuality: quality,
+      at: clock.position,
+      force: true,
+      autoplay: clock.playing,
+      fullTimeline: true,
+    );
+    if (_streamOffset > Duration.zero || engine == null || error != null) {
+      throw StateError('Full loop timeline could not be prepared');
+    }
+  }
+
+  Future<void> setLoopCurrentItem(bool enabled) => _controls(() async {
+    if (enabled) await _ensureFullLoopTimeline();
+    await _precision.setLoopCurrentItem(enabled);
+  }, failureMessage: '单片循环设置失败，请重试。');
+  Future<void> cycleABLoop() => _controls(() async {
+    final position = _markerTime(null);
+    await _ensureFullLoopTimeline();
+    await _precision.cycleABLoop(position);
+  }, failureMessage: 'A–B 循环设置失败，请重试。');
+  Future<void> clearABLoop() => _controls(
+    () => _precision.clearABLoop(),
+    failureMessage: 'A–B 循环清除失败，请重试。',
+  );
+  Future<void> stepFrame({bool backward = false}) => _controls(() async {
+    final current = engine;
+    if (current is! VideoTimelineEngine) {
+      throw StateError('Frame control unavailable');
+    }
+    await (current as VideoTimelineEngine).stepFrame(backward: backward);
+    await save();
+    unawaited(_reportRemote(EmbyPlaybackPhase.progress, force: true));
+  }, failureMessage: '逐帧操作失败，请重试。');
   Future<void> volume(double value, {bool remember = true}) => _controls(
     () async {
       if (!_closed && !loading && engine != null) {
@@ -755,17 +897,19 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   /// Track/device failures do not tear down an otherwise playable decoder.
-  Future<void> _controls(Future<void> Function() action) =>
-      _serialize(() async {
-        if (_closed || _closing != null || loading || engine == null) return;
-        try {
-          await action();
-          controlError = null;
-        } catch (_) {
-          controlError = '播放器设置操作失败，请检查文件或输出设备后重试。';
-        }
-        if (!_closed) notifyListeners();
-      });
+  Future<void> _controls(
+    Future<void> Function() action, {
+    String failureMessage = '播放器设置操作失败，请检查文件或输出设备后重试。',
+  }) => _serialize(() async {
+    if (_closed || _closing != null || loading || engine == null) return;
+    try {
+      await action();
+      controlError = null;
+    } catch (_) {
+      controlError = failureMessage;
+    }
+    if (!_closed) notifyListeners();
+  });
   Future<void> refreshTracks() => _controls(() async {
     await engine!.refreshTracks();
     tracks.value = engine!.tracks;
@@ -946,6 +1090,9 @@ class PlaybackSession extends ChangeNotifier {
     _subscription = null;
     await _trackSubscription?.cancel();
     _trackSubscription = null;
+    await _chapterSubscription?.cancel();
+    _chapterSubscription = null;
+    _precision.detach();
     if (_playSessionId != null) {
       await _reportRemote(EmbyPlaybackPhase.stopped, force: true);
       await _reports;
@@ -1025,6 +1172,7 @@ class PlaybackSession extends ChangeNotifier {
     volumeLevel.dispose();
     playbackRate.dispose();
     tracks.dispose();
+    _precision.dispose();
     closeRequests.dispose();
     super.dispose();
   }

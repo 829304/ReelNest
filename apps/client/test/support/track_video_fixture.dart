@@ -4,7 +4,10 @@ import 'dart:typed_data';
 
 /// Minimal Matroska: 24s raw BGR video, two silent PCM audio streams and two
 /// UTF-8 subtitle streams. No network, copyrighted media or FFmpeg dependency.
-Future<File> createTrackVideoFixture(String path) async {
+Future<File> createTrackVideoFixture(
+  String path, {
+  bool withChapters = false,
+}) async {
   List<int> number(int value) {
     final bytes = <int>[];
     do {
@@ -150,6 +153,21 @@ Future<File> createTrackVideoFixture(String path) async {
         ...string(0x4D80, 'ReelNest test'),
         ...string(0x5741, 'ReelNest test'),
       ]),
+      if (withChapters)
+        ...element(0x1043A770, [
+          ...element(0x45B9, [
+            for (var i = 0; i < 2; i++)
+              ...element(0xB6, [
+                ...uint(0x73C4, i + 1),
+                ...uint(0x91, i == 0 ? 0 : 8000000000),
+                ...uint(0x92, i == 0 ? 8000000000 : 24000000000),
+                ...element(0x80, [
+                  ...string(0x85, i == 0 ? 'Opening' : 'Second chapter'),
+                  ...string(0x437C, 'eng'),
+                ]),
+              ]),
+          ]),
+        ]),
       ...tracks,
       ...clusters.takeBytes(),
     ]),

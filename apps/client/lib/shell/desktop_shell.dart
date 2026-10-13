@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
+import '../features/sources/presentation/emby_sidebar.dart';
+import '../ui/theme/app_palette.dart';
 import '../ui/theme/design_tokens.dart';
 import '../ui/widgets/source_icons.dart';
 import 'destinations.dart';
-import '../features/sources/presentation/emby_sidebar.dart';
+import 'sidebar_components.dart';
 
-class DesktopShell extends StatelessWidget {
+class DesktopShell extends StatefulWidget {
   const DesktopShell({
     required this.selectedIndex,
     required this.onSelected,
@@ -18,117 +21,177 @@ class DesktopShell extends StatelessWidget {
   final Widget child;
 
   @override
+  State<DesktopShell> createState() => _DesktopShellState();
+}
+
+class _DesktopShellState extends State<DesktopShell> {
+  double _sidebarWidth = DesignTokens.sidebarIdealWidth;
+
+  void _resizeSidebar(double delta) {
+    setState(() {
+      _sidebarWidth = (_sidebarWidth + delta)
+          .clamp(DesignTokens.sidebarMinWidth, DesignTokens.sidebarMaxWidth)
+          .toDouble();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
+    final palette = context.appPalette;
+    final uri = GoRouter.of(context).routerDelegate.currentConfiguration.uri;
     return Scaffold(
+      backgroundColor: palette.page,
       body: SafeArea(
         child: Row(
           children: [
             SizedBox(
-              width: DesignTokens.sidebarWidth,
-              child: Material(
-                color: theme.colorScheme.surfaceContainerLow,
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 18,
+              key: const ValueKey('desktop-sidebar'),
+              width: _sidebarWidth,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [palette.sidebarTop, palette.sidebarBottom],
                   ),
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(8, 0, 8, 28),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.play_circle_outline,
-                            size: 38,
-                            color: DesignTokens.blue,
-                          ),
-                          SizedBox(width: 11),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'ReelNest',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                Text(
-                                  '映栖 · 家庭影音库',
-                                  style: TextStyle(fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+                    children: [
+                      const _BrandHeader(),
+                      const AppSidebarSectionHeader('媒体库'),
+                      AppSidebarRow(
+                        key: const ValueKey('nav-首页'),
+                        label: appDestinations[0].label,
+                        leading: Icon(appDestinations[0].icon),
+                        selected: widget.selectedIndex == 0,
+                        onTap: () => widget.onSelected(0),
                       ),
-                    ),
-                    for (var index = 0; index < appDestinations.length; index++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                              DesignTokens.controlRadius,
-                            ),
-                            gradient: selectedIndex == index
-                                ? LinearGradient(
-                                    colors: [
-                                      DesignTokens.blue.withValues(
-                                        alpha: dark ? 0.22 : 0.14,
-                                      ),
-                                      DesignTokens.pink.withValues(
-                                        alpha: dark ? 0.16 : 0.10,
-                                      ),
-                                    ],
-                                  )
-                                : null,
-                            border: selectedIndex == index
-                                ? Border.all(
-                                    color: DesignTokens.blue.withValues(
-                                      alpha: dark ? 0.28 : 0.18,
-                                    ),
-                                    width: 0.8,
-                                  )
-                                : null,
-                          ),
-                          child: ListTile(
-                            key: ValueKey(
-                              'nav-${appDestinations[index].label}',
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                DesignTokens.controlRadius,
-                              ),
-                            ),
-                            leading: appDestinations[index].label == '仪表盘'
-                                ? const SourceLineIcon(
-                                    SourceGlyph.dashboard,
-                                    size: 24,
-                                  )
-                                : Icon(appDestinations[index].icon),
-                            title: Text(appDestinations[index].label),
-                            selected: selectedIndex == index,
-                            onTap: () => onSelected(index),
-                          ),
+                      const EmbySidebar(),
+                      const AppSidebarSectionHeader('管理'),
+                      for (
+                        var index = 1;
+                        index < appDestinations.length;
+                        index++
+                      )
+                        AppSidebarRow(
+                          key: ValueKey('nav-${appDestinations[index].label}'),
+                          label: appDestinations[index].label,
+                          leading: _destinationIcon(index),
+                          selected:
+                              widget.selectedIndex == index &&
+                              (index != 1 || uri.path == '/sources'),
+                          onTap: () => widget.onSelected(index),
                         ),
-                      ),
-                    const EmbySidebar(),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-            VerticalDivider(
-              width: 1,
-              thickness: 1,
-              color: theme.colorScheme.outlineVariant,
+            MouseRegion(
+              cursor: SystemMouseCursors.resizeColumn,
+              child: GestureDetector(
+                key: const ValueKey('desktop-sidebar-resizer'),
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragUpdate: (details) =>
+                    _resizeSidebar(details.delta.dx),
+                child: SizedBox(
+                  width: 5,
+                  child: Center(
+                    child: VerticalDivider(
+                      width: 1,
+                      thickness: .8,
+                      color: palette.border,
+                    ),
+                  ),
+                ),
+              ),
             ),
-            Expanded(child: child),
+            Expanded(
+              child: ColoredBox(color: palette.page, child: widget.child),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _destinationIcon(int index) => switch (appDestinations[index].label) {
+    '仪表盘' => const SourceLineIcon(SourceGlyph.dashboard, size: 18),
+    _ => Icon(appDestinations[index].icon),
+  };
+}
+
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 18, 8, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              gradient: palette.prominentGradient,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: .65),
+                width: .8,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: DesignTokens.blue.withValues(alpha: .28),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            // The final logo is intentionally deferred. This remains a
+            // navigation glyph and is not installed as a brand asset.
+            child: const Icon(
+              Icons.video_library_rounded,
+              size: 21,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ReelNest',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.title,
+                    fontSize: 16,
+                    height: 1.15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '家庭影音库',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.subtle,
+                    fontSize: DesignTokens.caption,
+                    height: 1.15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -9,9 +9,10 @@ import 'package:path/path.dart' as p;
 
 import 'video_engine.dart';
 import 'video_tracks.dart';
+import 'video_timeline.dart';
 import '../platform/playback_sleep_guard.dart';
 
-class MediaKitVideoEngine implements VideoEngine {
+class MediaKitVideoEngine implements VideoEngine, VideoTimelineEngine {
   MediaKitVideoEngine({Player? player}) {
     MediaKit.ensureInitialized();
     _player =
@@ -75,6 +76,43 @@ class MediaKitVideoEngine implements VideoEngine {
   final _trackChanges = StreamController<VideoTrackState>.broadcast();
   VideoTrackState _tracks = const VideoTrackState();
   NativePlayer get _native => _player.platform as NativePlayer;
+  late final _timelineCommands = MpvTimelineCommands(
+    command: (args) => _native.command(args),
+    read: (name) => _native.getProperty(name),
+  );
+  final _chapterChanges = StreamController<List<VideoChapter>>.broadcast();
+  List<VideoChapter> _chapters = const [];
+  String? _chapterSnapshot;
+  bool _observingChapters = false;
+  @override
+  List<VideoChapter> get chapters => _chapters;
+  @override
+  Stream<List<VideoChapter>> get chapterChanges => _chapterChanges.stream;
+  @override
+  Future<void> refreshChapters() async {
+    if (_disposed) return;
+    final raw = await _native.getProperty('chapter-list');
+    if (_disposed || raw == _chapterSnapshot) return;
+    final chapters = VideoChapter.decode(raw);
+    _chapterSnapshot = raw;
+    _chapters = chapters;
+    _chapterChanges.add(chapters);
+  }
+
+  @override
+  Future<void> setLoopCurrentItem(bool enabled) =>
+      _timelineCommands.setLoopCurrentItem(enabled);
+  @override
+  Future<void> setABLoop(Duration? start, Duration? end) =>
+      _timelineCommands.setABLoop(start, end);
+  @override
+  Future<void> stepFrame({required bool backward}) async {
+    // mpv frame commands pause as well; explicitly use media_kit.pause so its
+    // playing stream and the sleep guard also reflect this user action.
+    await pause();
+    await _timelineCommands.stepFrame(backward: backward);
+  }
+
   @override
   VideoTrackState get tracks => _tracks;
   @override
@@ -239,6 +277,23 @@ class MediaKitVideoEngine implements VideoEngine {
     }
     if (_error != null) throw StateError(_error!);
     await refreshTracks();
+    try {
+      if (!_observingChapters) {
+        await _native.observeProperty('chapter-list', (_) async {
+          if (_disposed) return;
+          try {
+            await refreshChapters();
+          } catch (_) {
+            /* Explicit refresh remains retryable. */
+          }
+        });
+        _observingChapters = true;
+      }
+      await refreshChapters();
+    } catch (_) {
+      // An auxiliary chapter read must not block an otherwise valid video.
+      // The session performs an explicit retry and exposes a control error.
+    }
   }
 
   @override
@@ -277,5 +332,6 @@ class MediaKitVideoEngine implements VideoEngine {
     await _player.dispose();
     await _changes.close();
     await _trackChanges.close();
+    await _chapterChanges.close();
   }
 }

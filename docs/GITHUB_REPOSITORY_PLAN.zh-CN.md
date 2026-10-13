@@ -1,6 +1,6 @@
 # 映栖 ReelNest：GitHub 仓库与发布规划
 
-2026-10-05 最新范围：第一阶段仅 Windows/macOS/Linux，功能与 UI 对齐原项目，见[项目边界](PROJECT_SCOPE.zh-CN.md)。文内五端工程、构建矩阵及移动签名安排是原远期规划，不作为当前交付要求；iOS/Android 目录保留，当前 `build.yml` 已收敛到三个桌面端，尚未推送触发远程验证。
+2026-10-13 当前说明：第一阶段仅 Windows/macOS/Linux，功能与 UI 对齐原项目，见[项目边界](PROJECT_SCOPE.zh-CN.md)。iOS/Android 工程目录仅保留，不推进移动端功能、布局、构建和签名，也不作为本阶段验收条件。照片模块已按用户决定移出当前产品、计划和验收范围。本文后续仍保留的早期五端与移动发布设想只作历史参考，不得用于扩大当前范围。
 
 日期：2026-10-02
 更新：2026-10-03，统一使用 `docs/`，补充应用外壳、播放器模块与结构设计链接。
@@ -9,11 +9,11 @@
 
 ## 1. 推荐结论
 
-新项目采用独立的 `reelnest` 主仓库，已连接远程 `829304/ReelNest`。采用单仓库多模块的组织方式：一个 Flutter 客户端共享界面与业务代码，通过 Windows、macOS、Linux 构建环境分别生成 Windows、macOS、iOS、Android、Ubuntu 产物。
+新项目采用独立的 `reelnest` 主仓库，已连接远程 `829304/ReelNest`。采用单仓库多模块的组织方式：一个 Flutter 客户端共享界面与业务代码；第一阶段只生成和验收 Windows、macOS、Linux 三个桌面端产物。
 
-2026-10-05 范围纠正：旧 `829304/MediaLib` 仅作为源码与行为参考，不是必须部署的服务端。ReelNest 直接接入本地文件夹、移动硬盘、已挂载 NAS 和 Emby/Jellyfin/Plex，五端在同一个仓库维护。
+2026-10-05 范围纠正：旧 `829304/MediaLib` 仅作为源码与行为参考，不是必须部署的服务端。ReelNest 直接接入本地文件夹、移动硬盘、已挂载 NAS 和 Emby/Jellyfin/Plex；第一阶段只维护三桌面端用户可见实现，移动端工程暂存。
 
-不按操作系统拆仓库，不为五个平台建立长期分支。平台差异放进 Flutter 平台目录与能力适配层。自有服务端统一命名为 ReelNest Server，原版对应能力按迁移清单推进；当前客户端基础批次尚未实现或部署该服务端，也不修改旧 MediaLib 服务端。
+不按操作系统拆仓库，不为各平台建立长期分支。平台差异放进 Flutter 平台目录与能力适配层。自有服务端统一命名为 ReelNest Server，原版对应能力按迁移清单推进；当前客户端基础批次尚未实现或部署该服务端，也不修改旧 MediaLib 服务端。
 
 这样可以让一次功能修改、来源适配和测试更新在同一个 PR 中完成，也便于参考旧 Swift 实现。
 
@@ -90,7 +90,7 @@ reelnest/
 | Flutter 标签 | `client-v0.1.0-alpha.1`、`client-v0.1.0-beta.1` 等，与旧标签区分 |
 | 旧版本发布 | 在旧 MediaLib 仓库保留现有版本与发布机制 |
 
-Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `1.8.x` 的更新来源。五端同一客户端版本使用相同源提交；如果某端尚未达到验收标准，在发布说明中标为不提供或实验性，不能因为其他端通过就宣称五端正式支持。
+Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `1.8.x` 的更新来源。三桌面端同一客户端版本使用相同源提交；如果某端尚未达到验收标准，在发布说明中标为不提供或实验性，不能因为其他端通过就宣称三端均正式支持。
 
 新客户端以 `apps/client/pubspec.yaml` 的 `version` 为唯一客户端版本来源。标签与其语义版本必须一致。商店版本字符串、整数 build number 和预发布渠道由构建脚本显式映射并校验；构建号必须满足各商店的递增要求，不能把带 `alpha` 的字符串原样用于所有原生版本字段。
 
@@ -104,7 +104,7 @@ Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `
 
 | 设置 | 建议值或行为 |
 |---|---|
-| 仓库可见性 | 远程尚未创建；未来创建时默认建议私有 |
+| 仓库可见性 | 已连接 `829304/ReelNest`；当前可见性尚未在本文核验，不作推断 |
 | Issues | 开启，按功能与平台记录问题 |
 | Projects | 可选，一个重构看板即可 |
 | 合并方式 | 开启 squash；按团队习惯关闭其他方式 |
@@ -116,7 +116,7 @@ Flutter 试验版从独立的 `0.x` 版本线开始，不直接覆盖旧 macOS `
 | CODEOWNERS | 使用已确认的维护者账号，尤其覆盖工作流和发布脚本 |
 | 自动更新依赖 | 按 Dart、GitHub Actions 等范围分组，发布 PR，验证后合并 |
 
-建议标签：`area:ui`、`area:playback`、`area:library`、`area:api`、`area:storage`、`area:ci`，以及 `platform:windows/macos/ios/android/linux`、`type:bug/feature/refactor`。
+建议标签：`area:ui`、`area:playback`、`area:library`、`area:api`、`area:storage`、`area:ci`，以及当前阶段的 `platform:windows/macos/linux`、`type:bug/feature/refactor`。移动端标签在恢复移动端开发后再启用。
 
 PR 模板要求说明：用户可见变化、涉及平台、验证记录、界面截图、API/数据库兼容影响。UI PR 附原版与新版对照；播放 PR 附样本与设备信息。
 
@@ -124,17 +124,18 @@ PR 模板要求说明：用户可见变化、涉及平台、验证记录、界�
 
 ### 5.1 现有流水线
 
-旧 MediaLib 仓库已有 `swift.yml` 和 `acceptance.yml`，覆盖 Swift 构建与测试、集成自检、真实网络传输、浏览器播放和 DMG 验证。它们继续保留在旧仓库；ReelNest 新仓库当前没有工作流。
+旧 MediaLib 仓库已有 `swift.yml` 和 `acceptance.yml`，覆盖 Swift 构建与测试、集成自检、真实网络传输、浏览器播放和 DMG 验证。它们继续保留在旧仓库。ReelNest 当前已有 `check.yml`（格式、静态分析、Dart 测试）和 `build.yml`（Windows/macOS/Linux Release 构建）；工作流存在不等于远程运行、原生业务或发布验收已经通过。
 
 旧流水线留在旧仓库；ReelNest CI 不依赖构建或部署旧服务端。文件来源使用临时目录/测试数据库验收，第三方连接器使用脱敏契约样例和独立测试服务器验证。
 
-### 5.2 新增工作流及触发
+### 5.2 当前与后续工作流
 
-| 拟议文件 | 触发 | 主要职责 |
+| 工作流 | 触发 | 主要职责 |
 |---|---|---|
-| `client-checks.yml` | 每个 PR、`main` push、手动 | 格式、静态检查、单测、组件测试、契约测试、受影响平台构建、统一检查结果 |
-| `client-acceptance.yml` | 定期、手动、候选版本 | 五端完整构建与可自动化验收，汇总真机待验项 |
-| `client-release.yml` | `client-v*` 标签、受控手动触发 | 校验版本，测试指定提交，构建签名包，生成发行草稿 |
+| `check.yml`（已存在） | PR、`main`/`codex/**` push、手动 | 格式、静态分析和 Dart 测试 |
+| `build.yml`（已存在） | `main` push、手动 | Windows、macOS、Linux Release 构建与短期产物 |
+| 候选版验收工作流（待设计） | 定期、手动、候选版本 | 三桌面端可自动化验收，汇总原生业务与视觉待验项 |
+| 发布工作流（待设计） | 受控标签或手动触发 | 校验版本，测试指定提交，构建签名包，生成发行草稿 |
 
 建立稳定的 `client-ci-gate` 检查作为 Flutter 合并门槛。所在 workflow 对 PR 总是触发，在 job 内判断受影响模块；汇总 job 使用总是执行的条件，逐项检查结果。只有明确不受影响的 job 可以跳过，预期任务失败、取消或意外跳过必须使门槛失败。
 
@@ -143,7 +144,7 @@ PR 模板要求说明：用户可见变化、涉及平台、验证记录、界�
 变化影响规则：
 
 - 纯文档变化：文档与引用检查，可跳过客户端编译。
-- 共享 Dart 代码、资源、依赖锁、播放插件变化：五端编译检查。
+- 共享 Dart 代码、资源、依赖锁、播放插件变化：三桌面端编译检查。
 - 单个平台工程变化：公共检查加对应平台编译。
 - 来源适配或 `contracts/` 变化：运行对应扫描/契约测试与真实来源验收；不通过修改旧 MediaLib API 来补齐新应用功能。
 - 播放、存储、原生插件变化：追加相应设备验收；编译成功不代表功能成功。
@@ -156,24 +157,22 @@ PR 模板要求说明：用户可见变化、涉及平台、验证记录、界�
 |---|---|---|---|
 | Windows | Windows runner | 编译、测试、启动冒烟 | 完整应用目录 ZIP；后续选择一种安装器 |
 | macOS | macOS runner | 编译、测试、启动冒烟 | `.app` 的 ZIP / DMG；正式发行完成签名与公证 |
-| iOS | macOS + Xcode | 模拟器构建或不签名设备构建 | 正确签名的 IPA，通过 TestFlight/商店等有效渠道分发 |
-| Android | Linux runner + Android SDK/JDK | Debug APK 编译、模拟器测试 | 签名 APK、商店 AAB |
 | Ubuntu | Linux runner + 桌面依赖 | 编译、可用显示环境下的冒烟 | 完整 bundle 的 tar.gz；再增加 `.deb` 或 AppImage |
 
 Windows 不能只上传一个 exe，Linux 不能只上传单个可执行文件；随包附带实际需要的动态库、Flutter 资源和媒体运行库。安装包制作是 Flutter 编译之后的独立步骤。
 
-GitHub Actions matrix 可以在不同操作系统上执行任务；Flutter 各端构建有宿主要求，iOS/macOS 仍需 macOS。[GitHub matrix](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) · [Flutter 构建环境](https://docs.flutter.dev/install/custom)
+GitHub Actions matrix 可以在不同操作系统上执行任务；Flutter 桌面端构建有宿主要求，macOS 仍需 macOS runner。[GitHub matrix](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) · [Flutter 构建环境](https://docs.flutter.dev/install/custom)
 
-初始架构建议：Windows x64、Ubuntu x64、macOS Apple Silicon、iOS arm64、Android arm64；Windows/Linux arm64、Intel Mac 和 Android 其他 ABI 单独列为待评估支持项。锁定 Flutter/播放器版本时核对架构兼容，不根据 runner 名称推断实际架构。macOS Intel 的支持需特别核对 Flutter 当前政策。[Flutter 平台矩阵](https://docs.flutter.dev/reference/supported-platforms)
+第一阶段架构基线为 Windows x64、Ubuntu x64、macOS Apple Silicon；Windows/Linux arm64 与 Intel Mac 单独列为待评估支持项。锁定 Flutter/播放器版本时核对架构兼容，不根据 runner 名称推断实际架构。macOS Intel 的支持需特别核对 Flutter 当前政策。[Flutter 平台矩阵](https://docs.flutter.dev/reference/supported-platforms)
 
 ### 5.4 工具链和成本
 
-- 明确锁定 Flutter SDK、依赖锁文件、JDK、Xcode、Android SDK/NDK 和 runner 系统版本，记录可重复的安装方式。
+- 明确锁定 Flutter SDK、依赖锁文件、Xcode、Linux 桌面依赖和 runner 系统版本，记录可重复的安装方式。
 - Actions 引用在落地时核验并固定到受信任提交；自动化工具定期提出升级 PR。
 - 缓存键包含操作系统、CPU 架构、SDK 和锁文件摘要；不跨系统复用原生构建输出。
 - PR 新提交取消旧运行；发布任务不被普通 PR 的并发分组取消。
 - PR 产物建议保留 7 天，候选版验收记录建议保留 30 天，正式包使用 Releases。
-- GPU、HDR、系统相册、后台音频和真实触控不能仅靠云 runner 验收；保留真机验证记录。
+- GPU、HDR、后台音频等系统能力不能仅靠云 runner 验收；保留三桌面端真机验证记录。系统相册与真实触控当前不在第一阶段范围。
 - 自托管设备仅用于受信任提交的专项验收，不让外部 PR 自动在带签名凭据的设备上执行。
 
 ## 6. 发布和凭据
@@ -189,14 +188,13 @@ GitHub Actions matrix 可以在不同操作系统上执行任务；Flutter 各�
 
 发行文件使用明确名字，例如 `ReelNest-client-0.1.0-beta.1-windows-x64.zip`。同时记录客户端版本、构建号、Git SHA、平台/架构、工具链、API 兼容范围、包校验值和签名状态。重跑任务不能静默替换已正式发布的包。
 
-GitHub Release 中的 IPA 并不等于任意 iPhone 都能直接安装；iOS 分发方式按签名和渠道确定。测试包与正式包应明确区分。
+测试包与正式包应明确区分。移动端签名与分发不在第一阶段发布设计中。
 
-凭据按平台隔离，建议使用 `android-release`、`apple-release`、`windows-release` 等 GitHub Environments，限制发行分支/标签。具体可用的环境保护功能依赖仓库可见性和 GitHub 套餐，落地前确认；不可用时设计等价的受控发布流程。[GitHub Environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+凭据按平台隔离，建议使用 `macos-release`、`windows-release` 等 GitHub Environments，限制发行分支/标签。具体可用的环境保护功能依赖仓库可见性和 GitHub 套餐，落地前确认；不可用时设计等价的受控发布流程。[GitHub Environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
 
 | 范围 | 所需内容 | 说明 |
 |---|---|---|
-| Android | 上传密钥、密码、alias；商店上传凭据（若启用） | 调试构建不接触正式密钥 |
-| Apple | 签名身份、描述文件、团队标识、公证/商店 API 凭据 | macOS 与 iOS 的签名用途不同，按 job 最小授权 |
+| macOS | 签名身份、团队标识、公证 API 凭据 | 按 job 最小授权，不向普通 PR 暴露 |
 | Windows | 代码签名服务或证书配置（正式发行时） | 未签名试验包如实标注 |
 | 普通 CI | 通常不需要产品账户或签名凭据 | 使用合成媒体、临时库和测试账号 |
 
@@ -209,7 +207,7 @@ GitHub Release 中的 IPA 并不等于任意 iPhone 都能直接安装；iOS 分
 | R0 | 本文与实施计划 | 仓库策略、范围、平台角色清楚 |
 | R1 | 新客户端骨架、必要模块、忽略规则 | 新客户端可独立构建，旧 Swift 工程仍在原仓库维护 |
 | R2 | PR 模板、Issue 模板、基础客户端 CI | 一个真实 PR 跑通检查，检查名稳定 |
-| R3 | 五端编译、API 契约、平台适配原型 | 同一提交有明确的五端结果与阻塞记录 |
+| R3 | 三桌面端编译、API 契约、平台适配原型 | 同一提交有明确的 Windows、macOS、Linux 结果与阻塞记录 |
 | R4 | GitHub ruleset / 分支保护 | 必需检查正确阻止失败合并，不造成文档 PR Pending |
 | R5 | 预发布流水线和产物命名 | 无正式凭据时也可生成清楚标注的测试产物 |
 | R6 | 签名、发布环境、正式渠道 | 可追溯产物在目标设备上安装和运行 |
