@@ -355,6 +355,10 @@ void main() {
   testWidgets(
     'player controls and keyboard operate the session and close saves progress',
     (tester) async {
+      tester.view.physicalSize = const Size(700, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       var closed = false;
       var fullscreen = false;
       Future<void> waitUntil(bool Function() done) async {
@@ -394,6 +398,23 @@ void main() {
       expect(session.error, isNull);
       expect(session.loading, isFalse);
       expect(engines, hasLength(1));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-leading-actions'))),
+        const Size(176, 28),
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-trailing-actions'))),
+        const Size(112, 28),
+      );
+      expect(
+        find.byKey(const ValueKey('player-window-chrome')),
+        findsOneWidget,
+      );
+      if (Platform.isWindows || Platform.isLinux) {
+        expect(find.byTooltip('最小化'), findsOneWidget);
+        expect(find.byTooltip('最大化'), findsOneWidget);
+        expect(find.byTooltip('关闭播放器'), findsOneWidget);
+      }
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
       expect(session.clock.position, const Duration(seconds: 5));
@@ -408,9 +429,26 @@ void main() {
       await tester.tapAt(tester.getCenter(slider));
       await tester.pump();
       expect(session.clock.position.inSeconds, inInclusiveRange(45, 55));
+      await tester.pump(const Duration(milliseconds: 3300));
+      final interactionRegion = tester.widget<MouseRegion>(
+        find.byKey(const ValueKey('player-interaction-region')),
+      );
+      expect(interactionRegion.cursor, SystemMouseCursors.none);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
       await tester.pump();
       expect(session.clock.volume, 0);
+      expect(find.byKey(const ValueKey('player-volume-hud')), findsOneWidget);
+      expect(
+        tester
+            .widget<MouseRegion>(
+              find.byKey(const ValueKey('player-interaction-region')),
+            )
+            .cursor,
+        SystemMouseCursors.none,
+      );
+      await tester.pump(const Duration(milliseconds: 951));
+      await tester.pump(const Duration(milliseconds: 181));
+      expect(find.byKey(const ValueKey('player-volume-hud')), findsNothing);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
       await tester.pump();
       expect(fullscreen, isTrue);

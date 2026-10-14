@@ -1,20 +1,22 @@
 # ReelNest 文档
 
-更新时间：2026-10-13。
+更新时间：2026-10-14。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
-- 当前主线：按用户要求优先补齐共用播放器高级能力，前端与底层分工推进；首页与真实 Emby 验收仍待完成。
+- 当前主线：本地/Emby 共用播放器的手动片头/片尾标记与“关闭 / 显示按钮 / 自动跳过”代码及 Windows 自动化验证完成；真实环境验收待进行。自动识别与候选处理属于后续子批次。
 - 最近完成：高级播放首批章节/书签、单片循环、A–B 与逐帧底层和 UI 接入，以及侧栏/主题整理；此前首页 H1/H2/H3、视频健康评分和来源刷新状态保护已接通。
-- 最新播放专项记录见[高级播放接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md)。此前健康评分批次的 **564 项 Dart 测试、静态分析、Windows Release 构建**及退出边界保留在[视频健康评分](HEALTH_SCORE.zh-CN.md)，不能用其证明后续代码已验收。
+- 最新侧栏 hover 修复完成 45 项定向回归和 Windows Release/启动冒烟；Windows 结果不代表 macOS/Linux 原生验收，细节见[Emby 导航记录](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复)。
+- 来源媒体库 P0 UI 增量已记录：海报卡进度/评分/悬停状态、Emby 视频库响应式工具栏与筛选/状态面板、本地/Emby 共用详情页层级调整。相关范围、原版文件映射和 98 项定向验证见[Emby 导航](EMBY_NAVIGATION.zh-CN.md)、[详情](EMBY_DETAILS.zh-CN.md)及[源码映射](design/SOURCE_MAPPING.md)；原生截图/逐像素验收仍待，全量整合复验见下方记录。
+- `4d4a0ee` 的 587 项及后续 609+2 均为历史批次结果。第二轮 P0 之后的提交前整合复验已覆盖两轮 P0 UI、侧栏/Emby 与 Logo 改动：全量 616 项通过、2 项默认关闭的原生用例跳过，分析无问题，235 个 Dart 文件格式检查 0 修改，当前 Windows Release 与五秒启动烟测通过。各专项记录中的“当时未跑全量”仍按历史批次事实保留。macOS/Linux 原生验收、真实 Emby 播放仍待，详见[高级播放接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
 - 尚未由该记录证明：真实 Emby 完整操作、实际滚动帧率、macOS/Linux 原生运行、三桌面端原版 UI 对照。
 - 音乐后续作为独立大模块统一迁移；Jellyfin、Plex、ReelNest Server 等原有来源仍在完整范围内。
 - WebDAV 设置备份是后续明确新增功能，当前不实施。
 - 用户于 2026-10-12 明确暂不实现照片模块：照片/相册、照片搜索和首页照片墙移出当前入口、计划与验收范围，恢复需重新确认；影视图片功能保留。后续调整与验证见[照片范围记录](PHOTO_SCOPE_DECISION.zh-CN.md)。
 
-当前任务和完成条件见[首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)与[当前阶段记录](NEXT_STAGE.zh-CN.md)。历史测试数字只代表对应批次，不覆盖后续代码。
+当前任务和完成条件见[当前阶段记录](NEXT_STAGE.zh-CN.md)、[播放器总表](PLAYER_STATUS.zh-CN.md)与[高级播放接口及当前批次](PLAYER_PRECISION_BACKEND.zh-CN.md)。首页未完成验收继续保留在[首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)。历史测试数字只代表对应批次，不覆盖后续代码。
 
 ## 阅读顺序
 
@@ -75,7 +77,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [本地视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 已实现、固定剩余范围及验收边界 |
+| [共用视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 本地/Emby 共用播放器已实现能力、固定剩余范围及验收边界 |
 | [本地视频播放与续播](LOCAL_PLAYBACK.zh-CN.md) | 独立窗口、进度、基础控制和失败保护 |
 | [播放队列与播完行为](PLAYER_QUEUE.zh-CN.md) | 同系列队列、相邻项和三种结束行为 |
 | [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置 |
@@ -92,7 +94,7 @@
 | [播放与进度同步（E3）](EMBY_PLAYBACK.zh-CN.md) | 鉴权播放、续播、队列、痕迹模式和上报 |
 | [收藏、已看与服务器字幕](EMBY_ACTIONS_SUBTITLES.zh-CN.md) | 状态写回/回滚、批量观看和文本字幕 |
 | [服务器详情、演职员与艺术照](EMBY_DETAILS.zh-CN.md) | 详情缓存、人员、图片和技术信息 |
-| [视频媒体库导航与浏览](EMBY_NAVIGATION.zh-CN.md) | 来源树、分库、筛选、排序和导航 |
+| [视频媒体库导航与浏览](EMBY_NAVIGATION.zh-CN.md) | 来源树、分库、筛选、排序、P0 浏览 UI 调整及侧栏切换按压态残留修复 |
 | [首次浏览与人物作品](EMBY_LOADING.zh-CN.md) | 前台分页、后台批量索引和服务器人物作品 |
 | [画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md) | 转码画质、图片/视频缓存、手动离线和容量维护 |
 | [自动离线订阅与任务入口](EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md) | 订阅范围、暂停/到期、网络策略和任务控制 |

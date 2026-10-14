@@ -287,6 +287,94 @@ void main() {
     }
   });
 
+  for (final automatic in [false, true]) {
+    test(
+      'transcoded marker skip uses absolute ranges and preserves pause (automatic=$automatic)',
+      () async {
+        final engines = <FakeVideoEngine>[];
+        final player = PlaybackSession(
+          sources: sources,
+          records: PlaybackRepository(sources.database),
+          emby: connections,
+          createEngine: () {
+            final engine = FakeVideoEngine();
+            engines.add(engine);
+            return engine;
+          },
+        );
+        try {
+          await player.open(film.identity);
+          engines.last.emit(position: const Duration(seconds: 20));
+          await player.toggle();
+          await player.setMarkerBoundary(
+            PlaybackMarkerKind.intro,
+            isStart: true,
+            at: const Duration(seconds: 22),
+          );
+          await player.setMarkerBoundary(
+            PlaybackMarkerKind.intro,
+            isStart: false,
+            at: const Duration(seconds: 30),
+          );
+          await player.selectQuality(player.qualityOptions.last);
+          final transcoded = engines.last;
+          expect(
+            Uri.parse(transcoded.openedPath!).queryParameters['StartTimeTicks'],
+            '200000000',
+          );
+          expect(player.clock.playing, isFalse);
+          await player.setMarkerSkipBehavior(
+            automatic
+                ? VideoMarkerSkipBehavior.automatic
+                : VideoMarkerSkipBehavior.prompt,
+          );
+          transcoded.emit(position: const Duration(seconds: 3));
+          if (automatic) {
+            await waitFor(
+              () => player.clock.position == const Duration(seconds: 30),
+            );
+          } else {
+            expect(
+              player.precision.value.activeSkipMarker!.start,
+              const Duration(seconds: 22),
+            );
+            await player.skipPlaybackMarker(
+              player.precision.value.activeSkipMarker!.id,
+            );
+          }
+          expect(transcoded.clock.position, const Duration(seconds: 10));
+          expect(player.clock.position, const Duration(seconds: 30));
+          expect(player.clock.playing, isFalse);
+          expect(player.precision.value.activeSkipMarker, isNull);
+          await player.save();
+          expect(
+            (await PlaybackRepository(sources.database).read(film.identity))
+                .position,
+            const Duration(seconds: 30),
+          );
+          await player.selectQuality(player.qualityOptions[1]);
+          expect(
+            player.precision.value.markers
+                .where((m) => m.kind == PlaybackMarkerKind.intro)
+                .single
+                .end,
+            const Duration(seconds: 30),
+          );
+          expect(
+            player.precision.value.skipBehavior,
+            automatic
+                ? VideoMarkerSkipBehavior.automatic
+                : VideoMarkerSkipBehavior.prompt,
+          );
+          expect(player.clock.position, const Duration(seconds: 30));
+        } finally {
+          await player.close();
+          player.dispose();
+        }
+      },
+    );
+  }
+
   for (final wholeFilm in [false, true]) {
     test(
       'transcoded loop prepares a full timeline and preserves pause (whole=$wholeFilm)',

@@ -174,14 +174,14 @@ library/reelnest.sqlite
 | 字段 | 含义 |
 |---|---|
 | `source_id`, `local_id`, `id` | 来源隔离的标记身份，删除媒体时级联清理 |
-| `kind`, `title` | 标记类型和名称；当前执行入口为章节、手动章节及书签 |
+| `kind`, `title` | 标记类型和名称；章节、手动章节/书签及手动片头/片尾范围均已接入 |
 | `start_us`, `end_us` | 起止时间，微秒；结束时间可空 |
 | `origin` | `embedded`、`manual` 或 `automatic` |
 | `review_status` | `accepted`、`pending` 或 `rejected`；当前手动/内嵌标记归一为 accepted |
 | `detector_identifier`, `confidence` | 自动候选来源与置信度的模型字段，当前未实现识别执行链路 |
 | `created_at`, `updated_at` | UTC 毫秒时间 |
 
-非空内嵌章节快照在事务内替换该媒体的内嵌章节，保留手动标记；空快照及转码部分时间轴不会清除已保存的完整章节。删除接口只删除指定媒体的手动标记。单片循环开关保存于 `player_preferences` 的 `global.videoLoopCurrentItem`；A/B 点仅在会话内保存，不写数据库。详见[高级播放接口与规则](PLAYER_PRECISION_BACKEND.zh-CN.md)。
+非空内嵌章节快照在事务内替换该媒体的内嵌章节，保留手动标记；空快照及转码部分时间轴不会清除已保存的完整章节。删除接口只删除指定媒体的手动标记。单片循环开关保存于 `player_preferences` 的 `global.videoLoopCurrentItem`；跳过策略保存于 `global.videoMarkerSkipBehavior`，默认 `prompt`；A/B 点仅在会话内保存，不写数据库。手动片头/片尾范围复用本表，无新增表或 schema。自动识别与候选审核属于后续批次。当前验证范围和边界见[高级播放接口与规则](PLAYER_PRECISION_BACKEND.zh-CN.md)。
 
 ### `media_library_preferences`
 

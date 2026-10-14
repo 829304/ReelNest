@@ -3,6 +3,59 @@ import 'package:flutter/material.dart';
 import '../ui/theme/app_palette.dart';
 import '../ui/theme/design_tokens.dart';
 
+/// Lets adjacent rows hand hover ownership to each other without leaving two
+/// fading pills behind. Selection remains owned by the route and is never
+/// changed by this coordinator.
+class AppSidebarHoverRegion extends StatefulWidget {
+  const AppSidebarHoverRegion({required this.child, super.key});
+
+  final Widget child;
+
+  static _AppSidebarHoverController? _of(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<_AppSidebarHoverScope>()
+      ?.notifier;
+
+  @override
+  State<AppSidebarHoverRegion> createState() => _AppSidebarHoverRegionState();
+}
+
+class _AppSidebarHoverRegionState extends State<AppSidebarHoverRegion> {
+  final _controller = _AppSidebarHoverController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _AppSidebarHoverScope(controller: _controller, child: widget.child);
+}
+
+class _AppSidebarHoverController extends ChangeNotifier {
+  Object? activeRow;
+
+  void setHovered(Object row, bool hovered) {
+    final next = hovered ? row : (activeRow == row ? null : activeRow);
+    if (identical(next, activeRow)) return;
+    activeRow = next;
+    notifyListeners();
+  }
+
+  void release(Object row) {
+    if (activeRow == row) activeRow = null;
+  }
+}
+
+class _AppSidebarHoverScope
+    extends InheritedNotifier<_AppSidebarHoverController> {
+  const _AppSidebarHoverScope({
+    required _AppSidebarHoverController controller,
+    required super.child,
+  }) : super(notifier: controller);
+}
+
 class AppSidebarSectionHeader extends StatelessWidget {
   const AppSidebarSectionHeader(this.title, {super.key});
 
@@ -130,20 +183,74 @@ class AppSidebarRow extends StatefulWidget {
 }
 
 class _AppSidebarRowState extends State<AppSidebarRow> {
+  final Object _hoverToken = Object();
+  _AppSidebarHoverController? _hoverController;
   bool _hovering = false;
   bool _pressed = false;
   bool _focused = false;
+  bool _animateHoverExit = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _hoverController = AppSidebarHoverRegion._of(context);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppSidebarRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selected != widget.selected) _animateHoverExit = false;
+  }
+
+  @override
+  void dispose() {
+    _hoverController?.release(_hoverToken);
+    super.dispose();
+  }
+
+  void _handleTap() {
+    // A click ends the press, not the pointer's presence in this row.
+    if (_pressed) setState(() => _pressed = false);
+    widget.onTap?.call();
+  }
+
+  void _handleHover(bool value) {
+    if (_hovering == value && (value || !_pressed)) return;
+    _hoverController?.setHovered(_hoverToken, value);
+    setState(() {
+      _hovering = value;
+      _animateHoverExit = !value;
+      // A route change can rebuild the sidebar before InkWell delivers the
+      // matching highlight=false callback. Leaving the row must always clear
+      // that stale pressed state or previously visited libraries form a trail.
+      if (!value) _pressed = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final duration = reduceMotion
-        ? Duration.zero
-        : DesignTokens.sidebarSelectionMotion;
     final interactive = widget.onTap != null;
-    final showHover = interactive && (_hovering || _pressed);
+    // Selection is route state; hovering a different row must not hide it.
+    final showSelected = widget.selected;
+    final showHover =
+        interactive && !widget.selected && (_hovering || _pressed);
+    final activeHoverRow = _hoverController?.activeRow;
+    final anotherRowHovered =
+        activeHoverRow != null && activeHoverRow != _hoverToken;
+    final animateExit =
+        _animateHoverExit && !showSelected && !showHover && !anotherRowHovered;
+    final backgroundDuration = reduceMotion
+        ? Duration.zero
+        : showSelected
+        ? DesignTokens.sidebarSelectionMotion
+        : showHover
+        ? DesignTokens.sidebarHoverEnterMotion
+        : animateExit
+        ? DesignTokens.sidebarHoverExitMotion
+        : Duration.zero;
     return Padding(
       padding: EdgeInsets.only(
         left: widget.indented ? DesignTokens.sidebarChildIndent : 0,
@@ -154,9 +261,9 @@ class _AppSidebarRowState extends State<AppSidebarRow> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: widget.onTap,
+            onTap: interactive ? _handleTap : null,
             onSecondaryTapDown: widget.onSecondaryTapDown,
-            onHover: (value) => setState(() => _hovering = value),
+            onHover: _handleHover,
             onFocusChange: (value) => setState(() => _focused = value),
             onHighlightChanged: (value) => setState(() => _pressed = value),
             overlayColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -167,21 +274,21 @@ class _AppSidebarRowState extends State<AppSidebarRow> {
               child: Stack(
                 children: [
                   AnimatedContainer(
-                    duration: duration,
-                    curve: Curves.easeOut,
+                    duration: backgroundDuration,
+                    curve: Curves.easeOutCubic,
                     padding: const EdgeInsets.symmetric(
                       horizontal: DesignTokens.sidebarRowHorizontal,
                       vertical: DesignTokens.sidebarRowVertical,
                     ),
                     decoration: BoxDecoration(
-                      color: widget.selected
+                      color: showSelected
                           ? null
                           : showHover
                           ? palette.hoverFill.withValues(
                               alpha: _pressed ? .95 : .82,
                             )
                           : Colors.transparent,
-                      gradient: widget.selected
+                      gradient: showSelected
                           ? LinearGradient(
                               colors: [
                                 DesignTokens.blue.withValues(
@@ -196,7 +303,7 @@ class _AppSidebarRowState extends State<AppSidebarRow> {
                       borderRadius: BorderRadius.circular(
                         DesignTokens.sidebarPillRadius,
                       ),
-                      border: widget.selected
+                      border: showSelected
                           ? Border.all(
                               color: DesignTokens.blue.withValues(
                                 alpha: dark ? .28 : .18,

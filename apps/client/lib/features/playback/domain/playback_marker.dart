@@ -2,6 +2,16 @@ import 'dart:math';
 
 import '../../../domain/media_source.dart';
 
+enum VideoMarkerSkipBehavior {
+  off('关闭', '不显示片头/片尾跳过入口，章节和手动标记仍会保留。'),
+  prompt('显示按钮', '进入完整片头或片尾范围时显示跳过按钮，由你手动确认。'),
+  automatic('自动跳过', '进入已确认的片头或片尾范围后直接跳到结束位置。');
+
+  const VideoMarkerSkipBehavior(this.title, this.description);
+  final String title;
+  final String description;
+}
+
 enum PlaybackMarkerKind {
   chapter('章节'),
   intro('片头'),

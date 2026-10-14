@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../application/playback_session.dart';
+import '../domain/playback_marker.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_queue.dart';
 import 'player_visuals.dart';
@@ -23,9 +24,10 @@ class PlayerBasicSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: session,
+    animation: Listenable.merge([session, session.precision]),
     builder: (context, _) {
       final value = session.options;
+      final precision = session.precision.value;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         spacing: 8,
@@ -67,6 +69,17 @@ class PlayerBasicSettings extends StatelessWidget {
               value.rewindSeconds,
               (v) => v == 0 ? '关闭' : '${v.toInt()}秒',
               (v) => change((o) => o.copyWith(rewindSeconds: v)),
+            ),
+          ),
+          row(
+            '片头片尾',
+            Icons.skip_next_rounded,
+            choices<VideoMarkerSkipBehavior>(
+              VideoMarkerSkipBehavior.values,
+              precision.skipBehavior,
+              (behavior) => behavior.title,
+              (behavior) => unawaited(session.setMarkerSkipBehavior(behavior)),
+              keyFor: (behavior) => ValueKey('marker-skip-${behavior.name}'),
             ),
           ),
           row(

@@ -11,7 +11,7 @@
 | `SourcesView.swift`：来源添加、扫描与移除 | `features/sources/presentation/` | 新的媒体源入口、目录选择、进度、重新定位与索引浏览；原版完整样式尚未还原 |
 | `Sources/MediaLib/Views/DesignSystemTokens.swift`：AppSpacing、AppRadius、AppTypeScale、AppControlMetrics、AppMotion | `ui/theme/design_tokens.dart` | 页边距、控件/卡片/面板圆角、字号、控件高度与动画层级；SwiftUI spring 以保持层级关系的 Flutter duration 适配 |
 | `Sources/MediaLib/Views/AppColors.swift`：普通页面语义色 | `ui/theme/app_palette.dart`、`ui/theme/app_theme.dart`、`ui/theme/design_tokens.dart` | 普通页面浅/深色语义角色、表面、边框、文字、悬停、搜索及强调渐变；音乐模块未来使用其独立主题，不在此混用 |
-| `Sources/MediaLib/Views/ContentView.swift`：SidebarMetrics、SidebarBrandHeader、SidebarSelectionPill、SidebarRowButtonStyle | `shell/desktop_shell.dart`、`shell/sidebar_components.dart` | 默认宽 252，可拖拽限制在 236–272；品牌字号 16/11、图标 38、间距 11、选中/悬停/按压/键盘焦点状态 |
+| `Sources/MediaLib/Views/ContentView.swift`：SidebarMetrics、SidebarBrandHeader、SidebarSelectionPill、SidebarRowButtonStyle | `shell/desktop_shell.dart`、`shell/sidebar_components.dart` | 默认宽 252，可拖拽限制在 236–272；品牌字号 16/11、Logo 38、间距 11、选中/悬停/按压/键盘焦点状态；Logo 使用用户 2026-10-13 指定的 ReelNest 品牌资源 |
 | `Sources/MediaLib/Views/ContentView.swift`：导航和 Emby 来源分组 | `app/router.dart`、`shell/app_shell.dart`、`features/sources/presentation/emby_sidebar.dart` | 桌面媒体库/管理分区、Emby 来源折叠、数量与子库选中状态；音乐按既定后续大模块推进，照片入口按 2026-10-12 范围决定移除 |
 | 原版无对应移动应用外壳 | `shell/mobile_shell.dart` | 新增窄屏适配，后续随页面迁移调整 |
 | `Sources/MediaLib/Views/SourcesView.swift`：remoteConfiguration、credentialNote、primaryActionTitle | `features/servers/presentation/servers_page.dart` | 沿用服务器地址、用户名、密码顺序，字段间距 12，“登录并同步”动作；本轮把连接步骤放在独立页面，未迁移来源类型选择及参与策略向导 |
@@ -20,11 +20,14 @@
 | `Sources/MediaLibServer/ServerAuthenticationHTTPHandler.swift`、`HTTPRequestSecurityPolicy.swift` | `features/servers/data/server_repository.dart` | 对照登录/刷新错误与 token 交付方式；原生退出缺少协议支持，因此只清除本机凭据 |
 | `Sources/MediaLib/Views/PosterGridView.swift`：PosterGridList、PosterCardView；`AppSettings.swift`：posterMinWidth | `features/library/presentation/browse_page.dart`、`media_card.dart` | 最小列宽 150、列间距 20、行间距 30；海报 2:3、音乐 1:1、圆角 18、标题 14 加粗、底部渐变、悬停放大 1.018；增加键盘焦点边框，尊重减少动画设置 |
 | `Sources/MediaLib/Views/DetailView.swift`：hero、seasonGroups、episodeHeader | `features/library/presentation/media_detail_page.dart` | 海报宽 210/横图 320、圆角 12、内容间距 24、标题 34/600、元数据标签、简介、季集区域；移动端改为纵向排布 |
+| `Sources/MediaLib/Views/PosterGridView.swift`：2:3 海报卡、渐变标题、播放进度、评分、悬停徽章/缩放/阴影 | `features/sources/presentation/local_media_artwork.dart` | 2026-10-13 Emby/来源视频海报卡增量；保留选择模式和图片子树缓存，数据/操作行为不变 |
+| `Sources/MediaLib/Views/LibraryView.swift`：媒体库工具栏、筛选和加载/错误/空状态 | `features/sources/presentation/emby_video_library_page.dart` | 2026-10-13 Emby 视频库响应式表面与状态面板分组；业务文案、操作和数据规则不变 |
+| `Sources/MediaLib/Views/DetailView.swift`：详情头图/海报、标题操作区、元数据、简介/类型和剧集行 | `features/sources/presentation/local_media_detail_page.dart` | 2026-10-13 本地与 Emby 共用详情页布局、装饰与信息层级增量；播放、Emby 与缓存操作保持 |
 | `PlayerView.swift`：`PlayerMarkerButton`、`PlayerMarkerPopover`、`VideoProgressScrubber`、精确播放右键菜单与默认快捷键 | `features/playback/presentation/video_player_page.dart`、`player_precision_controls.dart`、`player_track_popovers.dart`、`player_visuals.dart` | 章节/书签弹层与时间轴刻度、单片循环、A–B 指示与提示、前后逐帧、右键入口、B/Shift+B/逗号/句号/Home；完整右键菜单其余项目和像素级视觉验收仍待迁移 |
 | `ServerLibraryHTTPHandler.swift`、`ServerDiscoveryHTTPHandler.swift`、`ServerProtocolModels.swift`、`ServerLibraryCatalog.swift` | `domain/media.dart`、`api/mlink/media_codec.dart`、`features/library/application/library_providers.dart` | 条目、详情、单集上下文及按季分页；独立服务端分支新增系列摘要 JSON，客户端按 series-detail 能力选择，见 SERIES_API.zh-CN.md |
 | `ServerArtworkHTTPHandler.swift`、`ServerArtworkThumbnailer.swift` | `features/library/data/artwork_repository.dart`、`presentation/authenticated_artwork.dart` | 同源 poster?size=320、Bearer 头、图片字节缓存、占位/重试；不使用原版的本地海报文件路径 |
 
-首页与分类页已接入浏览导航。海报墙、列表和详情已按上述源码编写，Windows 构建及部分导航/布局冒烟通过，但尚未完成原版视觉对照。原版的 3D 悬停、批量选择、完整玻璃材质、右键操作尚未迁移；列表接口不含社区评分，因此卡片不显示伪造评分。详情仅在响应包含 communityRating 时显示 10 分制评分，不能用 5 分制 userPreference.rating 代替。设置页仍只有会话内主题选择，平台启动图标保留模板。
+首页与分类页已接入浏览导航。公共 `features/library/presentation/browse_page.dart` 海报墙、列表和详情按上表迁移：该浏览列表接口不含社区评分，因此不显示伪造评分；详情仅在响应包含 communityRating 时显示 10 分制评分，不能用 5 分制 userPreference.rating 代替。Emby 来源专用视频库及本地/Emby 共用详情另由本表 2026-10-13 新增映射覆盖，Emby 海报卡评分读取既有 `remote.rating`。各页面 Windows 构建及部分导航/布局冒烟通过，但整体仍未完成原版视觉对照。原版的完整 3D 悬停、玻璃材质与交互验收尚未完成。设置页仍只有会话内主题选择。用户 2026-10-13 指定的 ReelNest Logo 已接入侧栏品牌位、Windows ICO、macOS AppIcon 多尺寸资源及 Linux GTK 窗口/发行资源；移动端图标不在本批范围。
 
 后续每个页面先阅读对应 SwiftUI View、子组件、状态和事件处理，再迁移成 Dart；在本表记录来源及有意调整，最后使用截图和交互验证对照。玻璃材质、原生窗口效果不能仅靠颜色近似即宣称等价。
 

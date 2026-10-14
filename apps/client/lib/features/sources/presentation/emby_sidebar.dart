@@ -152,7 +152,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
         ));
       }
     }
-    final uri = GoRouter.of(context).routerDelegate.currentConfiguration.uri;
+    final uri = GoRouterState.of(context).uri;
     final sourceSelected =
         uri.pathSegments.length >= 2 &&
         uri.pathSegments[0] == 'sources' &&

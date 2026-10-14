@@ -126,6 +126,8 @@ class PlaybackSession extends ChangeNotifier {
   bool _closed = false;
   bool _hasClock = false;
   bool _completedSaved = false;
+  Object? _autoSkippedMarkerKey;
+  bool _markerSkipPending = false;
 
   Future<void> _serialize(Future<void> Function() operation) {
     final next = _operations.then((_) => operation());
@@ -177,6 +179,7 @@ class PlaybackSession extends ChangeNotifier {
       final record = await records.read(identity);
       final nextOptions = await preferences.options;
       final loopCurrentItem = await preferences.loopCurrentItem;
+      final markerSkipBehavior = await preferences.markerSkipBehavior;
       final resume =
           at ??
           record.resume(
@@ -364,6 +367,8 @@ class PlaybackSession extends ChangeNotifier {
             start: previousLoop.start,
             end: previousLoop.end,
           ),
+          skipBehavior: markerSkipBehavior,
+          position: current.clock.position + streamOffset,
         );
       } catch (_) {
         controlError = '章节或书签读取失败，可以刷新后重试。';
@@ -405,6 +410,7 @@ class PlaybackSession extends ChangeNotifier {
       if (candidate != null) await candidate.dispose();
       if (candidateLease != null) await cache?.release(candidateLease);
       loading = false;
+      _updateMarkerSkip();
       if (!_closed && engine != null && _hasClock && error == null) {
         _startCheckpoints();
       }
@@ -537,6 +543,7 @@ class PlaybackSession extends ChangeNotifier {
       notifyListeners();
     }
     if (!loading && value.duration > Duration.zero) _hasClock = true;
+    _updateMarkerSkip();
     if (_hasClock && !loading && error == null) {
       unawaited(
         _reportRemote(
@@ -738,8 +745,10 @@ class PlaybackSession extends ChangeNotifier {
     unawaited(_reportRemote(EmbyPlaybackPhase.progress, force: true));
   }
 
-  Future<void> refreshTimeline() =>
-      _controls(() => _precision.refresh(), failureMessage: '章节或书签读取失败，请重试。');
+  Future<void> refreshTimeline() => _controls(() async {
+    await _precision.refresh();
+    _updateMarkerSkip();
+  }, failureMessage: '章节或书签读取失败，请重试。');
   Future<void> addBookmark({Duration? at}) => _controls(
     () => _precision.addManual(PlaybackMarkerKind.bookmark, _markerTime(at)),
     failureMessage: '书签保存失败，请重试。',
@@ -748,10 +757,113 @@ class PlaybackSession extends ChangeNotifier {
     () => _precision.addManual(PlaybackMarkerKind.chapter, _markerTime(at)),
     failureMessage: '章节保存失败，请重试。',
   );
-  Future<void> deletePlaybackMarker(String id) => _controls(
-    () => _precision.deleteManual(id),
-    failureMessage: '播放标记删除失败，请重试。',
-  );
+  Future<void> deletePlaybackMarker(String id) => _controls(() async {
+    await _precision.deleteManual(id);
+    _updateMarkerSkip();
+  }, failureMessage: '播放标记删除失败，请重试。');
+  Future<void> setMarkerBoundary(
+    PlaybackMarkerKind kind, {
+    required bool isStart,
+    Duration? at,
+  }) {
+    final identity = item?.identity;
+    final time = at ?? clock.position;
+    return _controls(() async {
+      if (item?.identity != identity) return;
+      await _precision.setBoundary(
+        kind,
+        isStart: isStart,
+        at: _markerTime(time),
+      );
+      _updateMarkerSkip();
+    }, failureMessage: '片头或片尾标记保存失败，请重试。');
+  }
+
+  Future<void> setMarkerSkipBehavior(VideoMarkerSkipBehavior behavior) =>
+      _controls(() async {
+        await _precision.setSkipBehavior(behavior);
+        _autoSkippedMarkerKey = null;
+        _updateMarkerSkip();
+      }, failureMessage: '片头片尾跳过设置保存失败，请重试。');
+
+  Future<void> skipPlaybackMarker(String id) {
+    final identity = item?.identity;
+    return _controls(() async {
+      if (item?.identity != identity) return;
+      _precision.updatePosition(clock.position);
+      final marker = _precision.value.activeSkipMarker;
+      if (marker == null || marker.id != id) return;
+      await _seek(marker.end!);
+    }, failureMessage: '片头或片尾跳过失败，请重试。');
+  }
+
+  Object _skipMarkerKey(PlaybackMarker marker) =>
+      (marker.identity, marker.id, marker.start, marker.end);
+
+  void _updateMarkerSkip() {
+    final enabled =
+        !_closed &&
+        _closing == null &&
+        !loading &&
+        engine != null &&
+        error == null &&
+        !clock.completed &&
+        clock.duration > Duration.zero;
+    _precision.updatePosition(clock.position, enabled: enabled);
+    final marker = _precision.value.activeSkipMarker;
+    if (marker == null) {
+      _autoSkippedMarkerKey = null;
+      return;
+    }
+    final key = _skipMarkerKey(marker);
+    if (!enabled ||
+        _precision.value.skipBehavior != VideoMarkerSkipBehavior.automatic ||
+        _autoSkippedMarkerKey == key ||
+        _markerSkipPending) {
+      return;
+    }
+    // Latch before scheduling, not after seek: several clock events may arrive
+    // while another serialized operation (including Emby I/O) is still pending.
+    _autoSkippedMarkerKey = key;
+    _markerSkipPending = true;
+    final expectedEngine = engine;
+    final expectedIdentity = item?.identity;
+    unawaited(
+      _serialize(() async {
+        try {
+          if (_closed ||
+              _closing != null ||
+              loading ||
+              error != null ||
+              engine != expectedEngine ||
+              item?.identity != expectedIdentity ||
+              _precision.value.skipBehavior !=
+                  VideoMarkerSkipBehavior.automatic) {
+            return;
+          }
+          _precision.updatePosition(clock.position);
+          final active = _precision.value.activeSkipMarker;
+          if (active == null ||
+              _skipMarkerKey(active) != key ||
+              clock.completed) {
+            return;
+          }
+          await _seek(active.end!);
+        } catch (_) {
+          // Keep the decoder alive, and do not retry on every clock tick. Leaving
+          // the interval rearms the original per-entry automatic-skip policy.
+          if (!_closed) {
+            controlError = '片头或片尾自动跳过失败，可以手动重试。';
+            notifyListeners();
+          }
+        } finally {
+          _markerSkipPending = false;
+          if (!_closed) _updateMarkerSkip();
+        }
+      }),
+    );
+  }
+
   Duration _markerTime(Duration? at) => Duration(
     microseconds: (at ?? clock.position).inMicroseconds.clamp(
       0,
@@ -1093,6 +1205,7 @@ class PlaybackSession extends ChangeNotifier {
     await _chapterSubscription?.cancel();
     _chapterSubscription = null;
     _precision.detach();
+    _autoSkippedMarkerKey = null;
     if (_playSessionId != null) {
       await _reportRemote(EmbyPlaybackPhase.stopped, force: true);
       await _reports;

@@ -27,6 +27,16 @@ class PlayerPalette {
       .withValues(alpha: lightContent ? .18 : .16);
   Color get choiceFill => (lightContent ? Colors.white : Colors.black)
       .withValues(alpha: lightContent ? .12 : .07);
+  Color get choiceSelectedFill => (lightContent ? Colors.white : Colors.black)
+      .withValues(alpha: lightContent ? .82 : .72);
+  Color get choiceForeground => (lightContent ? Colors.white : Colors.black)
+      .withValues(alpha: lightContent ? .76 : .66);
+  Color get choiceSelectedForeground =>
+      (lightContent ? Colors.black : Colors.white).withValues(
+        alpha: lightContent ? .78 : .94,
+      );
+  Color get controlKnob =>
+      lightContent ? Colors.white : Colors.black.withValues(alpha: .82);
   Color get trackBase => (lightContent ? Colors.white : Colors.black)
       .withValues(alpha: lightContent ? .18 : .16);
   Color get trackProgress => (lightContent ? Colors.white : Colors.black)
@@ -34,6 +44,7 @@ class PlayerPalette {
   Color get divider => (lightContent ? Colors.white : Colors.black).withValues(
     alpha: lightContent ? .14 : .12,
   );
+  Color get shadow => Colors.black.withValues(alpha: lightContent ? .08 : .10);
   List<Color> get barFill => lightContent
       ? [
           Colors.white.withValues(alpha: .24),
@@ -101,6 +112,357 @@ class PlayerPalette {
       codec?.dispose();
     }
   }
+}
+
+/// Shared player panel material translated from PlayerView.swift.
+///
+/// Large and scrollable panels stay opaque so a continuously redrawn video
+/// surface is not sampled for blur on every frame. Small transient surfaces
+/// may opt into [liveMaterial].
+class PlayerPanelSurface extends StatelessWidget {
+  const PlayerPanelSurface({
+    required this.palette,
+    required this.child,
+    this.radius = 18,
+    this.liveMaterial = false,
+    this.shadowRadius = 9,
+    this.shadowOffset = const Offset(0, 4),
+    super.key,
+  });
+
+  final PlayerPalette palette;
+  final Widget child;
+  final double radius;
+  final bool liveMaterial;
+  final double shadowRadius;
+  final Offset shadowOffset;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(radius);
+    final background = DecoratedBox(
+      decoration: BoxDecoration(
+        color: liveMaterial ? Colors.transparent : palette.opaqueBase,
+        gradient: LinearGradient(
+          colors: palette.popoverFill,
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: borderRadius,
+      ),
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        boxShadow: [
+          BoxShadow(
+            color: palette.shadow,
+            blurRadius: shadowRadius,
+            offset: shadowOffset,
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: .07),
+            blurRadius: 1,
+            offset: const Offset(0, -.5),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: liveMaterial
+                  ? BackdropFilter(
+                      filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      child: background,
+                    )
+                  : background,
+            ),
+            child,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  foregroundPainter: _PlayerGradientBorderPainter(
+                    start: palette.border.first,
+                    end: palette.border.last,
+                    radius: radius,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A short entrance transition that leaves route dismissal immediate. Player
+/// popovers must disappear on the first Escape key event, matching the
+/// original window-level shortcut behavior.
+class PlayerPanelEntrance extends StatelessWidget {
+  const PlayerPanelEntrance({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final disableAnimations = MediaQuery.maybeOf(context)?.disableAnimations;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: disableAnimations == true
+          ? Duration.zero
+          : const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
+      child: child,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * 5),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// Circular/capsule player control with explicit hover, focus and selected
+/// states. The selected state is used while a related popover is open.
+class PlayerControlSurface extends StatefulWidget {
+  const PlayerControlSurface({
+    required this.palette,
+    required this.enabled,
+    required this.child,
+    this.selected = false,
+    this.chrome = false,
+    this.capsule = false,
+    this.danger = false,
+    super.key,
+  });
+
+  final PlayerPalette palette;
+  final bool enabled;
+  final bool selected;
+  final bool chrome;
+  final bool capsule;
+  final bool danger;
+  final Widget child;
+
+  @override
+  State<PlayerControlSurface> createState() => _PlayerControlSurfaceState();
+}
+
+class _PlayerControlSurfaceState extends State<PlayerControlSurface> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final highlighted = widget.enabled && (_hovered || _focused);
+    final base = widget.chrome
+        ? const [Color(0x8A202329), Color(0x66121519)]
+        : widget.selected
+        ? [widget.palette.selectedFill, widget.palette.choiceFill]
+        : widget.palette.barFill;
+    final overlay = widget.danger && highlighted
+        ? const Color(0xFFD84A4A).withValues(alpha: .34)
+        : (widget.chrome ? Colors.white : widget.palette.primary).withValues(
+            alpha: highlighted ? .09 : 0,
+          );
+    final colors = base
+        .map((color) => Color.alphaBlend(overlay, color))
+        .toList(growable: false);
+    final border = widget.danger && highlighted
+        ? const Color(0xFFFF8A8A).withValues(alpha: .54)
+        : widget.selected
+        ? widget.palette.primary.withValues(alpha: .42)
+        : widget.chrome
+        ? Colors.white.withValues(alpha: highlighted ? .30 : .19)
+        : highlighted
+        ? widget.palette.primary.withValues(alpha: .28)
+        : widget.palette.border.first;
+    final radius = BorderRadius.circular(widget.capsule ? 15 : 999);
+    final scale = widget.selected ? 1.035 : (highlighted ? 1.018 : 1.0);
+    return Focus(
+      onFocusChange: (focused) {
+        if (_focused != focused) setState(() => _focused = focused);
+      },
+      child: MouseRegion(
+        cursor: widget.enabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onEnter: widget.enabled ? (_) => setState(() => _hovered = true) : null,
+        onExit: widget.enabled ? (_) => setState(() => _hovered = false) : null,
+        child: AnimatedScale(
+          scale: scale,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          child: AnimatedOpacity(
+            opacity: widget.enabled ? 1 : .46,
+            duration: const Duration(milliseconds: 140),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: colors,
+                ),
+                borderRadius: radius,
+                border: Border.all(
+                  color: border,
+                  width: widget.selected || _focused ? 1.1 : .85,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.chrome
+                        ? Colors.black.withValues(alpha: .28)
+                        : widget.palette.shadow,
+                    blurRadius: widget.selected ? 5 : (highlighted ? 4 : 2),
+                    offset: Offset(0, widget.selected || highlighted ? 2 : 1),
+                  ),
+                ],
+              ),
+              child: ClipRRect(borderRadius: radius, child: widget.child),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Reusable row material for player popovers and context menus. It keeps the
+/// hover/focus transition on the static row background instead of relying on
+/// an ancestor Material hidden below the panel fill.
+class PlayerMenuRowSurface extends StatefulWidget {
+  const PlayerMenuRowSurface({
+    required this.palette,
+    required this.child,
+    this.onTap,
+    this.selected = false,
+    this.enabled = true,
+    this.radius = 9,
+    this.minHeight = 32,
+    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    this.fill,
+    this.stroke,
+    super.key,
+  });
+
+  final PlayerPalette palette;
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool selected;
+  final bool enabled;
+  final double radius;
+  final double minHeight;
+  final EdgeInsetsGeometry padding;
+  final Color? fill;
+  final Color? stroke;
+
+  @override
+  State<PlayerMenuRowSurface> createState() => _PlayerMenuRowSurfaceState();
+}
+
+class _PlayerMenuRowSurfaceState extends State<PlayerMenuRowSurface> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final interactive = widget.enabled && widget.onTap != null;
+    final highlighted = interactive && (_hovered || _focused);
+    final baseFill = widget.selected
+        ? widget.palette.selectedFill
+        : widget.fill ?? widget.palette.rowFill;
+    final fill = highlighted
+        ? Color.alphaBlend(
+            widget.palette.primary.withValues(alpha: .07),
+            baseFill,
+          )
+        : baseFill;
+    final stroke = widget.selected
+        ? widget.palette.selectedStroke
+        : highlighted
+        ? widget.palette.primary.withValues(alpha: .18)
+        : widget.stroke ?? widget.palette.rowStroke;
+    final borderRadius = BorderRadius.circular(widget.radius);
+    return Focus(
+      onFocusChange: (focused) {
+        if (_focused != focused) setState(() => _focused = focused);
+      },
+      child: MouseRegion(
+        cursor: interactive
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onEnter: interactive ? (_) => setState(() => _hovered = true) : null,
+        onExit: interactive ? (_) => setState(() => _hovered = false) : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          constraints: BoxConstraints(minHeight: widget.minHeight),
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: borderRadius,
+            border: Border.all(
+              color: stroke,
+              width: widget.selected || _focused ? .9 : .7,
+            ),
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: interactive ? widget.onTap : null,
+              borderRadius: borderRadius,
+              overlayColor: WidgetStatePropertyAll(
+                widget.palette.primary.withValues(alpha: .045),
+              ),
+              child: Padding(padding: widget.padding, child: widget.child),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerGradientBorderPainter extends CustomPainter {
+  const _PlayerGradientBorderPainter({
+    required this.start,
+    required this.end,
+    required this.radius,
+  });
+
+  final Color start;
+  final Color end;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const width = .9;
+    final rect = (Offset.zero & size).deflate(width / 2);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [start, end],
+      ).createShader(rect);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PlayerGradientBorderPainter oldDelegate) =>
+      oldDelegate.start != start ||
+      oldDelegate.end != end ||
+      oldDelegate.radius != radius;
 }
 
 /// Named for original SF Symbols. Cross-platform vector outlines are kept

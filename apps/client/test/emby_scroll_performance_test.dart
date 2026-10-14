@@ -279,6 +279,69 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('poster hover is cleared while its scroll view is moving', (
+    tester,
+  ) async {
+    final queue = ArtworkDecodeQueue();
+    final pipeline = _Pipeline(queue);
+    final item = _entry('poster').item;
+    var suppressHover = false;
+    late StateSetter update;
+    addTearDown(pipeline.dispose);
+    addTearDown(queue.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [embyImagePipelineProvider.overrideWithValue(pipeline)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return Center(
+                  child: SizedBox(
+                    width: 150,
+                    height: 225,
+                    child: LocalMediaCard(
+                      source: _source,
+                      item: item,
+                      suppressHover: suppressHover,
+                      onOpen: () {},
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    final card = find.byType(LocalMediaCard);
+    final scale = find.descendant(
+      of: card,
+      matching: find.byType(AnimatedScale),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1.018);
+
+    update(() => suppressHover = true);
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1);
+
+    update(() => suppressHover = false);
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1);
+
+    await mouse.moveTo(Offset.zero);
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1.018);
+    await mouse.removePointer();
+  });
 }
 
 class _Pipeline extends ArtworkImagePipeline {

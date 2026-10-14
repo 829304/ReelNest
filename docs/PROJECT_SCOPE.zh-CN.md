@@ -8,6 +8,8 @@ ReelNest 是 MediaLib 的 Flutter 多平台重构版本。更换实现技术，�
 
 用户明确的品牌调整：客户端使用 **ReelNest**，原项目自有服务端能力的重构目标及对应来源入口使用 **ReelNest Server**。界面、当前规划与后续产品说明统一采用新名称；MediaLib / MediaLIB Server 仅保留在源码出处、历史记录及必要的协议兼容说明中。品牌替换是用户确认的调整，不违反功能与 UI 一致性要求。
 
+2026-10-13，用户指定 `apps/client/assets/branding/reelnest_logo.png` 为 ReelNest 客户端 Logo。当前桌面阶段将其用于应用内品牌位以及 Windows、macOS、Linux 应用图标；仅允许为不同图标尺寸进行等比裁切和缩放，不重新绘制或改变配色。iOS/Android 图标不属于当前阶段。
+
 ## 第一阶段平台
 
 仅 Windows、macOS、Linux 三个桌面端。iOS 和 Android 留待后续阶段，现有工程目录可保留，但移动端开发、移动布局设计和移动端发行不属于本阶段任务。Linux 的开发验证环境可使用 Ubuntu，不把发行版名称误当另一套产品。

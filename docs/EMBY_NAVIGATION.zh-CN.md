@@ -63,3 +63,21 @@
 新增 4 项回归覆盖四类系列首次加载、按库筛选、电影同时显示、完成/清除后移出、播放通知重新进入，以及无时长百分比持久化、真实位置优先和首页清除保护。全量 **460 项 Dart 测试通过**，静态分析无问题，7 个相关 Dart 文件格式及差异空白检查通过。
 
 Windows Release 以 `lib/main.dart` 重新构建成功（38.0 秒）；09:32:13 +08:00 启动检查观察 5 秒，窗口响应正常、正常关窗、退出码 0，stderr 仅有 Impeller 后端提示。未操作真实 Emby 的播放/筛选界面，正式 EXE 已更新供用户验收；本批没有提交或推送。
+
+## 2026-10-13：媒体库 P0 前端表面调整
+
+参考原版 `E:/workspace/829304/MediaLib/Sources/MediaLib/Views/LibraryView.swift`。`features/sources/presentation/emby_video_library_page.dart` 将搜索、扫描、选择与管理入口重新分组到响应式表面容器，并为筛选区增加清晰的容器层级；加载、错误和空结果状态统一为状态面板。仅调整可见 UI 组织与样式，业务文案和现有操作行为不变；不涉及音乐、照片、移动端、后端协议或数据规则。
+
+本轮三文件 `fvm flutter analyze --no-pub` 无问题；6 个定向测试文件（浏览、详情、媒体库操作、导航、滚动性能、来源页生命周期）共 **98 项通过**，包含 Windows/macOS/Linux 与亮/暗主题导航用例。`git diff --check` 通过，仅有行尾转换提示。未运行全量测试或 Release 构建；真实三桌面原生窗口截图与逐像素对照仍待验收。海报卡外观增量见[右键、多选与图片内存缓存](EMBY_LIBRARY_ACTIONS.zh-CN.md)，详情页增量见[服务器详情](EMBY_DETAILS.zh-CN.md)。
+
+## 2026-10-14：侧栏菜单悬浮/点击残影修复
+
+原问题是在 Emby 媒体库侧栏快速悬浮/点击后，多行旧背景可能残留为连续灰块；此前曾试图通过清空悬浮选中态避免双重残影，但引入了路由选中状态不及时更新、点击时 hover 消失及退出时动画过快等新问题。本节记录最终状态：选中项与另一行 hover 可同时各显示一层，这是原版行为；缺陷是旧背景残留成第三层或跨多行灰块。
+
+路由响应式状态已在 `apps/client/lib/shell/desktop_shell.dart` 与 `apps/client/lib/features/sources/presentation/emby_sidebar.dart` 通过 `GoRouterState.of(context).uri` 建立依赖。点击不会清除仍在行内的 hover；选中态和 hover 独立，匹配原 MediaLib `SidebarSelectionPill` / `SidebarSelectableRow` 行为。
+
+最终 hover 动效使用 `sidebarHoverEnterMotion = 140ms`、`sidebarHoverExitMotion = 110ms`，曲线为 `easeOutCubic`。`AppSidebarHoverRegion` 只协调相邻行的 hover 所有权，不接管、隐藏或修改路由选中态：从一行移向下一行时，旧行立即交棒，新行渐显；真正离开菜单区域后再自然淡出。这样保留选中胶囊与当前 hover 胶囊各自一层，同时避免旧背景叠成第三层。相关实现位于 `apps/client/lib/ui/theme/design_tokens.dart`、`apps/client/lib/shell/sidebar_components.dart` 和 `apps/client/lib/shell/desktop_shell.dart`。
+
+`app_test.dart` 覆盖 Flutter Widget 测试中的鼠标渐入/渐出事件、快速跨行、点击后仍保留行内 hover、拖出菜单、键盘焦点及不残留旧背景。与 `emby_navigation_test.dart`、`emby_sidebar_startup_test.dart` 三文件合计 **45 项通过**；包含 Windows/macOS/Linux 模拟平台及明暗主题用例。相关文件 `flutter analyze --no-pub` 无问题。这些是组件/平台变体回归，不是原生窗口中的实体鼠标验收。
+
+Windows Release 已重构建，5 秒启动冒烟确认窗口创建并持续响应、正常退出，ExitCode 0。此处的 macOS/Linux 仅是 Flutter 平台变体测试，不是原生运行验收；也未据此宣称真实 Emby 流程或原版逐像素视觉验收完成。正式 Windows 产物：`apps/client/build/windows/x64/runner/Release/reelnest.exe`。

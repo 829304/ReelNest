@@ -12,11 +12,15 @@ class PlaybackTimelineState {
     this.supported = false,
     this.markers = const [],
     this.loop = const PlaybackLoopState(),
+    this.skipBehavior = VideoMarkerSkipBehavior.prompt,
+    this.activeSkipMarker,
   });
   final MediaIdentity? identity;
   final bool supported;
   final List<PlaybackMarker> markers;
   final PlaybackLoopState loop;
+  final VideoMarkerSkipBehavior skipBehavior;
+  final PlaybackMarker? activeSkipMarker;
   List<PlaybackMarker> get chapters => markers
       .where(
         (m) => m.kind == PlaybackMarkerKind.chapter && m.isAcceptedForPlayback,
@@ -39,6 +43,7 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
   VideoTimelineEngine? _engine;
   Duration _offset = Duration.zero;
   Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
 
   Future<void> attach(
     MediaIdentity identity,
@@ -46,14 +51,18 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
     required Duration offset,
     required Duration duration,
     required PlaybackLoopState loop,
+    VideoMarkerSkipBehavior skipBehavior = VideoMarkerSkipBehavior.prompt,
+    Duration position = Duration.zero,
   }) async {
     _engine = engine;
     _offset = offset;
     _duration = duration;
+    _position = position;
     value = PlaybackTimelineState(
       identity: identity,
       supported: engine != null,
       loop: loop,
+      skipBehavior: skipBehavior,
     );
     await refresh();
   }
@@ -107,6 +116,8 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
       supported: _engine != null,
       markers: List.unmodifiable(markers),
       loop: value.loop,
+      skipBehavior: value.skipBehavior,
+      activeSkipMarker: _activeMarker(markers, value.skipBehavior),
     );
     if (chapterReadFailed) throw StateError('Chapter refresh failed');
   }
@@ -141,6 +152,67 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
     if (identity == null) return;
     await repository.deleteManual(identity, id);
     await refresh();
+  }
+
+  Future<void> setBoundary(
+    PlaybackMarkerKind kind, {
+    required bool isStart,
+    required Duration at,
+  }) async {
+    final identity = value.identity;
+    if (identity == null) return;
+    await repository.setManualBoundary(
+      identity,
+      kind,
+      isStart: isStart,
+      at: at,
+    );
+    await refresh();
+  }
+
+  Future<void> setSkipBehavior(VideoMarkerSkipBehavior behavior) async {
+    await preferences.rememberMarkerSkipBehavior(behavior);
+    value = PlaybackTimelineState(
+      identity: value.identity,
+      supported: value.supported,
+      markers: value.markers,
+      loop: value.loop,
+      skipBehavior: behavior,
+      activeSkipMarker: _activeMarker(value.markers, behavior),
+    );
+  }
+
+  PlaybackMarker? _activeMarker(
+    List<PlaybackMarker> markers,
+    VideoMarkerSkipBehavior behavior,
+  ) => behavior == VideoMarkerSkipBehavior.off
+      ? null
+      : markers
+            .where(
+              (m) =>
+                  (m.kind == PlaybackMarkerKind.intro ||
+                      m.kind == PlaybackMarkerKind.credits) &&
+                  m.isAcceptedForPlayback &&
+                  m.contains(_position),
+            )
+            .firstOrNull;
+
+  /// A clock tick does no I/O and only notifies on range entry/exit, so marker
+  /// panels and the skip overlay do not rebuild at playback-clock frequency.
+  void updatePosition(Duration position, {bool enabled = true}) {
+    _position = position;
+    final active = enabled
+        ? _activeMarker(value.markers, value.skipBehavior)
+        : null;
+    if (active == value.activeSkipMarker) return;
+    value = PlaybackTimelineState(
+      identity: value.identity,
+      supported: value.supported,
+      markers: value.markers,
+      loop: value.loop,
+      skipBehavior: value.skipBehavior,
+      activeSkipMarker: active,
+    );
   }
 
   Future<void> setLoopCurrentItem(bool enabled) async {
@@ -188,6 +260,8 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
       supported: value.supported,
       markers: value.markers,
       loop: loop,
+      skipBehavior: value.skipBehavior,
+      activeSkipMarker: value.activeSkipMarker,
     );
   }
 }

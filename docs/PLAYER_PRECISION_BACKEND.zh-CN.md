@@ -80,23 +80,99 @@
 
 原生循环正常不会发出终止 EOF；会话也保护 EOF 收尾，防止循环时误切下一集或关闭窗口。循环不覆盖原有结束策略，关闭循环后继续使用所选策略。
 
+## 当前批次：片头/片尾手动标记与跳过（代码与 Windows 自动化验证完成）
+
+用户已正式授权实施手动片头/片尾范围和已确认范围的跳过行为。代码及会话接口已接入；定向回归、三项前端 UI 组件测试、全量分析/测试、格式检查、Windows Release 构建和启动冒烟均已通过。当前完成的是 Windows 自动化验证，真实 Emby、三桌面原生及视觉验收仍待进行。范围不含自动识别与候选审核。行为依据为参考基线 `64f8ee2` 的 `PlayerView.setMarkerBoundary`、`PlayerMarkerSkipLayer`、`VideoMarkerSkipBehavior` 和对应测试。
+
+- 在共用播放器标记面板提供“片头开始 / 片头结束 / 片尾开始 / 片尾结束”，使用当前影片的绝对时间；本地视频与 Emby 视频复用同一 `PlaybackSession` 接口、状态和 presentation，不为来源复制播放器页面。
+- 手动片头与片尾各维护一个范围，并按 `(sourceId, localId)` 隔离。设置开始点时，若开始时间大于或等于旧结束时间，清除结束点并让范围回到未闭合状态；设置结束点时，若当前开始点大于或等于结束时间，先将开始点设为 `max(0, 结束时间 - 90 秒)`，再保证结束时间至少为开始时间加 0.1 秒。播放区间采用开始点包含、结束点排除的边界语义。这些规则需落在业务层并加入回归，不能由前端自行推断。
+- `VideoMarkerSkipBehavior {off, prompt, automatic}` 提供“关闭 / 显示按钮 / 自动跳过”，默认 `prompt`（显示按钮）。`PlaybackTimelineState.skipBehavior` 与 `activeSkipMarker` 暴露当前策略和活动范围；`PlaybackSession` 提供 `setMarkerBoundary(kind, {required isStart, Duration? at})`、`setMarkerSkipBehavior(behavior)` 和 `skipPlaybackMarker(id)`。删除手动范围复用既有 `deletePlaybackMarker`。
+- 关闭只隐藏跳过入口，不删除章节或手动标记；显示按钮只在播放头进入完整且已确认的片头/片尾范围时出现；自动跳过只对完整且已确认范围跳到结束位置，并防止同一范围内重复触发。按钮跳过命令和自动跳过均只在当前来源、当前媒体和可控制状态仍匹配时执行。
+- 行为偏好保存到 `player_preferences` 的 `global.videoMarkerSkipBehavior`，不增加 schema。标记仍写入既有 `playback_markers`，手动标记为 accepted。标记保存失败、播放器正在切换或当前媒体不可控制时，不显示成功状态、不丢失仍可播放的会话；本地与 Emby 使用影片绝对时间，Emby 转码偏移只在引擎边界处理。
+- 自动片头/片尾识别、自动候选生成、候选采用/忽略、批量分析和任务中心接入属于后续子批次。本批不得仅因模型存在 `intro` / `credits` 或原版有候选字段就标为已实现。
+
+本批自动化完成条件包括业务规则与持久化回归、共用播放器组件回归、Windows 真实 mpv session 专项、Release 构建和启动检查，均已通过；组件测试不能替代实体键鼠、真实 Emby、macOS/Linux 原生或原版视觉验收。
+
+### 当前批次定向与 mpv session 证据（2026-10-13）
+
+- `player_marker_skip_test.dart` 新增 17 项通过，覆盖范围边界、默认 `prompt`、写入/删除失败、SQLite 重开、来源隔离、过期排队及 EOF/A–B 关系。
+- `player_precision_test.dart` 现有 13 项通过；`emby_quality_cache_test.dart` 34 项通过，其中新增 2 项验证 Emby 转码绝对位置和暂停状态保持。
+- 设置 `REELNEST_MPV_PATH` 后，`player_marker_skip_native_test.dart` 新增 1 项及 `player_precision_native_test.dart` 原有 1 项通过；两项测试在默认全量命令中均跳过，已分别启用复验通过。
+- marker skip native 用真实 mpv session 和解码时钟、open/seek/play/pause 桥接验证提示与自动跳过；轨道控制仍为 stub，未创建 Flutter 原生窗口。因此这项证据不能描述为真实窗口 UI 或 UI 验收。
+- 前端 `player_marker_skip_ui_test.dart` 3 项定向 UI 组件测试通过。测试夹具的计时器/数据库清理和 `AnimatedSwitcher` 等待已修复；前端未因此修改产品源码。
+- 最终整合：`flutter analyze --no-pub` 无问题；`dart format --output=none --set-exit-if-changed lib test` 检查 235 个文件，0 改动。Windows Release 构建成功，用时 36.5 秒；`apps/client/build/windows/x64/runner/Release/data/app.so` 更新时间为 2026-10-13 14:51:25。
+- `scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 2026-10-13 14:52:07 +08:00 通过：窗口有响应、正常关窗、退出码 0；仅有正常 Impeller 日志，无数据库关闭异常。
+- `fvm flutter test --no-pub --concurrency=1` 最终结果：**609 项通过、2 项默认跳过**，用时 02:05，退出码 0。两项需本机 libmpv 的 native 测试已分别启用并通过，因此本批总测试结果为 611 项通过（默认全量 609 项 + 单独启用 2 项）。首次整合运行因 UI 测试夹具清理失败而中止，不计为通过；修复夹具清理和 `AnimatedSwitcher` 等待后重跑通过。该修复仅改 UI 测试，没有修改产品 presentation。
+- 本批代码与 Windows 自动化验证完成；真实 Emby 完整流程、实体键鼠、macOS/Linux 原生及原版视觉对照仍需分别验收。三项 UI 测试是组件验证，不等于可见原生窗口或像素级验收。
+
+### 后续播放器外观调整（2026-10-13）
+
+片头/片尾批次后，前端继续调整 `video_player_page.dart` 与 `player_visuals.dart`：播放器背景及顶部/底部渐隐、玻璃质感加载/错误状态、控制条投影与高光、圆形玻璃按钮和主播放按钮、6px 时间轴，以及桌面 hover 状态。播放流程、弹窗和快捷键未改。
+
+- `flutter analyze` 无问题；`playback_test.dart`、`player_marker_skip_ui_test.dart`、`slider_overlay_scope_test.dart` 共 **26 项定向测试通过**。两文件格式检查 0 变化，`git diff --check` 通过。
+- Windows Release 构建成功，用时 37.0 秒（记录：`apps/client/marker-build.log`）。`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 2026-10-13 16:08:38.498 +08:00 通过响应、正常关窗，退出码 0（记录：`apps/client/build/smoke/release-startup.json`）。
+- **609 项通过、2 项默认跳过及另行启用的 2 项 native 测试，是本次纯外观调整前的全量测试基线。** 外观调整后未重跑全量测试；本次证据仅为上述 26 项定向测试、分析、格式、Release 构建和启动冒烟。
+- 这些改动和验证不代表原版像素级视觉验收完成，也不代表 macOS/Linux 原生验收完成；外观仍需按原版逐项对照。
+
+### 播放器窗口 chrome 与控制栏视觉优化（2026-10-14）
+
+播放器视觉优化的后续增量：`player_window_app.dart` 在桌面播放器窗口配置中隐藏标题栏；macOS 保留系统原生窗口按钮，Windows/Linux 使用应用内窗口控制。`video_player_page.dart` 增加可拖动顶部窗口区，Windows/Linux 提供最小化、最大化/还原和关闭按钮；底部玻璃控制栏改为斜向渐变边框，控制按钮 hover 缩放收敛到 1.018、阴影减轻。`player_visuals.dart` 按原 Swift `VideoControlPalette` 恢复阴影透明度：lightContent 0.08、darkContent 0.10。功能、播放内核、精确控制和操作流程未变。
+
+- `playback_test.dart` 增加窗口 chrome 存在性与 Windows/Linux 按钮回归；播放器相关测试共 **69 项通过**。
+- 全量 `flutter test` **616 项通过、2 项既有测试跳过**；静态检查通过。Windows Release 重构建成功，五秒客户端启动烟测通过。
+- 未进行 macOS/Linux 原生窗口人工目视或像素级验收；测试中的平台分支不能替代真实原生外观验收。
+
+### P0 播放器前端视觉收口（2026-10-14）
+
+本批仅整理播放器 presentation，不修改播放业务规则、播放内核、精确控制或操作流程。
+
+- `player_visuals.dart` 增加可复用的 `PlayerPanelSurface`、`PlayerPanelEntrance`、`PlayerControlSurface`、`PlayerMenuRowSurface`，并补齐原 `VideoControlPalette` 的 choice/control 颜色。
+- 控制栏按钮统一提供 hover、键盘焦点、禁用和弹层打开选中态；Windows/Linux 关闭按钮加入危险 hover 状态。字幕、音轨、画质、剧集、音量、设置、标记弹层及精确播放右键菜单统一采用静态不透明面板、渐变描边和阴影；大型弹层不使用实时模糊，避免影响视频帧率。
+- 弹层采用 140ms 入场淡入及 5px 位移；Esc 关闭仍即时生效。启用减少动态效果时不播放入场动画。顶部操作提示调整为原版风格的玻璃胶囊与状态图标。
+- 5 个 presentation 文件 `flutter analyze` 通过。`playback_test.dart`、`player_tracks_test.dart`、`emby_quality_panel_test.dart`、`player_marker_skip_ui_test.dart`、`player_basic_settings_test.dart`、`slider_overlay_scope_test.dart` 共 **62 项通过**。
+- Windows Release 构建成功；`scripts/windows-smoke.ps1 -ObservationSeconds 5` 通过，隐藏窗口有响应、正常关窗、退出码 0，stderr 仅 Impeller OpenGLESSDF 提示。
+- 本批**未运行全量测试**。此前 616 项通过/2 项既有跳过是上一批 chrome 优化的全量基线，不代表本批修改后全量源码重新验证。macOS/Linux 原生窗口人工目视、真实 Emby 视觉验收和原版逐像素对照仍未完成。
+
+### P0 播放器第二轮：窄窗口、自隐藏与音量 HUD（2026-10-14）
+
+本轮继续只调整共用播放器 presentation/交互反馈，不改变播放规则或内核：
+
+- 控制栏在窗口宽度 `<760` 时进入窄布局，左右操作区分别收为 176/112；画质按钮仅显示图标并保留 tooltip，正常宽度继续显示文字，功能入口没有删减。
+- 对齐原 MediaLib 的控制层/光标行为：播放中且控制层与弹层都隐藏时隐藏鼠标光标；鼠标移动恢复控制层。过滤极小指针抖动，控制层自动隐藏延迟 3200ms。
+- 方向键上下调音量与 `M` 静音显示独立音量 HUD（状态图标、进度和百分比），950ms 后退出。音量快捷键只显示 HUD，不强制唤醒完整控制栏。
+- `playback_test.dart` 增补/覆盖窄窗口布局、控制层自动隐藏、光标隐藏、静音 HUD 与 HUD 消失等回归。
+
+验证：`fvm flutter analyze --no-pub` 通过；6 个播放器相关测试文件共 **62 项通过**；`fvm flutter build windows --release --no-pub -t lib/main.dart` 成功；`scripts/windows-smoke.ps1 -ObservationSeconds 5` 通过，窗口响应、正常关闭、退出码 0。
+
+本批不是全量测试；之前的 616 项通过/2 项既有跳过是更早一批结果。macOS/Linux 原生实机、真实 Emby 播放及人工可视化验收尚未完成，Flutter 组件回归不能替代这些验收。
+
+### 提交前整合复验（2026-10-14）
+
+本次复验针对当前整合工作树，覆盖两轮播放器 P0 UI、侧栏/Emby 页面与交互、ReelNest Logo 资源及应用图标等合并改动；不是单一播放器批次的专项结果。
+
+- `fvm flutter test --no-pub --concurrency=1`：**616 项通过、2 项跳过**。两项为默认关闭的原生专项用例；各专项历史记录及其单独启用结果仍以对应批次为准。
+- `fvm flutter analyze --no-pub`：无问题。`dart format lib test` 检查 235 个文件、0 修改。
+- Windows Release 为当前代码构建：`app.so` 时间为 10:26:11，且代码与资源均没有晚于该产物的更新文件。
+- `scripts/windows-smoke.ps1 -ObservationSeconds 5`：2026-10-14 14:20:55.8976419 +08:00 检查，隐藏窗口响应、正常关闭，退出码 0。
+- 该整合复验不扩大平台声明：macOS/Linux 仍无真实原生构建与实机验收，真实 Emby 完整流程及原版 UI 逐项视觉验收仍待完成。自动候选生成/审核仍仅为规划，代码精简尚未开工。
+
 ## 验证与边界
 
 - 130 项相关 Dart 回归通过，覆盖播放、设置、字幕音轨、队列、Emby 播放与画质缓存，以及新增标记/循环规则。
 - 2026-10-13 前端接入后，播放器 presentation 静态分析无问题；`playback_test.dart`、`player_precision_test.dart`、`emby_quality_panel_test.dart` 共 38 项定向回归通过，其中组件测试覆盖标记弹层、进度条刻度、A–B 状态、右键菜单、单片循环、前后逐帧及快捷键。
 - Windows 使用已有 `libmpv-2.dll` 与本地生成的 Matroska，真实验证章节读取、前后逐帧、A–B 区间回跳与整片循环；未依赖用户 Emby 或媒体文件。
-- 原生测试：`test/player_precision_native_test.dart`，通过 `--dart-define=REELNEST_MPV_PATH=<libmpv绝对路径>` 启用；默认跳过，避免普通单元测试隐式依赖本机构建。
+- 原生测试：`test/player_precision_native_test.dart` 与 `test/player_marker_skip_native_test.dart`，通过 `--dart-define=REELNEST_MPV_PATH=<libmpv绝对路径>` 启用；默认各跳过 1 项，避免普通单元测试隐式依赖本机构建。
 - Windows 原生检查与 Flutter 组件测试是两条独立证据；当前仍不代表真实窗口渲染或原版像素级视觉验收完成。
 - 真实 Emby 转码服务器、macOS/Linux 原生、三桌面端实体键盘及鼠标右键交互仍需后续验收。
-- 本批不实现预览缩略图、片头片尾识别/跳过、在线字幕或其他高级设置；模型保留原版标记类型不等于对应执行功能已迁移。
-- 原版标记面板中的片头/片尾边界编辑、自动候选采用/忽略与跳过策略未包含在本批后端接口中，因此前端没有伪造入口；待对应执行链路迁移后再按原版接入。
+- 第一批不实现预览缩略图、片头片尾识别/跳过、在线字幕或其他高级设置；模型保留原版标记类型不等于对应执行功能已迁移。
+- 第一批接口未包含原版标记面板中的片头/片尾边界编辑、自动候选采用/忽略与跳过策略；当前批次已接入手动边界和跳过策略，自动候选审核仍未迁移。
 
-### 2026-10-13 提交前复查
+### 前一批整合复查基线（2026-10-13）
 
-环境为本机 Windows，范围为本次提交的高级播放后端、首批播放器入口、侧栏/主题与文档改动。
+以下记录属于当前片头/片尾批次之前的整合基线，不是当前工作树的提交验证；当前批次最终结果见上文。
 
 - 修复视频未成功打开时按 `B` 或执行 A–B 菜单动作仍可能读取空 A 点的问题，并加入打开失败后的快捷键组件回归；提示入口同时防止组件销毁后更新状态。
-- `flutter analyze --no-pub` 无问题；`dart format --output=none --set-exit-if-changed lib test` 检查 232 个文件，无格式改动；`git diff --check` 通过。
+- 当时 `flutter analyze --no-pub` 无问题；格式检查检查 232 个文件，无格式改动；`git diff --check` 通过。
 - `flutter test --no-pub --concurrency=1`：587 项通过，1 项真实 mpv 测试按默认条件跳过。
 - `flutter test --no-pub --concurrency=1 --dart-define=REELNEST_MPV_PATH=<Release/libmpv-2.dll 的绝对路径> test/player_precision_native_test.dart`：单独启用的 1 项通过，使用生成媒体验证章节读取、前后逐帧、A–B 与整片循环。
 - `flutter build windows --release --no-pub --target lib/main.dart` 成功，产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。

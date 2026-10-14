@@ -2,10 +2,10 @@
 
 - 状态：Active
 - 负责人：项目文档维护者
-- 最后更新：2026-10-13
+- 最后更新：2026-10-14
 - 适用范围：Windows、macOS、Linux 第一阶段
 - 权威范围：平台实现与验证证据汇总
-- 代码范围：ReelNest `84454d9` 之后的首页运行状态、编排、照片范围调整、视频健康评分及高级播放首批接入
+- 代码范围：ReelNest `84454d9` 之后至当前未提交工作树的首页运行状态、编排、照片范围调整、视频健康评分、高级播放及侧栏 hover 修复；当前工作树未提交，故不记新提交 hash
 
 ## 使用方式
 
@@ -23,18 +23,20 @@
 
 ## 当前总览
 
-2026-10-13 提交前复查：全量 **587 项 Dart 测试通过（V2）**，默认跳过的 1 项真实 libmpv 测试单独启用后通过；Windows Release 构建与五秒响应、正常关窗检查通过（V3–V4），见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#2026-10-13-提交前复查)。此前评分批次及其退出超时复测边界见[健康评分记录](HEALTH_SCORE.zh-CN.md)。这些结果不覆盖真实 Emby 完整操作、滚动帧率、macOS/Linux 原生构建运行或完整原版视觉验收。
+提交前整合复验已覆盖两轮播放器 P0 UI、侧栏/Emby 与 Logo 改动：全量 `fvm flutter test --no-pub --concurrency=1` **616 项通过、2 项默认关闭的原生用例跳过**；分析无问题，235 个 Dart 文件格式检查 0 修改；当前 Windows Release 构建后五秒烟测通过。各独立批次记录的“当时未跑全量”仍描述其历史验证范围。本结果不代表 macOS/Linux 原生构建或实机验收；真实 Emby 完整操作、滚动帧率及原版 UI 逐项视觉验收仍待完成。播放器复验详见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)，侧栏 hover 定向回归见[Emby 导航验收记录](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复)。
 
 | 能力 | Windows | macOS | Linux | 主要证据与缺口 |
 |---|---|---|---|---|
-| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | Windows 最新构建/启动见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#2026-10-13-提交前复查)；macOS/Linux 只有 CI 配置，没有当前原生运行记录 |
-| 桌面外壳、导航与主题 | ◐ V2/V4 | 🧪 V2 | 🧪 V2 | 三平台目标组件变体已覆盖部分布局；原生窗口、键盘、焦点和视觉对照未完成 |
+| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | 当前 Windows Release 纳入提交前整合复验并通过五秒启动烟测；macOS/Linux 只有 CI 配置，没有当前原生构建/运行记录 |
+| 桌面外壳、导航与主题 | ◐ V2/V4 | 🧪 V2 | 🧪 V2 | 最新侧栏 hover 修复有 45 项导航/鼠标/键盘及平台变体回归和 Windows 启动冒烟；macOS/Linux 变体不是原生运行，完整原版视觉对照未完成，见[Emby 导航验收](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复) |
 | 本地目录来源与扫描 | ◐ V2 | ◐ V0–V2 | ◐ V0–V2 | 文件规则、SQLite、取消/失败保护有自动化；真实移动盘/NAS和三端完整目录流程未统一验收 |
 | macOS 持久目录授权 | 不适用 | ⬜ | 不适用 | 明确未实现，不能据此排除 macOS |
 | Linux 挂载身份 | 不适用 | 不适用 | 🧪 V2 | UUID 和未知身份保护有测试；尚无 Linux 原生挂载/断开闭环 |
 | 本地视频播放与续播 | ✅ V5 | ◐ V0 | ◐ V0 | Windows 使用生成媒体验证真实 mpv、窗口、进度和队列；macOS/Linux 只有源码接线，见[本地播放](LOCAL_PLAYBACK.zh-CN.md) |
 | 字幕、音轨与基础播放设置 | ✅ V5 | 🧪 V2 | 🧪 V2 | Windows 原生轨道、字幕、倍速/变调和防休眠接口有历史验证；其他平台待原生验证 |
 | 章节、书签、循环与逐帧 | ◐ V2/V5 | ◐ V0 | ◐ V0 | Windows 组件回归及真实 libmpv 章节、循环、逐帧通过，见[高级播放记录](PLAYER_PRECISION_BACKEND.zh-CN.md)；实体键鼠、真实转码和其他平台原生待验收 |
+| 手动片头/片尾标记与跳过 | ◐ V2/V5 | ⬜ | ⬜ | Windows 组件回归、真实 mpv session 专项、全量测试、Release 和启动检查通过；未验证可见原生播放器窗口、真实 Emby、实体键鼠或 macOS/Linux，见[当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次片头片尾手动标记与跳过代码与-windows-自动化验证完成) |
+| 播放器窗口 chrome 与控制栏 | ◐ V2/V4 | ◐ V0 | ◐ V0 | 两轮 P0 UI 已纳入提交前整合全量复验（616 通过、2 项默认原生用例跳过）；Windows Release/烟测通过。macOS/Linux 未做原生实机/目视，真实 Emby 与完整原版视觉对照待完成，见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md) |
 | 播放器关窗后主窗口交互 | ✅ V5 ⚠ | ⬜ | ⬜ | Windows Profile 原生、连续关窗和压力回归通过；当次 Release 退出仍记录数据库重复关闭异常，见[关窗审计](FRONTEND_CLOSE_AUDIT_2026-10-11.zh-CN.md) |
 | Emby 登录、选库与会话 | ◐ V2 | 🧪 V2 | 🧪 V2 | 协议和安全存储替身测试已覆盖；真实保存凭据与三端安全存储生命周期仍需验收 |
 | Emby 同步、浏览与详情 | ◐ V2/V5 | 🧪 V2 | 🧪 V2 | Windows 原生套件使用模拟 Emby；真实服务器验证曾因凭据预检阻断，最新搜索批次也未做真实 Emby |

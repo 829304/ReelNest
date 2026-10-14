@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:reelnest/shell/sidebar_components.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/api/emby/emby_client.dart';
@@ -832,6 +834,82 @@ void main() {
           expect(find.text('北京故事'), findsWidgets);
           expect(find.text('共 2 项'), findsOneWidget);
           expect(find.text('音乐'), findsNothing);
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.addPointer(location: const Offset(1000, 690));
+          addTearDown(mouse.removePointer);
+          Finder libraryRow(String id) =>
+              find.byKey(ValueKey('emby-sidebar-${source.id}-videos-$id'));
+          void expectSelected(String id) {
+            final selectedRows = tester
+                .widgetList<AppSidebarRow>(find.byType(AppSidebarRow))
+                .where((row) => row.selected)
+                .toList();
+            expect(selectedRows, hasLength(1));
+            expect(
+              selectedRows.single.key,
+              ValueKey('emby-sidebar-${source.id}-videos-$id'),
+            );
+            final selectedRow = find.byKey(selectedRows.single.key!);
+            final pill =
+                tester
+                        .widget<Container>(
+                          find
+                              .descendant(
+                                of: selectedRow,
+                                matching: find.byType(Container),
+                              )
+                              .first,
+                        )
+                        .decoration!
+                    as BoxDecoration;
+            expect(pill.gradient, isNotNull);
+            final title = tester.widget<AppSidebarRow>(selectedRow).label;
+            expect(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is Text &&
+                    widget.data == title &&
+                    widget.style?.fontSize == 30,
+              ),
+              findsOneWidget,
+            );
+            expect(
+              router
+                  .routerDelegate
+                  .currentConfiguration
+                  .uri
+                  .queryParameters['library'],
+              id == 'all' ? null : id,
+            );
+          }
+
+          expectSelected('movies');
+          // Only query parameters change, without source/provider invalidation.
+          for (final id in ['shows', 'all', 'movies', 'shows', 'movies']) {
+            final position = tester.getCenter(libraryRow(id));
+            await mouse.moveTo(position);
+            await tester.pump();
+            await mouse.down(position);
+            await mouse.up();
+            await tester.pumpAndSettle();
+            expectSelected(id);
+            expect(
+              find.text(id == 'shows' ? '共 0 项' : '共 2 项'),
+              findsOneWidget,
+            );
+          }
+          // Selection also tracks navigation that did not originate in a row.
+          router.go(embyVideoLocation(dest(view: 'shows')));
+          await tester.pumpAndSettle();
+          expectSelected('shows');
+          router.go(embyVideoLocation(dest(view: 'movies')));
+          await tester.pumpAndSettle();
+          expectSelected('movies');
+          await mouse.moveTo(const Offset(1000, 690));
+          await tester.pumpAndSettle();
+
           await tester.enterText(find.byType(TextField), 'bjgs');
           await tester.pump(const Duration(milliseconds: 200));
           await tester.pumpAndSettle();

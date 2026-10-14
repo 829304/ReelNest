@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +98,117 @@ void main() {
       expect(find.byType(DesktopShell), findsNothing);
     },
   );
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'sidebar real mouse hover/click/exit has no stale fills $brightness',
+      (tester) async {
+        var taps = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(brightness: brightness),
+            home: Scaffold(
+              body: SizedBox(
+                width: DesignTokens.sidebarIdealWidth,
+                child: AppSidebarHoverRegion(
+                  child: Column(
+                    children: [
+                      for (var index = 0; index < 3; index++)
+                        AppSidebarRow(
+                          key: ValueKey('row-$index'),
+                          label: ['国产剧', '外语电影', '动画电影'][index],
+                          leading: const Icon(Icons.video_library_outlined),
+                          selected: index == 0,
+                          onTap: () => taps++,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        BoxDecoration background(int index) =>
+            tester
+                    .widget<Container>(
+                      find
+                          .descendant(
+                            of: find.byKey(ValueKey('row-$index')),
+                            matching: find.byType(Container),
+                          )
+                          .first,
+                    )
+                    .decoration!
+                as BoxDecoration;
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(700, 550));
+        addTearDown(mouse.removePointer);
+        final first = tester.getCenter(find.byKey(const ValueKey('row-1')));
+        final second = tester.getCenter(find.byKey(const ValueKey('row-2')));
+        await mouse.moveTo(first);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+        final enteringAlpha = background(1).color!.a;
+        expect(enteringAlpha, greaterThan(0));
+        await tester.pumpAndSettle();
+        final settledAlpha = background(1).color!.a;
+        expect(enteringAlpha, lessThan(settledAlpha));
+        // Selection remains visible while another row is hovered (SwiftUI).
+        expect(background(0).gradient, isNotNull);
+        expect(background(1).color, isNot(Colors.transparent));
+        expect(background(2).color, Colors.transparent);
+        await mouse.down(first);
+        await tester.pump();
+        await mouse.up();
+        await tester.pumpAndSettle();
+        expect(taps, 1);
+        // Click does not manufacture a pointer exit; hover must survive.
+        expect(background(1).color, isNot(Colors.transparent));
+        await mouse.moveTo(const Offset(700, 550));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+        final exitingAlpha = background(1).color!.a;
+        expect(exitingAlpha, greaterThan(0));
+        expect(exitingAlpha, lessThan(settledAlpha));
+        await tester.pumpAndSettle();
+        expect(background(1).color, Colors.transparent);
+        await mouse.moveTo(first);
+        await tester.pumpAndSettle();
+        for (var n = 0; n < 6; n++) {
+          await mouse.moveTo(n.isEven ? second : first);
+          await tester.pump(const Duration(milliseconds: 16));
+          // Check the painted decoration during rapid movement, not only
+          // the final state after every animation has settled.
+          expect(background(n.isEven ? 1 : 2).color, Colors.transparent);
+          expect(background(0).gradient, isNotNull);
+        }
+        await mouse.moveTo(second);
+        await tester.pumpAndSettle();
+        expect(background(1).color, Colors.transparent);
+        expect(background(2).color, isNot(Colors.transparent));
+        // Drag out while pressed, then release: no pressed/hover trail.
+        await mouse.down(second);
+        await tester.pump();
+        await mouse.moveTo(const Offset(700, 550));
+        await mouse.up();
+        await tester.pumpAndSettle();
+        expect(background(0).gradient, isNotNull);
+        expect(background(1).color, Colors.transparent);
+        expect(background(2).color, Colors.transparent);
+        // Keyboard focus can outline a row, but never fill another gray pill.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        expect(background(1).color, Colors.transparent);
+        expect(background(2).color, Colors.transparent);
+        expect(tester.takeException(), isNull);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+        TargetPlatform.linux,
+      }),
+    );
+  }
 
   testWidgets('mobile appearance changes survive navigation', (tester) async {
     await start(tester, const Size(390, 844));

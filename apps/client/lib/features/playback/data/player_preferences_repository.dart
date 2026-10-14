@@ -6,6 +6,7 @@ import '../../../domain/media_source.dart';
 import '../../../storage/library_database.dart';
 import '../domain/video_queue.dart';
 import '../domain/playback_options.dart';
+import '../domain/playback_marker.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -70,6 +71,17 @@ class PlayerPreferencesRepository {
       await _read('global.videoLoopCurrentItem') == 'true';
   Future<void> rememberLoopCurrentItem(bool enabled) =>
       _write('global.videoLoopCurrentItem', '$enabled');
+
+  Future<VideoMarkerSkipBehavior> get markerSkipBehavior async {
+    final value = await _read('global.videoMarkerSkipBehavior');
+    return VideoMarkerSkipBehavior.values
+            .where((behavior) => behavior.name == value)
+            .firstOrNull ??
+        VideoMarkerSkipBehavior.prompt;
+  }
+
+  Future<void> rememberMarkerSkipBehavior(VideoMarkerSkipBehavior behavior) =>
+      _write('global.videoMarkerSkipBehavior', behavior.name);
 
   Future<PlaybackOptions> get options async {
     final raw = await _read('global.playbackOptions');

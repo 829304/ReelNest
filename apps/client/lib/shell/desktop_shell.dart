@@ -38,7 +38,7 @@ class _DesktopShellState extends State<DesktopShell> {
   @override
   Widget build(BuildContext context) {
     final palette = context.appPalette;
-    final uri = GoRouter.of(context).routerDelegate.currentConfiguration.uri;
+    final uri = GoRouterState.of(context).uri;
     return Scaffold(
       backgroundColor: palette.page,
       body: SafeArea(
@@ -57,35 +57,39 @@ class _DesktopShellState extends State<DesktopShell> {
                 ),
                 child: Material(
                   color: Colors.transparent,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
-                    children: [
-                      const _BrandHeader(),
-                      const AppSidebarSectionHeader('媒体库'),
-                      AppSidebarRow(
-                        key: const ValueKey('nav-首页'),
-                        label: appDestinations[0].label,
-                        leading: Icon(appDestinations[0].icon),
-                        selected: widget.selectedIndex == 0,
-                        onTap: () => widget.onSelected(0),
-                      ),
-                      const EmbySidebar(),
-                      const AppSidebarSectionHeader('管理'),
-                      for (
-                        var index = 1;
-                        index < appDestinations.length;
-                        index++
-                      )
+                  child: AppSidebarHoverRegion(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+                      children: [
+                        const _BrandHeader(),
+                        const AppSidebarSectionHeader('媒体库'),
                         AppSidebarRow(
-                          key: ValueKey('nav-${appDestinations[index].label}'),
-                          label: appDestinations[index].label,
-                          leading: _destinationIcon(index),
-                          selected:
-                              widget.selectedIndex == index &&
-                              (index != 1 || uri.path == '/sources'),
-                          onTap: () => widget.onSelected(index),
+                          key: const ValueKey('nav-首页'),
+                          label: appDestinations[0].label,
+                          leading: Icon(appDestinations[0].icon),
+                          selected: widget.selectedIndex == 0,
+                          onTap: () => widget.onSelected(0),
                         ),
-                    ],
+                        const EmbySidebar(),
+                        const AppSidebarSectionHeader('管理'),
+                        for (
+                          var index = 1;
+                          index < appDestinations.length;
+                          index++
+                        )
+                          AppSidebarRow(
+                            key: ValueKey(
+                              'nav-${appDestinations[index].label}',
+                            ),
+                            label: appDestinations[index].label,
+                            leading: _destinationIcon(index),
+                            selected:
+                                widget.selectedIndex == index &&
+                                (index != 1 || uri.path == '/sources'),
+                            onTap: () => widget.onSelected(index),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -134,30 +138,15 @@ class _BrandHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 18, 8, 14),
       child: Row(
         children: [
-          Container(
+          SizedBox(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(
-              gradient: palette.prominentGradient,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: .65),
-                width: .8,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: DesignTokens.blue.withValues(alpha: .28),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            // The final logo is intentionally deferred. This remains a
-            // navigation glyph and is not installed as a brand asset.
-            child: const Icon(
-              Icons.video_library_rounded,
-              size: 21,
-              color: Colors.white,
+            child: Image.asset(
+              'assets/branding/reelnest_logo.png',
+              key: const ValueKey('reelnest-brand-logo'),
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: 'ReelNest',
             ),
           ),
           const SizedBox(width: 11),

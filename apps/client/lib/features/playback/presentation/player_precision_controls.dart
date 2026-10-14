@@ -34,6 +34,14 @@ class PlayerMarkerPanel extends StatelessWidget {
     await session.addBookmark(at: at);
   }
 
+  Future<void> _setBoundary(
+    PlaybackMarkerKind kind, {
+    required bool isStart,
+    required Duration at,
+  }) async {
+    await session.setMarkerBoundary(kind, isStart: isStart, at: at);
+  }
+
   Future<void> _delete(PlaybackMarker marker) async {
     await session.deletePlaybackMarker(marker.id);
   }
@@ -105,6 +113,72 @@ class PlayerMarkerPanel extends StatelessWidget {
                           size: 14,
                           color: palette.secondary,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  spacing: 7,
+                  children: [
+                    Expanded(
+                      child: _action(
+                        key: const ValueKey('set-intro-start'),
+                        icon: Icons.play_arrow_rounded,
+                        label: '片头开始',
+                        action: _canUse
+                            ? () => _setBoundary(
+                                PlaybackMarkerKind.intro,
+                                isStart: true,
+                                at: current,
+                              )
+                            : null,
+                      ),
+                    ),
+                    Expanded(
+                      child: _action(
+                        key: const ValueKey('set-intro-end'),
+                        icon: Icons.skip_next_rounded,
+                        label: '片头结束',
+                        action: _canUse
+                            ? () => _setBoundary(
+                                PlaybackMarkerKind.intro,
+                                isStart: false,
+                                at: current,
+                              )
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  spacing: 7,
+                  children: [
+                    Expanded(
+                      child: _action(
+                        key: const ValueKey('set-credits-start'),
+                        icon: Icons.subject_rounded,
+                        label: '片尾开始',
+                        action: _canUse
+                            ? () => _setBoundary(
+                                PlaybackMarkerKind.credits,
+                                isStart: true,
+                                at: current,
+                              )
+                            : null,
+                      ),
+                    ),
+                    Expanded(
+                      child: _action(
+                        key: const ValueKey('set-credits-end'),
+                        icon: Icons.stop_rounded,
+                        label: '片尾结束',
+                        action: _canUse
+                            ? () => _setBoundary(
+                                PlaybackMarkerKind.credits,
+                                isStart: false,
+                                at: current,
+                              )
+                            : null,
                       ),
                     ),
                   ],
@@ -235,9 +309,12 @@ class PlayerMarkerPanel extends StatelessWidget {
                   spacing: 8,
                   children: [
                     Icon(
-                      marker.kind == PlaybackMarkerKind.bookmark
-                          ? Icons.bookmark_rounded
-                          : Icons.flag_outlined,
+                      switch (marker.kind) {
+                        PlaybackMarkerKind.bookmark => Icons.bookmark_rounded,
+                        PlaybackMarkerKind.intro => Icons.fast_forward_rounded,
+                        PlaybackMarkerKind.credits => Icons.last_page_rounded,
+                        PlaybackMarkerKind.chapter => Icons.flag_outlined,
+                      },
                       size: 14,
                       color: palette.primary,
                     ),
@@ -303,6 +380,91 @@ class PlayerMarkerPanel extends StatelessWidget {
         : '';
     return '$origin · ${formatPrecisionTime(marker.start)}$range';
   }
+}
+
+/// PlayerMarkerSkipLayer's prompt-only presentation. Automatic skipping is
+/// performed by PlaybackSession; this widget never watches time or seeks on
+/// behalf of the automatic policy.
+class PlayerMarkerSkipPrompt extends StatelessWidget {
+  const PlayerMarkerSkipPrompt({
+    required this.session,
+    required this.palette,
+    super.key,
+  });
+
+  final PlaybackSession session;
+  final PlayerPalette palette;
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<PlaybackTimelineState>(
+        valueListenable: session.precision,
+        builder: (context, state, _) {
+          final marker = state.skipBehavior == VideoMarkerSkipBehavior.prompt
+              ? state.activeSkipMarker
+              : null;
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            reverseDuration: const Duration(milliseconds: 120),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, .32),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            ),
+            child: marker == null
+                ? const SizedBox.shrink()
+                : Material(
+                    key: ValueKey('skip-marker-${marker.id}'),
+                    type: MaterialType.transparency,
+                    child: PlayerPanelSurface(
+                      palette: palette,
+                      radius: 17,
+                      shadowRadius: 12,
+                      shadowOffset: const Offset(0, 5),
+                      child: InkWell(
+                        key: const ValueKey('skip-active-playback-marker'),
+                        onTap: session.loading || session.engine == null
+                            ? null
+                            : () => unawaited(
+                                session.skipPlaybackMarker(marker.id),
+                              ),
+                        borderRadius: BorderRadius.circular(17),
+                        child: SizedBox(
+                          height: 34,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              spacing: 7,
+                              children: [
+                                Icon(
+                                  Icons.skip_next_rounded,
+                                  size: 16,
+                                  color: palette.primary,
+                                ),
+                                Text(
+                                  '跳过${marker.kind.title}',
+                                  style: TextStyle(
+                                    color: palette.primary,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          );
+        },
+      );
 }
 
 class PlayerTimelineMarkers extends StatelessWidget {
@@ -455,128 +617,119 @@ class _PlayerPrecisionMenu extends StatelessWidget {
           left: left,
           top: top,
           width: width,
-          child: AnimatedBuilder(
-            animation: Listenable.merge([
-              session,
-              session.precision,
-              session.timeline,
-            ]),
-            builder: (context, _) {
-              final state = session.precision.value;
-              final loop = state.loop;
-              return Material(
-                color: Colors.transparent,
-                child: Container(
-                  key: const ValueKey('player-precision-menu'),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: palette.opaqueBase,
-                    gradient: LinearGradient(
-                      colors: palette.popoverFill,
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(color: palette.border.first, width: .9),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: .16),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _section('播放'),
-                      _item(
-                        key: const ValueKey('restart-playback'),
-                        icon: Icons.first_page_rounded,
-                        title: '从头播放',
-                        shortcut: 'Home',
-                        onTap: _canControl
-                            ? () => session.seek(Duration.zero)
-                            : null,
-                      ),
-                      Divider(height: 11, color: palette.divider),
-                      _section('循环'),
-                      _item(
-                        key: const ValueKey('toggle-current-loop'),
-                        icon: Icons.repeat_one_rounded,
-                        title: '单片循环',
-                        value: loop.loopCurrentItem ? '已开启' : '已关闭',
-                        selected: loop.loopCurrentItem,
-                        onTap: _canControl
-                            ? () => _loop(!loop.loopCurrentItem)
-                            : null,
-                      ),
-                      _item(
-                        key: const ValueKey('cycle-ab-loop'),
-                        icon: Icons.repeat_rounded,
-                        title: loop.start == null
-                            ? '设置 A 点'
-                            : loop.end == null
-                            ? '设置 B 点'
-                            : '重设 A 点',
-                        value: _loopValue(loop),
-                        shortcut: 'B',
-                        onTap: _canControl ? _cycleAB : null,
-                      ),
-                      if (loop.start != null)
-                        _item(
-                          key: const ValueKey('clear-ab-loop'),
-                          icon: Icons.cancel_outlined,
-                          title: '清除 A-B 循环',
-                          shortcut: 'Shift+B',
-                          onTap: _canControl ? _clearAB : null,
-                        ),
-                      Divider(height: 11, color: palette.divider),
-                      _section('逐帧'),
-                      Row(
-                        spacing: 6,
+          child: PlayerPanelEntrance(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([
+                session,
+                session.precision,
+                session.timeline,
+              ]),
+              builder: (context, _) {
+                final state = session.precision.value;
+                final loop = state.loop;
+                return Material(
+                  color: Colors.transparent,
+                  child: PlayerPanelSurface(
+                    key: const ValueKey('player-precision-menu'),
+                    palette: palette,
+                    radius: 15,
+                    shadowRadius: 18,
+                    shadowOffset: const Offset(0, 8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: _compactAction(
-                              key: const ValueKey('step-frame-backward'),
-                              icon: Icons.skip_previous_rounded,
-                              title: '上一帧',
-                              shortcut: ',',
-                              action: _canControl
-                                  ? () => session.stepFrame(backward: true)
-                                  : null,
-                            ),
+                          _section('播放'),
+                          _item(
+                            key: const ValueKey('restart-playback'),
+                            icon: Icons.first_page_rounded,
+                            title: '从头播放',
+                            shortcut: 'Home',
+                            onTap: _canControl
+                                ? () => session.seek(Duration.zero)
+                                : null,
                           ),
-                          Expanded(
-                            child: _compactAction(
-                              key: const ValueKey('step-frame-forward'),
-                              icon: Icons.skip_next_rounded,
-                              title: '下一帧',
-                              shortcut: '.',
-                              action: _canControl
-                                  ? () => session.stepFrame()
-                                  : null,
-                            ),
+                          Divider(height: 11, color: palette.divider),
+                          _section('循环'),
+                          _item(
+                            key: const ValueKey('toggle-current-loop'),
+                            icon: Icons.repeat_one_rounded,
+                            title: '单片循环',
+                            value: loop.loopCurrentItem ? '已开启' : '已关闭',
+                            selected: loop.loopCurrentItem,
+                            onTap: _canControl
+                                ? () => _loop(!loop.loopCurrentItem)
+                                : null,
                           ),
+                          _item(
+                            key: const ValueKey('cycle-ab-loop'),
+                            icon: Icons.repeat_rounded,
+                            title: loop.start == null
+                                ? '设置 A 点'
+                                : loop.end == null
+                                ? '设置 B 点'
+                                : '重设 A 点',
+                            value: _loopValue(loop),
+                            shortcut: 'B',
+                            onTap: _canControl ? _cycleAB : null,
+                          ),
+                          if (loop.start != null)
+                            _item(
+                              key: const ValueKey('clear-ab-loop'),
+                              icon: Icons.cancel_outlined,
+                              title: '清除 A-B 循环',
+                              shortcut: 'Shift+B',
+                              onTap: _canControl ? _clearAB : null,
+                            ),
+                          Divider(height: 11, color: palette.divider),
+                          _section('逐帧'),
+                          Row(
+                            spacing: 6,
+                            children: [
+                              Expanded(
+                                child: _compactAction(
+                                  key: const ValueKey('step-frame-backward'),
+                                  icon: Icons.skip_previous_rounded,
+                                  title: '上一帧',
+                                  shortcut: ',',
+                                  action: _canControl
+                                      ? () => session.stepFrame(backward: true)
+                                      : null,
+                                ),
+                              ),
+                              Expanded(
+                                child: _compactAction(
+                                  key: const ValueKey('step-frame-forward'),
+                                  icon: Icons.skip_next_rounded,
+                                  title: '下一帧',
+                                  shortcut: '.',
+                                  action: _canControl
+                                      ? () => session.stepFrame()
+                                      : null,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (!state.supported)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 7),
+                              child: Text(
+                                '当前播放引擎不支持循环或逐帧操作。',
+                                style: TextStyle(
+                                  color: palette.subdued,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                      if (!state.supported)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 7),
-                          child: Text(
-                            '当前播放引擎不支持循环或逐帧操作。',
-                            style: TextStyle(
-                              color: palette.subdued,
-                              fontSize: 10.5,
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ],
@@ -603,46 +756,43 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     String? value,
     String? shortcut,
     bool selected = false,
-  }) => InkWell(
+  }) => PlayerMenuRowSurface(
     key: key,
+    palette: palette,
+    selected: selected,
+    minHeight: 34,
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
     onTap: onTap == null ? null : () => unawaited(onTap()),
-    borderRadius: BorderRadius.circular(9),
-    child: Container(
-      constraints: const BoxConstraints(minHeight: 34),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: selected ? palette.selectedFill : Colors.transparent,
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: Row(
-        spacing: 8,
-        children: [
-          Icon(icon, size: 15, color: palette.primary),
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                color: palette.primary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-              ),
+    fill: Colors.transparent,
+    stroke: Colors.transparent,
+    child: Row(
+      spacing: 8,
+      children: [
+        Icon(icon, size: 15, color: palette.primary),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              color: palette.primary,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          if (value != null)
-            Text(
-              value,
-              style: TextStyle(color: palette.secondary, fontSize: 10.5),
+        ),
+        if (value != null)
+          Text(
+            value,
+            style: TextStyle(color: palette.secondary, fontSize: 10.5),
+          ),
+        if (shortcut != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              shortcut,
+              style: TextStyle(color: palette.subdued, fontSize: 9.5),
             ),
-          if (shortcut != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(
-                shortcut,
-                style: TextStyle(color: palette.subdued, fontSize: 9.5),
-              ),
-            ),
-        ],
-      ),
+          ),
+      ],
     ),
   );
 
@@ -652,38 +802,30 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     required String title,
     required String shortcut,
     required Future<void> Function()? action,
-  }) => InkWell(
+  }) => PlayerMenuRowSurface(
     key: key,
+    palette: palette,
+    minHeight: 34,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    fill: palette.choiceFill,
+    stroke: palette.rowStroke,
     onTap: action == null ? null : () => unawaited(action()),
-    borderRadius: BorderRadius.circular(9),
-    child: Container(
-      height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: palette.choiceFill,
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: palette.rowStroke, width: .7),
-      ),
-      child: Row(
-        spacing: 5,
-        children: [
-          Icon(icon, size: 14, color: palette.primary),
-          Expanded(
-            child: Text(
-              title,
-              style: TextStyle(
-                color: palette.primary,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w600,
-              ),
+    child: Row(
+      spacing: 5,
+      children: [
+        Icon(icon, size: 14, color: palette.primary),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              color: palette.primary,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          Text(
-            shortcut,
-            style: TextStyle(color: palette.subdued, fontSize: 9.5),
-          ),
-        ],
-      ),
+        ),
+        Text(shortcut, style: TextStyle(color: palette.subdued, fontSize: 9.5)),
+      ],
     ),
   );
 

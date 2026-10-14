@@ -56,6 +56,50 @@ class PlaybackMarkerRepository {
         [identity.sourceId, identity.localId, id],
       );
 
+  /// PlayerView.setMarkerBoundary: edit one manual range without replacing
+  /// embedded/automatic markers. Read and save together for concurrent windows.
+  Future<void> setManualBoundary(
+    MediaIdentity identity,
+    PlaybackMarkerKind kind, {
+    required bool isStart,
+    required Duration at,
+  }) => database.transaction(() async {
+    if (kind != PlaybackMarkerKind.intro &&
+        kind != PlaybackMarkerKind.credits) {
+      throw ArgumentError('Not a range marker');
+    }
+    final previous = (await read(identity))
+        .where((m) => m.kind == kind && m.origin == PlaybackMarkerOrigin.manual)
+        .firstOrNull;
+    final time = at < Duration.zero ? Duration.zero : at;
+    var start = previous?.start ?? time;
+    var end = previous?.end;
+    if (isStart) {
+      start = time;
+      if (end != null && end <= start) end = null;
+    } else {
+      if (start >= time) {
+        start = time - const Duration(seconds: 90);
+        if (start < Duration.zero) start = Duration.zero;
+      }
+      final minimumEnd = start + const Duration(milliseconds: 100);
+      end = time > minimumEnd ? time : minimumEnd;
+    }
+    await save(
+      PlaybackMarker(
+        id:
+            previous?.id ??
+            'manual-${identity.sourceId}-${identity.localId}-${kind.name}',
+        identity: identity,
+        kind: kind,
+        title: kind.title,
+        start: start,
+        end: end,
+        createdAt: previous?.createdAt,
+      ),
+    );
+  });
+
   /// Replacing embedded chapters never removes user chapters or bookmarks.
   Future<void> replaceEmbedded(
     MediaIdentity identity,

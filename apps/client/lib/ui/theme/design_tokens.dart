@@ -48,6 +48,8 @@ abstract final class DesignTokens {
   static const fastMotion = Duration(milliseconds: 180);
   static const sidebarMotion = Duration(milliseconds: 240);
   static const sidebarSelectionMotion = Duration(milliseconds: 100);
+  static const sidebarHoverEnterMotion = Duration(milliseconds: 140);
+  static const sidebarHoverExitMotion = Duration(milliseconds: 110);
   static const contentCrossfadeMotion = Duration(milliseconds: 180);
 
   static const blue = Color(0xFF2E90FA);

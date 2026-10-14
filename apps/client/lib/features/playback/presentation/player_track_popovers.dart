@@ -70,18 +70,20 @@ Future<void> showPlayerPanel(
               .toDouble(),
           bottom: bottom,
           width: width,
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.escape): () =>
-                  Navigator.pop(context),
-            },
-            child: Focus(
-              autofocus: true,
-              child: PlayerTrackPopover(
-                panel: panel,
-                session: session,
-                palette: palette,
-                maxHeight: maxHeight,
+          child: PlayerPanelEntrance(
+            child: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.escape): () =>
+                    Navigator.pop(context),
+              },
+              child: Focus(
+                autofocus: true,
+                child: PlayerTrackPopover(
+                  panel: panel,
+                  session: session,
+                  palette: palette,
+                  maxHeight: maxHeight,
+                ),
               ),
             ),
           ),
@@ -150,31 +152,12 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
         : Listenable.merge([session, session.tracks, session.volumeLevel]),
     builder: (context, _) => Material(
       type: MaterialType.transparency,
-      child: Container(
+      child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: widget.maxHeight),
-        decoration: BoxDecoration(
-          color: palette.opaqueBase,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: palette.lightContent ? .08 : .10,
-              ),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(
-              colors: palette.popoverFill,
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            border: Border.all(color: palette.border.first, width: .9),
-          ),
+        child: PlayerPanelSurface(
+          palette: palette,
+          shadowRadius: 18,
+          shadowOffset: const Offset(0, 8),
           child: SingleChildScrollView(
             padding: widget.panel == PlayerPanel.volume
                 ? const EdgeInsets.symmetric(horizontal: 13, vertical: 11)
@@ -415,59 +398,48 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
   ) => Semantics(
     selected: selected,
     button: true,
-    child: InkWell(
+    child: PlayerMenuRowSurface(
       key: ValueKey(key),
-      borderRadius: BorderRadius.circular(9),
+      palette: palette,
+      selected: selected,
       onTap: () => unawaited(action()),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 32),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: selected ? palette.selectedFill : palette.rowFill,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: selected ? palette.selectedStroke : palette.rowStroke,
-            width: .7,
-          ),
-        ),
-        child: Row(
-          spacing: 9,
-          children: [
-            SizedBox(
-              width: 18,
-              child: PlayerSymbolIcon(
-                selected ? PlayerSymbol.check : PlayerSymbol.circle,
-                size: 14,
-                color: selected ? palette.primary : palette.subdued,
-              ),
+      child: Row(
+        spacing: 9,
+        children: [
+          SizedBox(
+            width: 18,
+            child: PlayerSymbolIcon(
+              selected ? PlayerSymbol.check : PlayerSymbol.circle,
+              size: 14,
+              color: selected ? palette.primary : palette.subdued,
             ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                spacing: 2,
-                children: [
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: palette.primary,
+                  ),
+                ),
+                if (subtitle?.isNotEmpty == true)
                   Text(
-                    title,
+                    subtitle!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: palette.primary,
-                    ),
+                    style: TextStyle(fontSize: 11, color: palette.secondary),
                   ),
-                  if (subtitle?.isNotEmpty == true)
-                    Text(
-                      subtitle!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: palette.secondary),
-                    ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );
