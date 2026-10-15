@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reelnest/features/playback/presentation/video_player_page.dart';
+import 'package:reelnest/features/playback/presentation/player_window_coordinator.dart';
 import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
@@ -361,6 +362,9 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       var closed = false;
       var fullscreen = false;
+      final windowGateway = _FakePlayerWindowGateway();
+      final windowCoordinator = PlayerWindowCoordinator(windowGateway);
+      addTearDown(windowCoordinator.dispose);
       Future<void> waitUntil(bool Function() done) async {
         for (var i = 0; i < 150; i++) {
           await tester.runAsync(
@@ -389,12 +393,17 @@ void main() {
             setFullscreen: (value) async {
               fullscreen = value;
             },
+            windowCoordinator: windowCoordinator,
           ),
         ),
       );
       await waitUntil(
         () => !session.loading && session.clock.duration > Duration.zero,
       );
+      // Mirror the first native clock after loading so the throttled timeline
+      // projection has the same non-zero duration as the session clock.
+      engines.single.emit();
+      await tester.pump();
       expect(session.error, isNull);
       expect(session.loading, isFalse);
       expect(engines, hasLength(1));
@@ -409,6 +418,97 @@ void main() {
       expect(
         find.byKey(const ValueKey('player-window-chrome')),
         findsOneWidget,
+      );
+      expect(find.byTooltip('锁定控制栏'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      await waitUntil(() => windowCoordinator.miniMode);
+      expect(
+        find.byKey(const ValueKey('player-mini-mode-controls')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('player-window-chrome')), findsNothing);
+      expect(find.byTooltip('还原窗口'), findsOneWidget);
+      expect(windowGateway.alwaysOnTop, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await waitUntil(() => !windowCoordinator.miniMode);
+      expect(closed, isFalse);
+      expect(
+        find.byKey(const ValueKey('player-window-chrome')),
+        findsOneWidget,
+      );
+      await tester.tapAt(const Offset(400, 260), buttons: 2);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('toggle-mini-mode')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('toggle-mini-mode')));
+      await waitUntil(() => windowCoordinator.miniMode);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      await waitUntil(() => !windowCoordinator.miniMode);
+      Text trailingTime() => tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const ValueKey('player-timeline-trailing-time')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(trailingTime().data, '1:40');
+      await tester.tap(
+        find.byKey(const ValueKey('player-timeline-trailing-time')),
+      );
+      await waitUntil(() => session.options.showRemainingTime);
+      expect(trailingTime().data, '-1:40');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(
+        find.byKey(const ValueKey('player-playback-info')),
+        findsOneWidget,
+      );
+      await waitUntil(() => find.text('Test · 本地文件夹').evaluate().isNotEmpty);
+      expect(find.text('Film'), findsWidgets);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(find.byKey(const ValueKey('player-playback-info')), findsNothing);
+      expect(closed, isFalse);
+      await tester.tap(find.byTooltip('锁定控制栏'));
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(find.byTooltip('显示控制栏'), findsOneWidget);
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('player-controls-layer')),
+            )
+            .opacity,
+        0,
+      );
+      expect(
+        tester
+            .widget<MouseRegion>(
+              find.byKey(const ValueKey('player-interaction-region')),
+            )
+            .cursor,
+        SystemMouseCursors.basic,
+      );
+      await finish(session.toggle());
+      await tester.pump();
+      expect(session.clock.playing, isFalse);
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('player-controls-layer')),
+            )
+            .opacity,
+        0,
+      );
+      await finish(session.toggle());
+      await tester.pump();
+      await tester.tap(find.byTooltip('显示控制栏'));
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(find.byTooltip('锁定控制栏'), findsOneWidget);
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('player-controls-layer')),
+            )
+            .opacity,
+        1,
       );
       if (Platform.isWindows || Platform.isLinux) {
         expect(find.byTooltip('最小化'), findsOneWidget);
@@ -606,6 +706,15 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('toggle-current-loop')));
       await waitUntil(() => session.precision.value.loop.loopCurrentItem);
       expect(engines.single.loopCurrentItem, isTrue);
+      await tester.tap(find.byKey(const ValueKey('open-playback-info')));
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(
+        find.byKey(const ValueKey('player-playback-info')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('player-precision-menu')), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump(const Duration(milliseconds: 180));
 
       await tester.pumpWidget(const SizedBox());
       await finish(session.close());
@@ -714,4 +823,43 @@ void main() {
       },
     );
   }
+}
+
+class _FakePlayerWindowGateway implements PlayerWindowGateway {
+  Rect bounds = const Rect.fromLTWH(100, 80, 960, 540);
+  bool alwaysOnTop = false;
+
+  @override
+  Future<Rect> getBounds() async => bounds;
+
+  @override
+  Future<Rect> getVisibleScreenBounds(Rect windowBounds) async =>
+      const Rect.fromLTWH(0, 0, 1920, 1080);
+
+  @override
+  Future<bool> isFullScreen() async => false;
+
+  @override
+  Future<bool> isMaximized() async => false;
+
+  @override
+  Future<void> unmaximize() async {}
+
+  @override
+  Future<void> maximize() async {}
+
+  @override
+  Future<void> setBounds(Rect value) async => bounds = value;
+
+  @override
+  Future<void> setMinimumSize(Size value) async {}
+
+  @override
+  Future<void> setAlwaysOnTop(bool enabled) async => alwaysOnTop = enabled;
+
+  @override
+  Future<void> setVisibleOnAllWorkspaces(bool enabled) async {}
+
+  @override
+  Future<void> focus() async {}
 }

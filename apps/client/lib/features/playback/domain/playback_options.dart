@@ -1,3 +1,5 @@
+import 'video_scrubber_preview_mode.dart';
+
 class PlaybackOptions {
   const PlaybackOptions({
     this.defaultRate = 1,
@@ -10,6 +12,9 @@ class PlaybackOptions {
     this.autoMarkWatched = true,
     this.watchedThreshold = .9,
     this.pitchCorrection = true,
+    this.showRemainingTime = false,
+    this.alwaysOnTop = false,
+    this.videoScrubberPreviewMode = VideoScrubberPreviewMode.performance,
   });
   final double defaultRate,
       skipSeconds,
@@ -20,7 +25,10 @@ class PlaybackOptions {
       rememberRate,
       useLaunchVolume,
       autoMarkWatched,
-      pitchCorrection;
+      pitchCorrection,
+      showRemainingTime,
+      alwaysOnTop;
+  final VideoScrubberPreviewMode videoScrubberPreviewMode;
 
   PlaybackOptions copyWith({
     double? defaultRate,
@@ -33,6 +41,9 @@ class PlaybackOptions {
     bool? useLaunchVolume,
     bool? autoMarkWatched,
     bool? pitchCorrection,
+    bool? showRemainingTime,
+    bool? alwaysOnTop,
+    VideoScrubberPreviewMode? videoScrubberPreviewMode,
   }) => PlaybackOptions(
     defaultRate: defaultRate ?? this.defaultRate,
     skipSeconds: skipSeconds ?? this.skipSeconds,
@@ -44,6 +55,10 @@ class PlaybackOptions {
     useLaunchVolume: useLaunchVolume ?? this.useLaunchVolume,
     autoMarkWatched: autoMarkWatched ?? this.autoMarkWatched,
     pitchCorrection: pitchCorrection ?? this.pitchCorrection,
+    showRemainingTime: showRemainingTime ?? this.showRemainingTime,
+    alwaysOnTop: alwaysOnTop ?? this.alwaysOnTop,
+    videoScrubberPreviewMode:
+        videoScrubberPreviewMode ?? this.videoScrubberPreviewMode,
   );
   Map<String, Object> toJson() => {
     'defaultRate': defaultRate,
@@ -55,6 +70,9 @@ class PlaybackOptions {
     'useLaunchVolume': useLaunchVolume,
     'autoMarkWatched': autoMarkWatched,
     'pitchCorrection': pitchCorrection,
+    'showRemainingTime': showRemainingTime,
+    'alwaysOnTop': alwaysOnTop,
+    'videoScrubberPreviewMode': videoScrubberPreviewMode.name,
   };
   factory PlaybackOptions.fromJson(Map<String, dynamic> data) {
     double number(String key, double fallback, double min, double max) {
@@ -76,6 +94,11 @@ class PlaybackOptions {
       useLaunchVolume: flag('useLaunchVolume', false),
       autoMarkWatched: flag('autoMarkWatched', true),
       pitchCorrection: flag('pitchCorrection', true),
+      showRemainingTime: flag('showRemainingTime', false),
+      alwaysOnTop: flag('alwaysOnTop', false),
+      videoScrubberPreviewMode: VideoScrubberPreviewMode.parse(
+        data['videoScrubberPreviewMode'],
+      ),
     );
   }
 }

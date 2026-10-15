@@ -10,6 +10,7 @@ import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/features/playback/domain/playback_options.dart';
+import 'package:reelnest/features/playback/domain/video_scrubber_preview_mode.dart';
 import 'package:reelnest/features/playback/domain/playback_record.dart';
 import 'package:reelnest/features/playback/presentation/player_behavior_settings.dart';
 import 'package:reelnest/features/playback/presentation/player_visuals.dart';
@@ -110,18 +111,38 @@ void main() {
         isTrue,
       );
       expect(defaults.useLaunchVolume, isFalse);
+      expect(defaults.showRemainingTime, isFalse);
+      expect(defaults.alwaysOnTop, isFalse);
+      expect(
+        defaults.videoScrubberPreviewMode,
+        VideoScrubberPreviewMode.performance,
+      );
       final parsed = PlaybackOptions.fromJson({
         'defaultRate': double.nan,
         'skipSeconds': 1000,
         'rewindSeconds': 12,
         'launchVolume': -1,
         'rememberRate': 'false',
+        'showRemainingTime': true,
+        'alwaysOnTop': true,
+        'videoScrubberPreviewMode': 'balanced',
       });
       expect(parsed.defaultRate, 1);
       expect(parsed.skipSeconds, 30);
       expect(parsed.rewindSeconds, 10);
       expect(parsed.launchVolume, 0);
       expect(parsed.rememberRate, isTrue);
+      expect(parsed.showRemainingTime, isTrue);
+      expect(parsed.alwaysOnTop, isTrue);
+      expect(
+        parsed.videoScrubberPreviewMode,
+        VideoScrubberPreviewMode.balanced,
+      );
+      expect(
+        PlaybackOptions.fromJson(const {'videoScrubberPreviewMode': 'invalid'})
+            .videoScrubberPreviewMode,
+        VideoScrubberPreviewMode.performance,
+      );
     },
   );
   test('resume policy changes start without deleting saved records', () async {
@@ -306,6 +327,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('记忆本片倍速'), findsOneWidget);
       expect(find.text('自动标记已看'), findsOneWidget);
+      expect(find.text('窗口置顶'), findsOneWidget);
+      expect(find.text('预览图'), findsOneWidget);
+      expect(find.text('剩余时间'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('15秒').first);
       await tester.runAsync(() async {
@@ -313,9 +337,24 @@ void main() {
       });
       await tester.pumpAndSettle();
       expect(session.options.skipSeconds, 15);
+      final previewMode = find.byKey(
+        const ValueKey('scrubber-preview-balanced'),
+      );
+      await tester.ensureVisible(previewMode);
+      await tester.pumpAndSettle();
+      await tester.tap(previewMode);
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pumpAndSettle();
+      expect(
+        session.options.videoScrubberPreviewMode,
+        VideoScrubberPreviewMode.balanced,
+      );
       late PlaybackOptions saved;
       await finish(preferences.options.then((value) => saved = value));
       expect(saved.skipSeconds, 15);
+      expect(saved.videoScrubberPreviewMode, VideoScrubberPreviewMode.balanced);
       await finish(session.close(discardProgress: true));
       await tester.pumpWidget(const SizedBox());
       session.dispose();

@@ -14,6 +14,7 @@ import '../../sources/application/emby_providers.dart';
 import '../application/playback_providers.dart';
 import '../application/playback_session.dart';
 import 'video_player_page.dart';
+import 'player_window_coordinator.dart';
 
 class PlayerWindowApp extends ConsumerStatefulWidget {
   const PlayerWindowApp({
@@ -31,6 +32,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     with WindowListener {
   final _page = GlobalKey<VideoPlayerPageState>();
   late final PlaybackSession _session;
+  late final PlayerWindowCoordinator _windowCoordinator;
   late final MediaIdentity _initial;
   bool _destroyed = false;
   MediaIdentity? _notifiedIdentity;
@@ -46,12 +48,23 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       emby: ref.read(embyConnectionProvider),
       cache: ref.read(embyCacheProvider),
     );
+    _windowCoordinator = PlayerWindowCoordinator(
+      const DesktopPlayerWindowGateway(),
+    );
     _session.addListener(_onPlaybackChanged);
     windowManager.addListener(this);
     unawaited(_configure());
   }
 
   void _onPlaybackChanged() {
+    if (_windowCoordinator.preferredAlwaysOnTop !=
+        _session.options.alwaysOnTop) {
+      unawaited(
+        _windowCoordinator
+            .setPreferredAlwaysOnTop(_session.options.alwaysOnTop)
+            .catchError((_) {}),
+      );
+    }
     final identity = _session.item?.identity;
     if (identity != null) _playedSourceIds.add(identity.sourceId);
     if (!_session.loading &&
@@ -159,6 +172,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   void dispose() {
     windowManager.removeListener(this);
     _session.removeListener(_onPlaybackChanged);
+    _windowCoordinator.dispose();
     _session.dispose();
     super.dispose();
   }
@@ -173,6 +187,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       session: _session,
       closeWindow: _destroy,
       setFullscreen: windowManager.setFullScreen,
+      windowCoordinator: _windowCoordinator,
     ),
   );
 }

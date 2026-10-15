@@ -12,6 +12,8 @@ import 'emby_quality.dart';
 import 'emby_download.dart';
 import '../../domain/remote_media_metadata.dart';
 
+typedef _ItemPageScope = (Uri, String, String?, bool, bool, String?);
+
 enum EmbyError {
   address,
   authentication,
@@ -113,6 +115,8 @@ class EmbyClient {
   final Duration timeout;
   final int maxResponseBytes;
   final int maxArtworkBytes;
+  // Learned page sizes are bounded, session-local and contain no credentials.
+  final _itemPageLimits = <_ItemPageScope, int>{};
   String get userAgent => 'ReelNest/0.1.0 (${Platform.operatingSystem})';
   String _quote(String text) => text.replaceAll(RegExp(r'["\\\r\n]'), '_');
   String authorization([String? token]) =>
@@ -400,36 +404,81 @@ class EmbyClient {
     bool episodesOnly = false,
     String? personKey,
     ScanCancellation? cancellation,
-  }) async => EmbyItemPage.fromJson(
-    await _request(
+  }) async {
+    if (limit <= 0 || start < 0) throw ArgumentError('Invalid Emby pagination');
+    final scope = (
       session.server,
-      ['Users', session.userId, 'Items'],
-      token: session.token,
-      cancellation: cancellation,
-      query: {
-        'Recursive': 'true',
-        'IncludeItemTypes': episodesOnly
-            ? 'Episode'
-            : videosOnly
-            ? personKey == null
-                  ? 'Movie,Series'
-                  : 'Movie,Series,Episode'
-            : 'Movie,Series,Episode,Audio',
-        if (videosOnly) 'SortBy': 'SortName',
-        if (videosOnly) 'SortOrder': 'Ascending',
-        if (personKey != null && !personKey.startsWith('name:'))
-          'PersonIds': personKey,
-        if (personKey != null && personKey.startsWith('name:'))
-          'Person': personKey.substring(5),
-        'Fields': videosOnly
-            ? 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,ProviderIds,Genres'
-            : 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,MediaSources,ProviderIds,Genres',
-        'StartIndex': '$start',
-        'Limit': '$limit',
-        'ParentId': ?parentId,
-      },
-    ),
-  );
+      session.userId,
+      parentId,
+      videosOnly,
+      episodesOnly,
+      personKey,
+    );
+    final remembered = _itemPageLimits[scope];
+    var pageLimit = remembered != null && remembered < limit
+        ? remembered
+        : limit;
+    var resized = false;
+    while (true) {
+      cancellation?.check();
+      try {
+        final result = EmbyItemPage.fromJson(
+          await _request(
+            session.server,
+            ['Users', session.userId, 'Items'],
+            token: session.token,
+            cancellation: cancellation,
+            query: {
+              'Recursive': 'true',
+              'IncludeItemTypes': episodesOnly
+                  ? 'Episode'
+                  : videosOnly
+                  ? personKey == null
+                        ? 'Movie,Series'
+                        : 'Movie,Series,Episode'
+                  : 'Movie,Series,Episode,Audio',
+              if (videosOnly) 'SortBy': 'SortName',
+              if (videosOnly) 'SortOrder': 'Ascending',
+              if (personKey != null && !personKey.startsWith('name:'))
+                'PersonIds': personKey,
+              if (personKey != null && personKey.startsWith('name:'))
+                'Person': personKey.substring(5),
+              'Fields': videosOnly
+                  ? 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,ProviderIds,Genres'
+                  : 'OriginalTitle,Overview,ProductionYear,RunTimeTicks,ParentId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,CommunityRating,UserData,ImageTags,BackdropImageTags,MediaSources,ProviderIds,Genres',
+              'StartIndex': '$start',
+              'Limit': '$pageLimit',
+              'ParentId': ?parentId,
+            },
+          ),
+        );
+        cancellation?.check();
+        if (resized) {
+          final previous = _itemPageLimits[scope];
+          if (previous == null || pageLimit < previous) {
+            _itemPageLimits[scope] = pageLimit;
+          }
+          while (_itemPageLimits.length > 64) {
+            _itemPageLimits.remove(_itemPageLimits.keys.first);
+          }
+        }
+        return result;
+      } on EmbyFailure catch (failure) {
+        if (failure.kind != EmbyError.tooLarge) rethrow;
+        cancellation?.check();
+        if (pageLimit == 1) {
+          throw const EmbyFailure(
+            EmbyError.tooLarge,
+            '媒体分页已缩小至 1 条，但响应仍超过安全读取上限，已保留现有索引。',
+          );
+        }
+        // Retry the same StartIndex, preserving all fields and total checks.
+        // The caller advances by the number of items actually returned.
+        pageLimit = (pageLimit ~/ 2).clamp(1, pageLimit - 1);
+        resized = true;
+      }
+    }
+  }
 
   Future<Uint8List> artwork(
     EmbySession session,
@@ -552,12 +601,24 @@ class EmbyClient {
         final limit = response.statusCode >= 200 && response.statusCode < 300
             ? maxBytes ?? maxResponseBytes
             : 8192;
+        if (response.statusCode >= 200 &&
+            response.statusCode < 300 &&
+            response.contentLength > limit) {
+          request.abort();
+          // abort() cannot close a response whose headers already completed
+          // the request Future. Cancel its unread body before the next page.
+          await response.take(0).drain<void>();
+          throw const EmbyFailure(EmbyError.tooLarge, '服务器返回的数据超过本次安全读取上限。');
+        }
         await for (final chunk in response) {
           cancellation?.check();
           if (bytes.length + chunk.length > limit) {
             request.abort();
             if (response.statusCode >= 200 && response.statusCode < 300) {
-              throw const EmbyFailure(EmbyError.tooLarge, '服务器响应过大，请检查服务器。');
+              throw const EmbyFailure(
+                EmbyError.tooLarge,
+                '服务器返回的数据超过本次安全读取上限。',
+              );
             }
             bytes.add(
               chunk.take((limit - bytes.length).clamp(0, limit)).toList(),
@@ -645,7 +706,11 @@ class EmbyClient {
     }
   }
 
-  void close() => _http.close(force: true);
+  void close() {
+    _itemPageLimits.clear();
+    _http.close(force: true);
+  }
+
   Future<EmbyDownloadProgress> download(
     EmbyPlaybackResource resource,
     File destination,

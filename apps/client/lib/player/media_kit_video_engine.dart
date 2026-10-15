@@ -12,7 +12,8 @@ import 'video_tracks.dart';
 import 'video_timeline.dart';
 import '../platform/playback_sleep_guard.dart';
 
-class MediaKitVideoEngine implements VideoEngine, VideoTimelineEngine {
+class MediaKitVideoEngine
+    implements VideoEngine, VideoTimelineEngine, VideoAspectEngine {
   MediaKitVideoEngine({Player? player}) {
     MediaKit.ensureInitialized();
     _player =
@@ -70,6 +71,19 @@ class MediaKitVideoEngine implements VideoEngine, VideoTimelineEngine {
   String? _error;
   bool _networkResource = false;
   bool _disposed = false;
+  @override
+  double? get videoAspectRatio {
+    final params = _player.state.videoParams;
+    final aspect = params.aspect;
+    if (aspect != null && aspect.isFinite && aspect > 0) return aspect;
+    final width = params.dw ?? _player.state.width;
+    final height = params.dh ?? _player.state.height;
+    if (width == null || height == null || width <= 0 || height <= 0) {
+      return null;
+    }
+    return width / height;
+  }
+
   double _boost = 1;
   double _volume = 80;
   Future<void> _refreshing = Future.value();

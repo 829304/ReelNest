@@ -13,6 +13,7 @@ import '../../sources/data/emby_cache_repository.dart';
 import '../../../player/video_engine.dart';
 import '../../../player/video_tracks.dart';
 import '../../../player/video_timeline.dart';
+import '../../../player/mpv_video_frame_preview.dart';
 import '../../sources/data/source_repository.dart';
 import '../data/playback_repository.dart';
 import '../data/player_preferences_repository.dart';
@@ -24,6 +25,8 @@ import '../domain/track_language_matcher.dart';
 import '../domain/video_queue.dart';
 import '../domain/playback_record.dart';
 import '../domain/playback_options.dart';
+import '../domain/video_frame_preview.dart';
+import 'video_frame_preview_cache.dart';
 
 /// Owns a single engine; transitions and checkpoints are serialized. No widget
 /// sends native commands or writes SQLite directly.
@@ -38,10 +41,65 @@ class PlaybackSession extends ChangeNotifier {
     this.cache,
     this.remoteReportInterval = const Duration(seconds: 15),
     this.waitForSurface,
+    VideoPreviewGenerator? previewGenerator,
   }) : preferences =
-           preferences ?? PlayerPreferencesRepository(sources.database);
+           preferences ?? PlayerPreferencesRepository(sources.database),
+       _previewGenerator = previewGenerator ?? generateMpvVideoPreview;
   final SourceRepository sources;
   final PlaybackRepository records;
+  final VideoPreviewGenerator _previewGenerator;
+  VideoPreviewResource? _previewResource;
+  late final previewFrames = VideoFramePreviewCache(generate: _generatePreview);
+
+  Future<Uint8List?> _generatePreview(
+    VideoPreviewResource resource,
+    Duration time,
+    VideoPreviewCancellation cancellation,
+  ) async {
+    String? lease;
+    try {
+      if (resource.cached) {
+        final retained = await cache?.acquire(resource.identity);
+        if (retained == null) return null;
+        lease = retained.lease;
+        if (!p.equals(retained.path, resource.location)) return null;
+      }
+      if (cancellation.isCancelled) return null;
+      return await _previewGenerator(resource, time, cancellation);
+    } finally {
+      if (lease != null) {
+        try {
+          await cache?.release(lease);
+        } catch (_) {
+          /* Lease expires. */
+        }
+      }
+    }
+  }
+
+  Future<VideoPreviewFrame?> requestPreview({
+    required Duration time,
+    required Duration duration,
+    required bool coarse,
+    VideoPreviewCancellation? cancellation,
+    bool prefetch = false,
+  }) {
+    if (_closed ||
+        _closing != null ||
+        loading ||
+        error != null ||
+        engine == null) {
+      return Future.value();
+    }
+    return previewFrames.request(
+      time: time,
+      duration: duration,
+      coarse: coarse,
+      cancellation: cancellation,
+      prefetch: prefetch,
+    );
+  }
+
   late final _precision = PlaybackTimelineController(
     PlaybackMarkerRepository(sources.database),
     preferences,
@@ -162,6 +220,7 @@ class PlaybackSession extends ChangeNotifier {
     String? candidateLease;
     _checkpoint?.cancel();
     loading = true;
+    previewFrames.attach(null);
     transitionMessage = null;
     notifyListeners();
     try {
@@ -308,6 +367,12 @@ class PlaybackSession extends ChangeNotifier {
       }
       quality = targetQuality;
       _streamOffset = streamOffset;
+      _previewResource = VideoPreviewResource(
+        identity: identity,
+        location: resource,
+        offset: streamOffset,
+        cached: _cacheLease != null,
+      );
       _playSessionId = playSessionId;
       _reportedStart = false;
       _lastReport = null;
@@ -410,6 +475,7 @@ class PlaybackSession extends ChangeNotifier {
       if (candidate != null) await candidate.dispose();
       if (candidateLease != null) await cache?.release(candidateLease);
       loading = false;
+      previewFrames.attach(_previewResource);
       _updateMarkerSkip();
       if (!_closed && engine != null && _hasClock && error == null) {
         _startCheckpoints();
@@ -1188,6 +1254,8 @@ class PlaybackSession extends ChangeNotifier {
   });
 
   Future<void> _release({bool save = true}) async {
+    _previewResource = null;
+    previewFrames.attach(null);
     _checkpoint?.cancel();
     _checkpoint = null;
     final current = engine;
@@ -1279,6 +1347,7 @@ class PlaybackSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    previewFrames.dispose();
     _checkpoint?.cancel();
     _cacheHeartbeat?.cancel();
     timeline.dispose();

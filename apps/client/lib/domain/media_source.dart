@@ -53,6 +53,9 @@ class MediaSource {
   /// Successful scan/snapshot for the current scope. Emby scope expansion
   /// invalidates this marker without deleting the previously indexed media.
   final DateTime? lastScan;
+
+  /// File sources count media files; Emby counts all indexed entries including
+  /// series, matching the complete-sync summary shown on the source card.
   final int itemCount;
   final int missingCount;
   final String? accessIdentity;

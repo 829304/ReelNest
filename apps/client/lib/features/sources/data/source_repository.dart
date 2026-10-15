@@ -106,8 +106,9 @@ class SourceRepository {
           includeCounts
               ? '''
       SELECT s.*, COUNT(m.local_id) AS item_count,
-        COALESCE(SUM(m.missing), 0) AS missing_count
-      FROM sources s LEFT JOIN media m ON m.source_id = s.id AND m.is_series = 0
+        COALESCE(SUM(CASE WHEN m.is_series = 0 THEN m.missing ELSE 0 END), 0) AS missing_count
+      FROM sources s LEFT JOIN media m ON m.source_id = s.id
+        AND (m.is_series = 0 OR s.kind = 'emby')
       ${id == null ? '' : 'WHERE s.id = ?'}
       GROUP BY s.id ORDER BY s.name COLLATE NOCASE, s.id
     '''

@@ -545,6 +545,9 @@ Future<void> showPlayerPrecisionMenu(
   required PlaybackSession session,
   required PlayerPalette palette,
   required PlayerNotice onNotice,
+  required VoidCallback onOpenPlaybackInfo,
+  required VoidCallback? onToggleMiniMode,
+  required bool miniMode,
 }) => showGeneralDialog<void>(
   context: context,
   barrierDismissible: true,
@@ -556,6 +559,9 @@ Future<void> showPlayerPrecisionMenu(
     session: session,
     palette: palette,
     onNotice: onNotice,
+    onOpenPlaybackInfo: onOpenPlaybackInfo,
+    onToggleMiniMode: onToggleMiniMode,
+    miniMode: miniMode,
   ),
 );
 
@@ -565,12 +571,18 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     required this.session,
     required this.palette,
     required this.onNotice,
+    required this.onOpenPlaybackInfo,
+    required this.onToggleMiniMode,
+    required this.miniMode,
   });
 
   final Offset position;
   final PlaybackSession session;
   final PlayerPalette palette;
   final PlayerNotice onNotice;
+  final VoidCallback onOpenPlaybackInfo;
+  final VoidCallback? onToggleMiniMode;
+  final bool miniMode;
 
   bool get _canControl =>
       !session.loading &&
@@ -606,7 +618,7 @@ class _PlayerPrecisionMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
     const width = 286.0;
-    const estimatedHeight = 320.0;
+    const estimatedHeight = 360.0;
     final left = position.dx.clamp(12, screen.width - width - 12).toDouble();
     final top = position.dy
         .clamp(12, screen.height - estimatedHeight - 12)
@@ -651,6 +663,29 @@ class _PlayerPrecisionMenu extends StatelessWidget {
                                 ? () => session.seek(Duration.zero)
                                 : null,
                           ),
+                          _item(
+                            key: const ValueKey('open-playback-info'),
+                            icon: Icons.info_outline_rounded,
+                            title: '播放信息',
+                            shortcut: 'I',
+                            onTap: () async {
+                              Navigator.of(context).pop();
+                              onOpenPlaybackInfo();
+                            },
+                          ),
+                          if (onToggleMiniMode != null)
+                            _item(
+                              key: const ValueKey('toggle-mini-mode'),
+                              icon: miniMode
+                                  ? Icons.open_in_full_rounded
+                                  : Icons.picture_in_picture_alt_rounded,
+                              title: miniMode ? '还原窗口' : '迷你悬浮窗',
+                              shortcut: 'P',
+                              onTap: () async {
+                                Navigator.of(context).pop();
+                                onToggleMiniMode!();
+                              },
+                            ),
                           Divider(height: 11, color: palette.divider),
                           _section('循环'),
                           _item(

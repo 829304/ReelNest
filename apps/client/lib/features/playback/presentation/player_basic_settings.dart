@@ -7,6 +7,7 @@ import '../application/playback_session.dart';
 import '../domain/playback_marker.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_queue.dart';
+import '../domain/video_scrubber_preview_mode.dart';
 import 'player_visuals.dart';
 
 /// PlayerView's playback behavior rows. Advanced tabs remain separate work.
@@ -156,6 +157,35 @@ class PlayerBasicSettings extends StatelessWidget {
             toggle(
               value.pitchCorrection,
               (v) => change((o) => o.copyWith(pitchCorrection: v)),
+            ),
+          ),
+          row(
+            '窗口置顶',
+            Icons.push_pin_outlined,
+            toggle(
+              value.alwaysOnTop,
+              (v) => change((o) => o.copyWith(alwaysOnTop: v)),
+            ),
+          ),
+          row(
+            '预览图',
+            Icons.preview_outlined,
+            choices<VideoScrubberPreviewMode>(
+              VideoScrubberPreviewMode.values,
+              value.videoScrubberPreviewMode,
+              (mode) => mode.label,
+              (mode) => change(
+                (options) => options.copyWith(videoScrubberPreviewMode: mode),
+              ),
+              keyFor: (mode) => ValueKey('scrubber-preview-${mode.name}'),
+            ),
+          ),
+          row(
+            '剩余时间',
+            Icons.timer_outlined,
+            toggle(
+              value.showRemainingTime,
+              (v) => change((o) => o.copyWith(showRemainingTime: v)),
             ),
           ),
           if (session.controlError != null)

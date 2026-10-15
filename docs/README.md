@@ -1,16 +1,19 @@
 # ReelNest 文档
 
-更新时间：2026-10-14。
+更新时间：2026-10-15。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
-- 当前主线：本地/Emby 共用播放器的手动片头/片尾标记与“关闭 / 显示按钮 / 自动跳过”代码及 Windows 自动化验证完成；真实环境验收待进行。自动识别与候选处理属于后续子批次。
+- 当前播放器主线：P1-C 时间轴预览图实现及自动化验证已完成；真实 Emby、人工可见窗口交互/视觉和 macOS/Linux 原生验收仍待；自动片头/片尾识别及候选处理仍为独立后续子批次。
 - 最近完成：高级播放首批章节/书签、单片循环、A–B 与逐帧底层和 UI 接入，以及侧栏/主题整理；此前首页 H1/H2/H3、视频健康评分和来源刷新状态保护已接通。
 - 最新侧栏 hover 修复完成 45 项定向回归和 Windows Release/启动冒烟；Windows 结果不代表 macOS/Linux 原生验收，细节见[Emby 导航记录](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复)。
 - 来源媒体库 P0 UI 增量已记录：海报卡进度/评分/悬停状态、Emby 视频库响应式工具栏与筛选/状态面板、本地/Emby 共用详情页层级调整。相关范围、原版文件映射和 98 项定向验证见[Emby 导航](EMBY_NAVIGATION.zh-CN.md)、[详情](EMBY_DETAILS.zh-CN.md)及[源码映射](design/SOURCE_MAPPING.md)；原生截图/逐像素验收仍待，全量整合复验见下方记录。
-- `4d4a0ee` 的 587 项及后续 609+2 均为历史批次结果。第二轮 P0 之后的提交前整合复验已覆盖两轮 P0 UI、侧栏/Emby 与 Logo 改动：全量 616 项通过、2 项默认关闭的原生用例跳过，分析无问题，235 个 Dart 文件格式检查 0 修改，当前 Windows Release 与五秒启动烟测通过。各专项记录中的“当时未跑全量”仍按历史批次事实保留。macOS/Linux 原生验收、真实 Emby 播放仍待，详见[高级播放接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
+- `4d4a0ee` 的 587 项及后续 609+2 均为历史批次结果。P1-A 之前的提交前整合复验覆盖了两轮 P0 UI、侧栏/Emby 与 Logo 改动：全量 616 项通过、2 项默认关闭的原生用例跳过；这是历史基线，各独立批次“当时未跑全量”的记录仍准确保留。最新 P1-B 全量和 Windows 结果见下方。macOS/Linux 原生验收、真实 Emby 播放仍待，详见[高级播放接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
+- P1-A 专项当时为 62 项定向测试且未跑全量；此前 616+2 仅是当时基线。详见[P1-A 验证](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-a剩余时间控制栏锁定与播放信息2026-10-14)。
+- P1-B 的 7 个相关测试文件 66 项、全量 620 项通过/2 项跳过、Windows Release 与 smoke 均为 P1-C 前的验证；迷你窗目视与 macOS/Linux 原生验收仍待。详见[P1-B 验证](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-b迷你悬浮窗与窗口置顶2026-10-14)。
+- 最新播放器 P1-C 自动化验证完成：全量 643 passed / 3 skipped，分析零问题，时间轴/语义树专项及 native 抽帧通过；Windows Release 42.3 秒构建与五秒 smoke 通过。真实 Emby、人工可见窗口交互/视觉和 macOS/Linux 原生验收仍待，P1-C 详细边界见[播放器专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15)。
 - 尚未由该记录证明：真实 Emby 完整操作、实际滚动帧率、macOS/Linux 原生运行、三桌面端原版 UI 对照。
 - 音乐后续作为独立大模块统一迁移；Jellyfin、Plex、ReelNest Server 等原有来源仍在完整范围内。
 - WebDAV 设置备份是后续明确新增功能，当前不实施。
@@ -90,7 +93,7 @@
 |---|---|
 | [Emby 基础闭环计划](EMBY_PLAN.zh-CN.md) | E1–E3 的历史阶段计划和验收范围 |
 | [连接与选库（E1）](EMBY_CONNECTION.zh-CN.md) | 登录、凭据、选库、恢复与重新认证 |
-| [分页同步与浏览（E2）](EMBY_SYNC.zh-CN.md) | 分页、完整快照、取消/失败保护和基础浏览 |
+| [分页同步与浏览（E2）](EMBY_SYNC.zh-CN.md) | 分页、完整快照、取消/失败保护和基础浏览；超大响应自适应缩页见[首次浏览与人物作品](EMBY_LOADING.zh-CN.md#2026-10-15-超大响应分页自适应修复) |
 | [播放与进度同步（E3）](EMBY_PLAYBACK.zh-CN.md) | 鉴权播放、续播、队列、痕迹模式和上报 |
 | [收藏、已看与服务器字幕](EMBY_ACTIONS_SUBTITLES.zh-CN.md) | 状态写回/回滚、批量观看和文本字幕 |
 | [服务器详情、演职员与艺术照](EMBY_DETAILS.zh-CN.md) | 详情缓存、人员、图片和技术信息 |

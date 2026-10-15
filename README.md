@@ -8,12 +8,15 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 ## 当前状态
 
-截至 2026-10-14：
+截至 2026-10-15：
 
 - 本地视频已接入目录来源、扫描与索引、浏览详情、播放与续播、队列、字幕/音轨、基础播放设置和健康检查；本地与 Emby 共用播放器已接入章节/书签、单片循环、A–B 循环与前后逐帧第一批。
 - Emby 视频已接入登录与选库、分页同步与前台浏览、详情、播放与进度、收藏/已看、服务器字幕、画质与转码、图片缓存、手动及自动离线下载、右键与批量操作。
 - 首页 H1 已接入跨来源视频统计、继续观看、最近播放、想看、收藏和最近剧集；H2 已接入每日推荐、剧集推荐、高分精选、跨来源视频搜索和运行状态摘要；H3 编排已支持拖动排序、隐藏、添加恢复、默认布局与持久化。视频健康评分已接通原版公式及本地/Emby 核心检查、本地重复与详情缺口；适用范围见[健康评分](docs/HEALTH_SCORE.zh-CN.md)。
-- `4d4a0ee` 的全量 587 项及后续 609+2 均为历史批次结果。第二轮 P0 之后的提交前整合复验已覆盖两轮 P0 UI、侧栏/Emby 与 Logo 改动：全量 616 项通过、2 项默认关闭的原生用例跳过，分析无问题，235 个 Dart 文件格式检查 0 修改，当前 Windows Release 与五秒启动烟测通过。各专项记录中的“当时未跑全量”仍按历史批次事实保留。macOS/Linux 原生构建/实机、真实 Emby 操作及原版逐像素验收仍待完成，详见[高级播放验证记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
+- `4d4a0ee` 的全量 587 项及后续 609+2 均为历史批次结果。P1-A 之前的提交前整合复验覆盖了两轮 P0 UI、侧栏/Emby 与 Logo 改动：全量 616 项通过、2 项默认关闭的原生用例跳过；这是历史基线，独立批次的“当时未跑全量”仍准确保留。最新 P1-B 全量及 Windows 结果见下方。macOS/Linux 原生构建/实机、真实 Emby 操作及原版逐像素验收仍待完成，详见[高级播放验证记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
+- P1-A 已接入剩余时间切换/持久化、控制栏锁定及播放信息面板；当时 62 项定向测试通过，未重跑全量，616+2 是该批修改前基线。真实 Emby、人工可见窗口及 macOS/Linux 原生验收待完成。详见[播放器 P1-A 记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-a剩余时间控制栏锁定与播放信息2026-10-14)。
+- P1-B 的 7 个相关测试文件 66 项、全量 620 项通过/2 项跳过及 Windows Release/smoke 均是 P1-C 前的验证；迷你窗可见交互和 macOS/Linux 原生实机验收仍待。详见[播放器 P1-B 记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-b迷你悬浮窗与窗口置顶2026-10-14)。
+- 最新播放器 P1-C 时间轴预览图已完成自动化验证：`flutter analyze --fatal-infos` 零问题，全量 `flutter test --no-pub` 为 643 passed / 3 skipped；时间轴/语义树专项与 native 抽帧通过，Windows Release 构建和五秒 smoke 通过。真实 Emby、人工可见窗口交互/视觉及 macOS/Linux 原生实机验收仍待；P1-B 的 620+2 是此前批次，不能代替 P1-C 验证。详见[播放器 P1-C 记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15)。
 
 本地/Emby 共用播放器的手动片头/片尾标记与跳过策略代码及 Windows 自动化验证已完成；其后外观调整另做定向验证，原版视觉与三端原生验收待完成。自动识别与候选审核留待后续子批次。首页桌面交互与真实数据验收仍保留。详见[播放器总表](docs/PLAYER_STATUS.zh-CN.md)、[高级播放当前批次](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#后续播放器外观调整2026-10-13)和[当前阶段记录](docs/NEXT_STAGE.zh-CN.md)。
 

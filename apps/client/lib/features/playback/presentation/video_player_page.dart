@@ -6,14 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
 import '../application/playback_timeline_controller.dart';
 import 'player_precision_controls.dart';
+import 'player_playback_info.dart';
+import 'player_timeline_scrubber.dart';
 import 'player_track_popovers.dart';
 import 'player_visuals.dart';
+import 'player_window_coordinator.dart';
 
 /// First functional port of PlayerView's video canvas and primary controls.
 /// Uses its 568px bar, 14px glass corner, 7px timeline spacing, 42/50px clocks,
@@ -24,12 +26,14 @@ class VideoPlayerPage extends StatefulWidget {
     required this.session,
     required this.closeWindow,
     required this.setFullscreen,
+    this.windowCoordinator,
     super.key,
   });
   final MediaIdentity identity;
   final PlaybackSession session;
   final Future<void> Function() closeWindow;
   final Future<void> Function(bool) setFullscreen;
+  final PlayerWindowCoordinator? windowCoordinator;
   @override
   State<VideoPlayerPage> createState() => VideoPlayerPageState();
 }
@@ -46,6 +50,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   String? _notice;
   double? _volumeHud;
   bool _popoverActive = false;
+  bool _controlsLocked = false;
+  bool _showingPlaybackInfo = false;
   PlayerPanel? _activePanel;
   bool _maximized = false;
   Offset? _pointerActivityAnchor;
@@ -59,6 +65,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   final _qualityButton = GlobalKey();
   final _markerButton = GlobalKey();
   PlaybackSession get session => widget.session;
+  bool get _miniMode => widget.windowCoordinator?.miniMode ?? false;
   @override
   void initState() {
     super.initState();
@@ -93,12 +100,14 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _show() {
     _hideTimer?.cancel();
+    if (_controlsLocked) return;
     if (!_controls) setState(() => _controls = true);
     _hideTimer = Timer(const Duration(milliseconds: 3200), () {
       if (mounted &&
           session.clock.playing &&
           !_hoverControls &&
           !_popoverActive &&
+          !_showingPlaybackInfo &&
           _scrub == null) {
         setState(() => _controls = false);
       }
@@ -118,7 +127,10 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
 
   bool get _shouldHideCursor =>
       !_controls &&
+      !_miniMode &&
+      !_controlsLocked &&
       !_popoverActive &&
+      !_showingPlaybackInfo &&
       session.clock.playing &&
       !session.loading &&
       session.error == null;
@@ -231,10 +243,89 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         session: session,
         palette: _palette,
         onNotice: _showNotice,
+        onOpenPlaybackInfo: _showPlaybackInfo,
+        onToggleMiniMode: widget.windowCoordinator == null
+            ? null
+            : () => unawaited(_toggleMiniMode()),
+        miniMode: _miniMode,
       );
     } finally {
       _popoverActive = false;
       if (mounted) _show();
+    }
+  }
+
+  void _toggleControlsLock() {
+    _hideTimer?.cancel();
+    setState(() {
+      _controlsLocked = !_controlsLocked;
+      _controls = !_controlsLocked;
+    });
+    if (!_controlsLocked) _show();
+  }
+
+  void _showPlaybackInfo() {
+    if (session.item == null) return;
+    _hideTimer?.cancel();
+    setState(() {
+      _showingPlaybackInfo = true;
+      _controls = true;
+    });
+  }
+
+  void _hidePlaybackInfo() {
+    if (!_showingPlaybackInfo) return;
+    setState(() => _showingPlaybackInfo = false);
+    if (_controlsLocked) {
+      setState(() => _controls = false);
+    } else {
+      _show();
+    }
+  }
+
+  double get _videoAspectRatio {
+    final engine = session.engine;
+    if (engine case final VideoAspectEngine aspectEngine) {
+      final decoded = aspectEngine.videoAspectRatio;
+      if (decoded != null && decoded.isFinite && decoded > 0) return decoded;
+    }
+    final resolution = session.item?.remote?.resolution;
+    if (resolution != null) {
+      final match = RegExp(
+        r'(\d{2,5})\s*[x×*]\s*(\d{2,5})',
+        caseSensitive: false,
+      ).firstMatch(resolution);
+      final width = double.tryParse(match?.group(1) ?? '');
+      final height = double.tryParse(match?.group(2) ?? '');
+      if (width != null && height != null && width > 0 && height > 0) {
+        return width / height;
+      }
+    }
+    return 16 / 9;
+  }
+
+  Future<void> _toggleMiniMode() async {
+    final coordinator = widget.windowCoordinator;
+    if (coordinator == null || coordinator.busy) return;
+    try {
+      if (coordinator.miniMode) {
+        await coordinator.exitMiniMode();
+      } else {
+        final entered = await coordinator.enterMiniMode(_videoAspectRatio);
+        if (!entered) {
+          _showNotice('请先退出全屏，再进入迷你悬浮窗');
+          return;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _controlsLocked = false;
+        _showingPlaybackInfo = false;
+        _controls = true;
+      });
+      _show();
+    } catch (_) {
+      if (mounted) _showNotice('无法切换迷你悬浮窗，请重试');
     }
   }
 
@@ -273,6 +364,10 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   );
 
   Future<void> _full() async {
+    if (_miniMode) {
+      await _toggleMiniMode();
+      return;
+    }
     try {
       await widget.setFullscreen(!_fullscreen);
       if (mounted) setState(() => _fullscreen = !_fullscreen);
@@ -735,6 +830,108 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     ),
   );
 
+  Widget _controlsLockOverlay() => Align(
+    alignment: Alignment.centerRight,
+    child: Padding(
+      padding: const EdgeInsets.only(right: 18),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        opacity: _controls || _controlsLocked ? 1 : 0,
+        child: IgnorePointer(
+          ignoring: !_controls && !_controlsLocked,
+          child: Semantics(
+            key: const ValueKey('player-controls-lock'),
+            container: true,
+            button: true,
+            toggled: _controlsLocked,
+            label: _controlsLocked ? '显示控制栏' : '锁定控制栏',
+            child: Tooltip(
+              message: _controlsLocked ? '显示控制栏' : '锁定控制栏',
+              child: PlayerPanelSurface(
+                palette: _palette,
+                radius: 19,
+                liveMaterial: true,
+                shadowRadius: 10,
+                shadowOffset: const Offset(0, 4),
+                child: SizedBox.square(
+                  dimension: 38,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _toggleControlsLock,
+                    icon: Icon(
+                      _controlsLocked
+                          ? Icons.lock_rounded
+                          : Icons.lock_open_rounded,
+                      size: 15,
+                      color: _controlsLocked
+                          ? _palette.primary
+                          : _palette.secondary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _miniModeOverlay(VideoClock value) {
+    final visible = _controls || !value.playing;
+    return AnimatedOpacity(
+      key: const ValueKey('player-mini-mode-controls'),
+      duration: const Duration(milliseconds: 160),
+      opacity: visible ? 1 : 0,
+      child: IgnorePointer(
+        ignoring: !visible,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: PlayerPanelSurface(
+              palette: _palette,
+              radius: 18,
+              shadowRadius: 14,
+              shadowOffset: const Offset(0, 6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  spacing: 4,
+                  children: [
+                    _icon(
+                      value.playing ? '暂停' : '播放',
+                      value.playing
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      () => unawaited(session.toggle()),
+                      width: 34,
+                      emphasized: true,
+                    ),
+                    _icon(
+                      '还原窗口',
+                      Icons.open_in_full_rounded,
+                      () => unawaited(_toggleMiniMode()),
+                      width: 32,
+                    ),
+                    _icon(
+                      '关闭播放器',
+                      Icons.close_rounded,
+                      () => unawaited(requestClose()),
+                      width: 32,
+                      danger: true,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => CallbackShortcuts(
     bindings: {
@@ -751,6 +948,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         unawaited(session.skip(1));
       },
       const SingleActivator(LogicalKeyboardKey.keyF): () => unawaited(_full()),
+      const SingleActivator(LogicalKeyboardKey.keyP): () =>
+          unawaited(_toggleMiniMode()),
       const SingleActivator(LogicalKeyboardKey.arrowUp): () {
         unawaited(_changeVolume(5.5));
       },
@@ -759,6 +958,13 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       },
       const SingleActivator(LogicalKeyboardKey.keyM): () {
         unawaited(_toggleMuteWithHud());
+      },
+      const SingleActivator(LogicalKeyboardKey.keyI): () {
+        if (_showingPlaybackInfo) {
+          _hidePlaybackInfo();
+        } else {
+          _showPlaybackInfo();
+        }
       },
       const SingleActivator(LogicalKeyboardKey.keyB): () =>
           unawaited(_cycleABLoop()),
@@ -776,15 +982,26 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         _show();
         unawaited(session.seek(Duration.zero));
       },
-      const SingleActivator(LogicalKeyboardKey.escape): () =>
-          unawaited(_fullscreen ? _full() : requestClose()),
+      const SingleActivator(LogicalKeyboardKey.escape): () {
+        if (_showingPlaybackInfo) {
+          _hidePlaybackInfo();
+        } else if (_miniMode) {
+          unawaited(_toggleMiniMode());
+        } else {
+          unawaited(_fullscreen ? _full() : requestClose());
+        }
+      },
     },
     child: Focus(
       autofocus: true,
       child: Scaffold(
         backgroundColor: Colors.black,
         body: AnimatedBuilder(
-          animation: Listenable.merge([session, session.timeline]),
+          animation: Listenable.merge([
+            session,
+            session.timeline,
+            if (widget.windowCoordinator != null) widget.windowCoordinator!,
+          ]),
           builder: (context, _) => MouseRegion(
             key: const ValueKey('player-interaction-region'),
             cursor: _shouldHideCursor
@@ -814,74 +1031,112 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                   ),
                 ),
                 if (session.engine != null) session.engine!.surface(),
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: _show,
-                  onDoubleTap: () => unawaited(_full()),
-                  onSecondaryTapDown: (details) =>
-                      unawaited(_precisionMenu(details.globalPosition)),
-                  child: const SizedBox.expand(),
-                ),
+                if (_miniMode)
+                  DragToMoveArea(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _show,
+                      onDoubleTap: () => unawaited(_toggleMiniMode()),
+                      onSecondaryTapDown: (details) =>
+                          unawaited(_precisionMenu(details.globalPosition)),
+                      child: const SizedBox.expand(),
+                    ),
+                  )
+                else
+                  GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _show,
+                    onDoubleTap: () => unawaited(_full()),
+                    onSecondaryTapDown: (details) =>
+                        unawaited(_precisionMenu(details.globalPosition)),
+                    child: const SizedBox.expand(),
+                  ),
                 _edgeScrims(
                   visible:
-                      _controls ||
-                      !session.clock.playing ||
-                      session.loading ||
-                      session.error != null,
+                      !_miniMode &&
+                      !_controlsLocked &&
+                      (_controls ||
+                          !session.clock.playing ||
+                          session.loading ||
+                          session.error != null),
                 ),
                 if (session.loading) _loadingOverlay(),
                 if (session.error != null) _errorOverlay(session.error!),
-                AnimatedOpacity(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  opacity: _controls || session.loading || session.error != null
-                      ? 1
-                      : 0,
-                  child: IgnorePointer(
-                    ignoring:
-                        !_controls && !session.loading && session.error == null,
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 17, 18, 0),
-                        child: _windowChrome(),
+                if (!_miniMode)
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    opacity:
+                        _controls || session.loading || session.error != null
+                        ? 1
+                        : 0,
+                    child: IgnorePointer(
+                      ignoring:
+                          !_controls &&
+                          !session.loading &&
+                          session.error == null,
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 17, 18, 0),
+                          child: _windowChrome(),
+                        ),
                       ),
                     ),
                   ),
-                ),
                 _noticeOverlay(),
                 _volumeHudOverlay(),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 98),
-                    child: PlayerMarkerSkipPrompt(
-                      session: session,
-                      palette: _palette,
+                if (!_miniMode) _controlsLockOverlay(),
+                if (!_miniMode)
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 98),
+                      child: PlayerMarkerSkipPrompt(
+                        session: session,
+                        palette: _palette,
+                      ),
                     ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: ValueListenableBuilder<VideoClock>(
-                      valueListenable: session.timeline,
-                      builder: (context, value, _) =>
-                          ValueListenableBuilder<PlaybackTimelineState>(
-                            valueListenable: session.precision,
-                            builder: (context, precision, _) => AnimatedOpacity(
-                              duration: const Duration(milliseconds: 160),
-                              opacity: _controls || !value.playing ? 1 : 0,
-                              child: IgnorePointer(
-                                ignoring: !_controls && value.playing,
-                                child: _bar(value, precision),
-                              ),
+                if (!_miniMode)
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: ValueListenableBuilder<VideoClock>(
+                        valueListenable: session.timeline,
+                        builder: (context, value, _) =>
+                            ValueListenableBuilder<PlaybackTimelineState>(
+                              valueListenable: session.precision,
+                              builder: (context, precision, _) =>
+                                  AnimatedOpacity(
+                                    key: const ValueKey(
+                                      'player-controls-layer',
+                                    ),
+                                    duration: const Duration(milliseconds: 160),
+                                    opacity:
+                                        !_controlsLocked &&
+                                            (_controls || !value.playing)
+                                        ? 1
+                                        : 0,
+                                    child: IgnorePointer(
+                                      ignoring:
+                                          _controlsLocked ||
+                                          (!_controls && value.playing),
+                                      child: _bar(value, precision),
+                                    ),
+                                  ),
                             ),
-                          ),
+                      ),
                     ),
                   ),
-                ),
+                if (_miniMode) _miniModeOverlay(session.timeline.value),
+                if (!_miniMode && _showingPlaybackInfo && session.item != null)
+                  PlayerPlaybackInfoOverlay(
+                    session: session,
+                    palette: _palette,
+                    onDismiss: _hidePlaybackInfo,
+                  ),
               ],
             ),
           ),
@@ -936,22 +1191,31 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
               end: _palette.border.last,
               radius: 14,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                child: Container(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: _palette.barFill,
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: _palette.barFill,
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1038,62 +1302,87 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                 ),
                                 overlayColor: _palette.choiceFill,
                               ),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  SliderOverlayScope(
-                                    child: Slider(
-                                      key: const ValueKey('video-timeline'),
-                                      min: 0,
-                                      max: duration > 0 ? duration : 1,
-                                      value: position,
-                                      onChangeStart: can
-                                          ? (v) {
-                                              _show();
-                                              setState(() => _scrub = v);
-                                            }
-                                          : null,
-                                      onChanged: can
-                                          ? (v) => setState(() => _scrub = v)
-                                          : null,
-                                      onChangeEnd: can
-                                          ? (v) {
-                                              setState(() => _scrub = null);
-                                              unawaited(
-                                                session.seek(
-                                                  Duration(
-                                                    milliseconds: v.toInt(),
-                                                  ),
-                                                ),
-                                              );
-                                              _show();
-                                            }
-                                          : null,
-                                    ),
-                                  ),
-                                  Positioned.fill(
-                                    child: PlayerTimelineMarkers(
+                              child: PlayerTimelineScrubber(
+                                duration: value.duration,
+                                position: position,
+                                enabled: can,
+                                mode: session.options.videoScrubberPreviewMode,
+                                palette: _palette,
+                                previewLoader:
+                                    (
+                                      time, {
+                                      required coarse,
+                                      required prefetch,
+                                      required cancellation,
+                                    }) async => (await session.requestPreview(
+                                      time: time,
                                       duration: value.duration,
-                                      state: precision,
-                                      palette: _palette,
+                                      coarse: coarse,
+                                      cancellation: cancellation,
+                                      prefetch: prefetch,
+                                    ))?.bytes,
+                                onChangeStart: (v) {
+                                  _show();
+                                  setState(() => _scrub = v);
+                                },
+                                onChanged: (v) => setState(() => _scrub = v),
+                                onChangeEnd: (v) {
+                                  setState(() => _scrub = null);
+                                  unawaited(
+                                    session.seek(
+                                      Duration(milliseconds: v.toInt()),
                                     ),
-                                  ),
-                                ],
+                                  );
+                                  _show();
+                                },
+                                overlay: PlayerTimelineMarkers(
+                                  duration: value.duration,
+                                  state: precision,
+                                  palette: _palette,
+                                ),
                               ),
                             ),
                           ),
                           const SizedBox(width: 7),
                           SizedBox(
                             width: 50,
-                            child: Text(
-                              formatVideoTime(value.duration),
-                              style: TextStyle(
-                                color: _palette.secondary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
+                            child: Tooltip(
+                              message: '点击切换剩余 / 总时长',
+                              child: TextButton(
+                                key: const ValueKey(
+                                  'player-timeline-trailing-time',
+                                ),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(50, 24),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  foregroundColor: _palette.secondary,
+                                ),
+                                onPressed: can
+                                    ? () => unawaited(
+                                        session.changeOptions(
+                                          (options) => options.copyWith(
+                                            showRemainingTime:
+                                                !options.showRemainingTime,
+                                          ),
+                                        ),
+                                      )
+                                    : null,
+                                child: Text(
+                                  session.options.showRemainingTime
+                                      ? '-${formatVideoTime(Duration(milliseconds: (duration - position).clamp(0, duration).round()))}'
+                                      : formatVideoTime(value.duration),
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: _palette.secondary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -1270,7 +1559,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ),

@@ -52,3 +52,8 @@ abstract interface class VideoEngine {
   Future<void> dispose();
   Widget surface();
 }
+
+/// Optional decoded-video geometry exposed by engines that can report it.
+abstract interface class VideoAspectEngine {
+  double? get videoAspectRatio;
+}

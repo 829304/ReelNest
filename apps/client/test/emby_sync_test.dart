@@ -280,6 +280,12 @@ void main() {
     ];
     final result = await sync.synchronize(source.id);
     expect(result.importedItems, 6);
+    expect((await sources.source(source.id)).itemCount, result.importedItems);
+    expect((await sources.sources()).single.itemCount, result.importedItems);
+    expect(
+      (await sources.source(source.id, includeCounts: false)).itemCount,
+      0,
+    );
     final item = await sources.media((sourceId: source.id, localId: 'm1'));
     expect(item.remote!.durationMs, 90000);
     expect(item.remote!.positionMs, 10000);
@@ -320,6 +326,49 @@ void main() {
       isNot(contains('token-')),
     );
   });
+  test(
+    'source count refreshes with all Emby entries after each completed sync',
+    () async {
+      final container = ProviderContainer(
+        overrides: [sourceRepositoryProvider.overrideWithValue(sources)],
+      );
+      addTearDown(container.dispose);
+      final counts = <int>[];
+      final listener = container.listen(sourcesProvider, (_, next) {
+        if (next.value case final value?) counts.add(value.single.itemCount);
+      }, fireImmediately: true);
+      addTearDown(listener.close);
+      expect(
+        (await container.read(sourcesProvider.future)).single.itemCount,
+        0,
+      );
+      server.catalog['movies'] = [movie('m')];
+      server.catalog['shows'] = [episode('e1', 1, 1)];
+      final first = await sync.synchronize(source.id);
+      expect(first.importedItems, 3); // Movie, episode, synthetic series.
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (!counts.contains(first.importedItems)) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('Source count did not refresh');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      server.catalog['shows']!.add(episode('e2', 1, 2));
+      final second = await sync.synchronize(source.id);
+      expect(second.importedItems, 4);
+      final nextDeadline = DateTime.now().add(const Duration(seconds: 2));
+      while (counts.last != second.importedItems) {
+        if (DateTime.now().isAfter(nextDeadline)) {
+          fail('Source count remained stale');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(
+        (await container.read(sourcesProvider.future)).single.itemCount,
+        second.importedItems,
+      );
+    },
+  );
   test('provider ratings retain original 0-to-10 validity rules instead of clamping', () async {
     for (final rating in [0, -1, 11, 8.4]) {
       server.catalog['movies'] = [
