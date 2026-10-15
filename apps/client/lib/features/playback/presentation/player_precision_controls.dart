@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
 import '../application/playback_timeline_controller.dart';
@@ -10,7 +11,7 @@ import 'player_visuals.dart';
 
 typedef PlayerNotice = void Function(String message);
 
-class PlayerMarkerPanel extends StatelessWidget {
+class PlayerMarkerPanel extends StatefulWidget {
   const PlayerMarkerPanel({
     required this.session,
     required this.palette,
@@ -19,6 +20,70 @@ class PlayerMarkerPanel extends StatelessWidget {
 
   final PlaybackSession session;
   final PlayerPalette palette;
+
+  @override
+  State<PlayerMarkerPanel> createState() => _PlayerMarkerPanelState();
+}
+
+class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
+  ScanCancellation? _analysisCancellation;
+  MediaIdentity? _identity;
+  VideoEngine? _engine;
+  bool _analyzing = false;
+  String? _actionStatus;
+  final _reviewingMarkerIds = <String>{};
+
+  PlaybackSession get session => widget.session;
+  PlayerPalette get palette => widget.palette;
+
+  @override
+  void initState() {
+    super.initState();
+    _identity = session.item?.identity;
+    _engine = session.engine;
+    session.addListener(_handleSessionChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerMarkerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session == session) return;
+    oldWidget.session.removeListener(_handleSessionChange);
+    _cancelAnalysis();
+    _actionStatus = null;
+    _reviewingMarkerIds.clear();
+    _identity = session.item?.identity;
+    _engine = session.engine;
+    session.addListener(_handleSessionChange);
+  }
+
+  @override
+  void dispose() {
+    session.removeListener(_handleSessionChange);
+    _analysisCancellation?.cancel();
+    super.dispose();
+  }
+
+  void _handleSessionChange() {
+    final identity = session.item?.identity;
+    final engine = session.engine;
+    if (identity == _identity && identical(engine, _engine)) return;
+    _identity = identity;
+    _engine = engine;
+    _cancelAnalysis();
+    if (mounted) {
+      setState(() {
+        _actionStatus = null;
+        _reviewingMarkerIds.clear();
+      });
+    }
+  }
+
+  void _cancelAnalysis() {
+    _analysisCancellation?.cancel();
+    _analysisCancellation = null;
+    _analyzing = false;
+  }
 
   bool get _canUse =>
       !session.loading &&
@@ -44,6 +109,76 @@ class PlayerMarkerPanel extends StatelessWidget {
 
   Future<void> _delete(PlaybackMarker marker) async {
     await session.deletePlaybackMarker(marker.id);
+  }
+
+  Future<void> _analyze() async {
+    final expectedSession = session;
+    final identity = expectedSession.item?.identity;
+    final expectedEngine = expectedSession.engine;
+    if (!_canUse || _analyzing || identity == null) return;
+    _analysisCancellation?.cancel();
+    final cancellation = ScanCancellation();
+    _analysisCancellation = cancellation;
+    setState(() {
+      _analyzing = true;
+      _actionStatus = null;
+    });
+    final count = await expectedSession.analyzeIntroOutroMarkers(
+      cancellation: cancellation,
+    );
+    if (!mounted ||
+        !identical(_analysisCancellation, cancellation) ||
+        session != expectedSession ||
+        expectedSession.engine != expectedEngine ||
+        expectedSession.item?.identity != identity) {
+      return;
+    }
+    _analysisCancellation = null;
+    setState(() {
+      _analyzing = false;
+      if (count != null && expectedSession.controlError == null) {
+        _actionStatus = count == 0 ? '没有发现可审核候选' : '发现 $count 个待审核标记';
+      }
+    });
+  }
+
+  Future<void> _review(PlaybackMarker marker, {required bool accepted}) async {
+    final expectedSession = session;
+    final expectedEngine = expectedSession.engine;
+    if (!_canUse ||
+        !marker.isPendingReview ||
+        marker.identity != expectedSession.item?.identity ||
+        _reviewingMarkerIds.contains(marker.id)) {
+      return;
+    }
+    setState(() {
+      _reviewingMarkerIds.add(marker.id);
+      _actionStatus = null;
+    });
+    await expectedSession.reviewAutomaticPlaybackMarker(
+      marker,
+      accepted: accepted,
+    );
+    if (!mounted ||
+        session != expectedSession ||
+        expectedSession.engine != expectedEngine ||
+        marker.identity != expectedSession.item?.identity) {
+      return;
+    }
+    final updated = expectedSession.precision.value.markers
+        .where((value) => value.id == marker.id)
+        .firstOrNull;
+    final completed = accepted
+        ? updated?.review == PlaybackMarkerReview.accepted
+        : updated == null;
+    setState(() {
+      _reviewingMarkerIds.remove(marker.id);
+      if (completed && expectedSession.controlError == null) {
+        _actionStatus = accepted
+            ? '已采用自动标记 · ${marker.kind.title}'
+            : '已忽略自动标记 · ${marker.kind.title}';
+      }
+    });
   }
 
   @override
@@ -204,6 +339,33 @@ class PlayerMarkerPanel extends StatelessWidget {
                     ),
                   ],
                 ),
+                // This phase exposes current-video analysis beside its review
+                // list. The original media-item context-menu entry, series
+                // batch analysis and task-center flow remain later migrations.
+                SizedBox(
+                  width: double.infinity,
+                  child: _action(
+                    key: const ValueKey('analyze-intro-outro-markers'),
+                    icon: Icons.auto_awesome_rounded,
+                    label: _analyzing ? '正在检测…' : '检测片头片尾',
+                    busy: _analyzing,
+                    action: _canUse && !_analyzing ? _analyze : null,
+                  ),
+                ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 140),
+                  child: _actionStatus == null
+                      ? const SizedBox.shrink()
+                      : Text(
+                          _actionStatus!,
+                          key: const ValueKey('marker-action-status'),
+                          style: TextStyle(
+                            color: palette.secondary,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                ),
                 Divider(height: 1, color: palette.divider),
                 if (state.markers.isEmpty)
                   Padding(
@@ -239,6 +401,7 @@ class PlayerMarkerPanel extends StatelessWidget {
     required IconData icon,
     required String label,
     required Future<void> Function()? action,
+    bool busy = false,
   }) => Material(
     color: Colors.transparent,
     child: InkWell(
@@ -256,7 +419,16 @@ class PlayerMarkerPanel extends StatelessWidget {
         child: Row(
           spacing: 6,
           children: [
-            Icon(icon, size: 13, color: palette.primary),
+            if (busy)
+              SizedBox.square(
+                dimension: 13,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.6,
+                  color: palette.primary,
+                ),
+              )
+            else
+              Icon(icon, size: 13, color: palette.primary),
             Expanded(
               child: Text(
                 label,
@@ -352,8 +524,8 @@ class PlayerMarkerPanel extends StatelessWidget {
         ),
         if (marker.origin == PlaybackMarkerOrigin.manual)
           SizedBox(
-            width: 26,
-            height: 26,
+            width: 24,
+            height: 24,
             child: IconButton(
               tooltip: '删除标记',
               padding: EdgeInsets.zero,
@@ -365,6 +537,42 @@ class PlayerMarkerPanel extends StatelessWidget {
               ),
             ),
           ),
+        if (marker.isPendingReview) ...[
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: IconButton(
+              key: ValueKey('accept-automatic-marker-${marker.id}'),
+              tooltip: '采用自动标记',
+              padding: EdgeInsets.zero,
+              onPressed: _canUse && !_reviewingMarkerIds.contains(marker.id)
+                  ? () => unawaited(_review(marker, accepted: true))
+                  : null,
+              icon: const Icon(
+                Icons.check_rounded,
+                size: 11,
+                color: Colors.green,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: IconButton(
+              key: ValueKey('reject-automatic-marker-${marker.id}'),
+              tooltip: '忽略自动标记',
+              padding: EdgeInsets.zero,
+              onPressed: _canUse && !_reviewingMarkerIds.contains(marker.id)
+                  ? () => unawaited(_review(marker, accepted: false))
+                  : null,
+              icon: const Icon(
+                Icons.close_rounded,
+                size: 11,
+                color: Colors.orange,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -373,7 +581,8 @@ class PlayerMarkerPanel extends StatelessWidget {
     final origin = switch (marker.origin) {
       PlaybackMarkerOrigin.embedded => '内嵌章节',
       PlaybackMarkerOrigin.manual => '手动标记',
-      PlaybackMarkerOrigin.automatic => '自动标记',
+      PlaybackMarkerOrigin.automatic =>
+        '${marker.isPendingReview ? '待审核' : '自动标记'}${marker.confidence == null ? '' : ' · ${(marker.confidence! * 100).round()}%'}',
     };
     final range = marker.end != null && marker.end! > marker.start
         ? ' – ${formatPrecisionTime(marker.end!)}'

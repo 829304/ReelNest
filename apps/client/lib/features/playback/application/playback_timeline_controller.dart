@@ -147,6 +147,39 @@ class PlaybackTimelineController extends ValueNotifier<PlaybackTimelineState> {
     await refresh();
   }
 
+  Future<int> analyzeIntroOutroMarkers({
+    required Duration duration,
+    ScanCancellation? cancellation,
+  }) async {
+    final identity = value.identity;
+    if (identity == null) return 0;
+    // Refresh absolute, persisted chapters first. An observed transcoded suffix
+    // alone must not be mistaken for a full chapter snapshot by the detector.
+    cancellation?.check();
+    await refresh();
+    cancellation?.check();
+    final count = await repository.generateIntroOutroCandidates(
+      identity,
+      duration: duration,
+      cancellation: cancellation,
+    );
+    await refresh();
+    return count;
+  }
+
+  Future<void> reviewAutomatic(
+    PlaybackMarker marker, {
+    required bool accepted,
+  }) async {
+    if (value.identity != marker.identity || !marker.isPendingReview) return;
+    await repository.reviewAutomatic(
+      marker.identity,
+      marker.id,
+      accepted: accepted,
+    );
+    await refresh();
+  }
+
   Future<void> deleteManual(String id) async {
     final identity = value.identity;
     if (identity == null) return;

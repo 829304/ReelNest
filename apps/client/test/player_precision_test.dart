@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
+import 'package:reelnest/features/playback/application/playback_timeline_controller.dart';
 import 'package:reelnest/features/playback/data/playback_marker_repository.dart';
+import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/playback/domain/playback_marker.dart';
 import 'package:reelnest/features/playback/domain/video_queue.dart';
@@ -155,6 +157,288 @@ void main() {
       expect(p.isWithin(Directory.systemTemp.path, sandbox.path), isTrue);
       expect(p.basename(sandbox.path), startsWith('reelnest-precision-'));
       await sandbox.delete(recursive: true);
+    });
+
+    test(
+      'chapter detection is explicit, pending until accepted, and durable',
+      () async {
+        await session.open(id('Film.mkv'));
+        expect(
+          session.precision.value.markers.any((m) => m.isPendingReview),
+          isFalse,
+        );
+        expect(await session.analyzeIntroOutroMarkers(), 1);
+        final candidate = session.precision.value.markers.singleWhere(
+          (m) => m.isPendingReview,
+        );
+        expect(candidate.start, Duration.zero);
+        expect(candidate.end, const Duration(seconds: 20));
+        expect(session.precision.value.activeSkipMarker, isNull);
+        expect(await session.analyzeIntroOutroMarkers(), 0);
+        await session.reviewAutomaticPlaybackMarker(candidate, accepted: true);
+        expect(session.precision.value.activeSkipMarker?.id, candidate.id);
+        final saved = (await markers.read(candidate.identity))
+            .singleWhere((m) => m.id == candidate.id);
+        expect(saved.review, PlaybackMarkerReview.accepted);
+        expect(await session.analyzeIntroOutroMarkers(), 0);
+        // A stale second window cannot undo an already completed review.
+        await markers.reviewAutomatic(
+          candidate.identity,
+          candidate.id,
+          accepted: false,
+        );
+        expect(
+          (await markers.read(candidate.identity))
+              .any((m) => m.id == candidate.id),
+          isTrue,
+        );
+      },
+    );
+
+    test('ignore persists through reopen and does not re-create the same candidate', () async {
+      await session.open(id('Film.mkv'));
+      await session.analyzeIntroOutroMarkers();
+      final candidate = session.precision.value.markers.singleWhere(
+        (m) => m.isPendingReview,
+      );
+      await session.reviewAutomaticPlaybackMarker(candidate, accepted: false);
+      expect(
+        session.precision.value.markers.any((m) => m.id == candidate.id),
+        isFalse,
+      );
+      final rejected = (await markers.read(
+        candidate.identity,
+        includingRejected: true,
+      )).singleWhere((m) => m.id == candidate.id);
+      expect(rejected.review, PlaybackMarkerReview.rejected);
+      await session.close(discardProgress: true);
+      session.dispose();
+      session = makeSession();
+      await session.open(candidate.identity);
+      expect(await session.analyzeIntroOutroMarkers(), 0);
+      expect(session.precision.value.activeSkipMarker, isNull);
+    });
+
+    test(
+      'manual ranges and foreign identities cannot be changed by review',
+      () async {
+        await session.open(id('Film.mkv'));
+        await session.setMarkerBoundary(
+          PlaybackMarkerKind.intro,
+          isStart: true,
+          at: const Duration(seconds: 3),
+        );
+        await session.setMarkerBoundary(
+          PlaybackMarkerKind.intro,
+          isStart: false,
+          at: const Duration(seconds: 15),
+        );
+        expect(await session.analyzeIntroOutroMarkers(), 0);
+        final manual = session.precision.value.markers.singleWhere(
+          (m) => m.kind == PlaybackMarkerKind.intro,
+        );
+        await markers.reviewAutomatic(
+          manual.identity,
+          manual.id,
+          accepted: false,
+        );
+        expect(
+          (await markers.read(manual.identity)).any((m) => m.id == manual.id),
+          isTrue,
+        );
+        await markers.deleteManual(manual.identity, manual.id);
+        await session.analyzeIntroOutroMarkers();
+        final candidate = session.precision.value.markers.singleWhere(
+          (m) => m.isPendingReview,
+        );
+        await session.open(id('Show.S01E01.mkv'));
+        await session.reviewAutomaticPlaybackMarker(candidate, accepted: true);
+        expect(
+          (await markers.read(candidate.identity))
+              .singleWhere((m) => m.id == candidate.id)
+              .review,
+          PlaybackMarkerReview.pending,
+        );
+        expect(
+          session.precision.value.markers.any((m) => m.isPendingReview),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'cancellation does not generate candidates or stop the decoder',
+      () async {
+        await session.open(id('Film.mkv'));
+        final engine = engines.last;
+        final token = ScanCancellation()..cancel();
+        expect(
+          await session.analyzeIntroOutroMarkers(cancellation: token),
+          isNull,
+        );
+        expect(session.controlError, isNull);
+        expect(engine.disposals, 0);
+        expect(
+          session.precision.value.markers.any((m) => m.isPendingReview),
+          isFalse,
+        );
+      },
+    );
+
+    test('concurrent generators use current review state and do not duplicate rows', () async {
+      await session.open(id('Film.mkv'));
+      final counts = await Future.wait([
+        markers.generateIntroOutroCandidates(
+          id('Film.mkv'),
+          duration: const Duration(seconds: 100),
+        ),
+        PlaybackMarkerRepository(sources.database).generateIntroOutroCandidates(
+          id('Film.mkv'),
+          duration: const Duration(seconds: 100),
+        ),
+      ]);
+      expect(counts.reduce((a, b) => a + b), 1);
+      expect(
+        (await markers.read(id('Film.mkv'))).where((m) => m.isPendingReview),
+        hasLength(1),
+      );
+    });
+
+    test('cancellation during insertion rolls back the complete candidate transaction', () async {
+      await session.open(id('Film.mkv'));
+      final token = ScanCancellation();
+      final cancelling = _CancellingCandidates(sources.database, token);
+      await expectLater(
+        cancelling.generateIntroOutroCandidates(
+          id('Film.mkv'),
+          duration: const Duration(seconds: 100),
+          cancellation: token,
+        ),
+        throwsA(isA<ScanCancelled>()),
+      );
+      expect(
+        (await markers.read(
+          id('Film.mkv'),
+          includingRejected: true,
+        )).any((m) => m.origin == PlaybackMarkerOrigin.automatic),
+        isFalse,
+      );
+      expect(await session.analyzeIntroOutroMarkers(), 1);
+    });
+
+    test(
+      'a failed candidate save leaves the player usable and can be retried',
+      () async {
+        await session.open(id('Film.mkv'));
+        final engine = engines.last;
+        await sources.database.customStatement('''
+        CREATE TRIGGER fail_candidate BEFORE INSERT ON playback_markers
+        WHEN NEW.origin='automatic' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END
+      ''');
+        expect(await session.analyzeIntroOutroMarkers(), isNull);
+        expect(session.controlError, '片头片尾检测失败，请重试。');
+        expect(engine.disposals, 0);
+        expect(session.engine, same(engine));
+        expect(
+          (await markers.read(id('Film.mkv'))).any((m) => m.isPendingReview),
+          isFalse,
+        );
+        await sources.database.customStatement('DROP TRIGGER fail_candidate');
+        expect(await session.analyzeIntroOutroMarkers(), 1);
+        expect(session.controlError, isNull);
+        final candidate = session.precision.value.markers.singleWhere(
+          (m) => m.isPendingReview,
+        );
+        await sources.database.customStatement('''
+        CREATE TRIGGER fail_review BEFORE UPDATE ON playback_markers
+        WHEN NEW.origin='automatic' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END
+      ''');
+        await session.reviewAutomaticPlaybackMarker(candidate, accepted: true);
+        expect(session.controlError, '更新自动标记失败，请重试。');
+        expect(
+          session.precision.value.markers
+              .singleWhere((m) => m.id == candidate.id)
+              .isPendingReview,
+          isTrue,
+        );
+        expect(session.precision.value.activeSkipMarker, isNull);
+        await sources.database.customStatement('DROP TRIGGER fail_review');
+        await session.reviewAutomaticPlaybackMarker(candidate, accepted: true);
+        expect(session.controlError, isNull);
+        expect(session.precision.value.activeSkipMarker?.id, candidate.id);
+      },
+    );
+
+    test(
+      'detection queued behind film selection cannot analyze the next film',
+      () async {
+        await session.open(id('Film.mkv'));
+        final opening = session.open(id('Show.S01E01.mkv'));
+        final detection = session.analyzeIntroOutroMarkers();
+        await opening;
+        expect(await detection, isNull);
+        expect(
+          (await markers.read(id('Show.S01E01.mkv')))
+              .any((m) => m.isPendingReview),
+          isFalse,
+        );
+        expect(await session.analyzeIntroOutroMarkers(), 1);
+      },
+    );
+
+    test('a transcoded suffix cannot generate shifted candidates or replace full chapters', () async {
+      final controller = PlaybackTimelineController(
+        markers,
+        PlayerPreferencesRepository(sources.database),
+      );
+      final decoder = FakeVideoEngine()..chapterList = chapterList;
+      try {
+        await controller.attach(
+          id('Film.mkv'),
+          decoder,
+          offset: const Duration(seconds: 500),
+          duration: const Duration(seconds: 1000),
+          loop: const PlaybackLoopState(),
+        );
+        expect(
+          controller.value.chapters.first.start,
+          const Duration(seconds: 500),
+        );
+        expect(
+          await controller.analyzeIntroOutroMarkers(
+            duration: const Duration(seconds: 1000),
+          ),
+          0,
+        );
+        await controller.attach(
+          id('Film.mkv'),
+          decoder,
+          offset: Duration.zero,
+          duration: const Duration(seconds: 1000),
+          loop: const PlaybackLoopState(),
+        );
+        await controller.attach(
+          id('Film.mkv'),
+          decoder,
+          offset: const Duration(seconds: 500),
+          duration: const Duration(seconds: 1000),
+          loop: const PlaybackLoopState(),
+        );
+        expect(
+          await controller.analyzeIntroOutroMarkers(
+            duration: const Duration(seconds: 1000),
+          ),
+          1,
+        );
+        final candidate = controller.value.markers.singleWhere(
+          (m) => m.isPendingReview,
+        );
+        expect(candidate.start, Duration.zero);
+        expect(candidate.end, const Duration(seconds: 20));
+      } finally {
+        controller.dispose();
+        await decoder.dispose();
+      }
     });
 
     test('embedded refresh preserves manual chapters and bookmarks across restarts', () async {
@@ -371,4 +655,14 @@ void main() {
       expect(await markers.read(secondId), isEmpty);
     });
   });
+}
+
+class _CancellingCandidates extends PlaybackMarkerRepository {
+  _CancellingCandidates(super.database, this.cancellation);
+  final ScanCancellation cancellation;
+  @override
+  Future<void> save(PlaybackMarker marker) async {
+    await super.save(marker);
+    cancellation.cancel();
+  }
 }

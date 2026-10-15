@@ -16,6 +16,32 @@
 - `Sources/MediaLibCore/Models/PlaybackMarker.swift` 与 `Database/PlaybackMarkerRepository.swift`：标记分类、来源、归一化、保存与内嵌章节替换。
 - `Sources/MediaLibCore/Models/AppSettings.swift` 与 `MpvPlayerController.applyVideoSettings`：单片循环默认关闭且记住开关；A/B 不持久化。
 
+## 当前批次：内嵌章节片头片尾候选（2026-10-15）
+
+状态：单视频代码及 Windows 自动化验证已完成；真实来源、实体键鼠及三端原生/视觉验收仍待。本节描述候选批次；下方早期章节中“候选未迁移”仅为当时状态。
+
+原版依据为 `64f8ee2` 的 `AppState.automaticIntroOutroCandidates`、`automaticMarkerKind`、`automaticMarkerRangeIsPlausible`、`reviewAutomaticPlaybackMarker`，以及 `PlayerView.PlayerMarkerPopover` 和 `PlaybackMarkerRepository`。识别只读内嵌章节元数据，不进行音视频内容分析、不额外下载、不触发全库扫描。
+
+- 影片时长须大于 60 秒，章节必须有完整范围。片头长度 12–180 秒，起点不晚于 `max(总时长×35%, 420秒)`；片尾长度 12–720 秒，起点不早于总时长 45%。关键字、短词边界及 0.88/0.76 置信度按原版翻译，不把普通章号当片头片尾。
+- 每次分析按时间为每类最多新增一个 pending 标记。已有完整手动或已采用范围不覆盖；已有候选 ID（含 rejected）不重建。若同类还有其他匹配章节，后续检测仍可生成不同 ID 的候选，这是原版规则。
+- 待审核条目可跳到起点预览，但不参与跳过或有效时间轴刻度。采用后复用原有关闭/显示按钮/自动跳过，默认仍为显示按钮；忽略后从普通列表隐藏，记录留在数据库。
+- 生成在事务内重新读取（含 rejected），取消导致候选写入回滚；审核只修改对应 `(source_id, local_id, id)` 的 pending automatic 行，保护手动、内嵌及其他来源数据，并防止迟到重复审核反转结果。沿用当前初始 schema，不增加升级或清库操作。
+- 转码后缀章节不覆盖完整章节；仅有后缀观察结果时不凭偏移后的章节生成候选。持久化和跳过均使用影片绝对时间。保存失败保留可用解码器，通过 `controlError` 提示重试。
+
+接口：`PlaybackMarker.isPendingReview`；`session.analyzeIntroOutroMarkers({ScanCancellation? cancellation})` 返回新增数量，取消、切换或失败返回 null；`session.reviewAutomaticPlaybackMarker(marker, {required accepted})` 审核后刷新 `precision`。审核命令返回完成并不保证成功，前端必须核对当前身份、结果状态及 `controlError`。
+
+本批单视频检测暂接播放器现有“章节与播放标记”弹层，采用/忽略按原弹层结构接入。原版检测入口在 `VideoCacheMenuItems` 的媒体条目上下文菜单；该入口、系列批量分析和任务中心仍待迁移，本批不是这些入口的一比一验收，也不表示完整播放器完成。字幕样式和音频延迟未在本批实施。
+
+验证结果（在开发前基线 `e3cbb8a` 之后的本批工作树）：
+
+- `intro_outro_candidates_test.dart`、`player_precision_test.dart`、`player_marker_skip_test.dart`、`player_marker_candidate_ui_test.dart`、`player_marker_skip_ui_test.dart`、`emby_playback_test.dart` 六个文件共 **68 项定向回归通过**。覆盖原版关键字/范围阈值、手动保护、重复与并发生成、忽略持久化、事务取消回滚、写入失败重试、切集隔离、转码后缀保护，以及候选列表的采用/忽略与迟到结果隔离。
+- 首轮新增 UI 测试因夹具在 fakeAsync 外等待清理而挂起，中止该测试进程后修复：组件卸载、延迟结果释放、会话/数据库关闭均在可泵送阶段完成。随后上述定向回归及最终全量均通过，不隐去首次未完成的事实。
+- `flutter test --no-pub --concurrency=1`：**668 passed / 3 skipped**。默认跳过的真实 mpv 用例本批未额外启用；既有 native 证据仍属于各历史批次，不能代替候选功能的真实服务器验收。
+- `flutter analyze --no-pub` 无问题，253 个 Dart 文件格式检查零改动；差异空白检查通过。初轮分析中的括号规则及测试夹具未使用可选参数警告已修正，最终分析无告警。
+- `flutter build windows --release --no-pub --target lib/main.dart` 成功，耗时 **40.8 秒**。`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 **2026-10-15 14:53:36 +08:00** 确认隐藏窗口响应、正常关闭、退出码 0；该检查使用本机现有应用数据，不执行媒体扫描、播放或服务器观看状态写回。
+
+本批 V1–V4 证据不表示候选在真实 Emby、实体键鼠或 macOS/Linux 原生环境已验收，也不证明原版逐像素一致。开发前基线 652 passed / 3 skipped 单独保留，不当作本批数字。
+
 ## 前端接口
 
 入口为 `apps/client/lib/features/playback/application/playback_session.dart`。前端仅持有已有 `PlaybackSession`；不实例化控制器、操作数据库或发送 mpv 命令。

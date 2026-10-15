@@ -65,6 +65,9 @@ class PlaybackMarker {
   final double? confidence;
   final DateTime createdAt;
   final DateTime updatedAt;
+  bool get isPendingReview =>
+      origin == PlaybackMarkerOrigin.automatic &&
+      review == PlaybackMarkerReview.pending;
   bool get isCompleteRange => end != null && end! > start;
   bool contains(Duration time) =>
       isCompleteRange && time >= start && time < end!;

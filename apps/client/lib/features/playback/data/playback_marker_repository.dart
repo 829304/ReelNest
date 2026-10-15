@@ -3,16 +3,21 @@ import 'package:drift/drift.dart';
 import '../../../domain/media_source.dart';
 import '../../../storage/library_database.dart';
 import '../domain/playback_marker.dart';
+import '../domain/intro_outro_candidates.dart';
 
 class PlaybackMarkerRepository {
   PlaybackMarkerRepository(this.database);
   final LibraryDatabase database;
 
-  Future<List<PlaybackMarker>> read(MediaIdentity identity) async =>
+  Future<List<PlaybackMarker>> read(
+    MediaIdentity identity, {
+    bool includingRejected = false,
+  }) async =>
       (await database
               .customSelect(
                 'SELECT * FROM playback_markers WHERE source_id=? AND local_id=? '
-                "AND review_status!='rejected' ORDER BY start_us,created_at,id",
+                "${includingRejected ? '' : "AND review_status!='rejected' "}"
+                'ORDER BY start_us,created_at,id',
                 variables: [
                   Variable(identity.sourceId),
                   Variable(identity.localId),
@@ -21,6 +26,48 @@ class PlaybackMarkerRepository {
               .get())
           .map(_map)
           .toList();
+
+  /// Re-read and insert in the same transaction. A concurrent review cannot be
+  /// overwritten with pending status; rejected IDs also remain in this input.
+  Future<int> generateIntroOutroCandidates(
+    MediaIdentity identity, {
+    required Duration duration,
+    ScanCancellation? cancellation,
+  }) => database.transaction(() async {
+    cancellation?.check();
+    final existing = await read(identity, includingRejected: true);
+    cancellation?.check();
+    final candidates = IntroOutroCandidates.generate(
+      identity: identity,
+      duration: duration,
+      existing: existing,
+    );
+    for (final marker in candidates) {
+      cancellation?.check();
+      await save(marker);
+    }
+    cancellation?.check();
+    return candidates.length;
+  });
+
+  /// Only pending automatic candidates are reviewable. Repeated/late clicks
+  /// from another window cannot reverse a completed review or edit manual data.
+  Future<void> reviewAutomatic(
+    MediaIdentity identity,
+    String id, {
+    required bool accepted,
+  }) => database.customStatement(
+    "UPDATE playback_markers SET review_status=?,updated_at=? "
+    "WHERE source_id=? AND local_id=? AND id=? AND origin='automatic' "
+    "AND review_status='pending'",
+    [
+      accepted ? 'accepted' : 'rejected',
+      DateTime.now().toUtc().millisecondsSinceEpoch,
+      identity.sourceId,
+      identity.localId,
+      id,
+    ],
+  );
 
   Future<void> save(PlaybackMarker marker) => database.customStatement(
     '''

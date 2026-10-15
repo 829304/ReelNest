@@ -815,6 +815,45 @@ class PlaybackSession extends ChangeNotifier {
     await _precision.refresh();
     _updateMarkerSkip();
   }, failureMessage: '章节或书签读取失败，请重试。');
+
+  Future<int?> analyzeIntroOutroMarkers({
+    ScanCancellation? cancellation,
+  }) async {
+    final identity = item?.identity;
+    final expectedEngine = engine;
+    int? count;
+    await _controls(() async {
+      if (identity == null ||
+          item?.identity != identity ||
+          engine != expectedEngine) {
+        return;
+      }
+      try {
+        cancellation?.check();
+        count = await _precision.analyzeIntroOutroMarkers(
+          duration: clock.duration,
+          cancellation: cancellation,
+        );
+        _updateMarkerSkip();
+      } on ScanCancelled {
+        // Cancellation is not a player failure and never disposes its decoder.
+      }
+    }, failureMessage: '片头片尾检测失败，请重试。');
+    return count;
+  }
+
+  Future<void> reviewAutomaticPlaybackMarker(
+    PlaybackMarker marker, {
+    required bool accepted,
+  }) {
+    final expectedEngine = engine;
+    return _controls(() async {
+      if (item?.identity != marker.identity || engine != expectedEngine) return;
+      await _precision.reviewAutomatic(marker, accepted: accepted);
+      _updateMarkerSkip();
+    }, failureMessage: '更新自动标记失败，请重试。');
+  }
+
   Future<void> addBookmark({Duration? at}) => _controls(
     () => _precision.addManual(PlaybackMarkerKind.bookmark, _markerTime(at)),
     failureMessage: '书签保存失败，请重试。',

@@ -5,7 +5,7 @@
 - 最后更新：2026-10-15
 - 适用范围：Windows、macOS、Linux 第一阶段
 - 权威范围：平台实现与验证证据汇总
-- 代码范围：ReelNest `84454d9` 之后至当前未提交工作树的首页运行状态、编排、照片范围调整、视频健康评分、高级播放（含 P1-C 时间轴预览）及侧栏 hover 修复；当前工作树未提交，故不记新提交 hash
+- 代码范围：ReelNest 基线 `e3cbb8a`（含 P1-C 时间轴预览、Emby 分页与计数修复）及其后的单视频片头片尾候选批次；历史模块证据分别保留
 
 ## 使用方式
 
@@ -23,11 +23,14 @@
 
 ## 当前总览
 
+单视频内嵌章节片头片尾候选及采用/忽略已完成 Windows 自动化：68 项定向、全量 668 passed / 3 skipped、分析及 253 文件格式检查通过，Windows Release 40.8 秒构建、14:53:36 +08:00 五秒 smoke 通过。开发前基线为 `e3cbb8a`。原版媒体条目检测入口、系列批量分析及任务中心仍待迁移，真实来源及三端实机/视觉未据此升级验收。详见[当前候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)。
+
 最新播放器 P1-C 时间轴预览已完成自动化验证：`flutter analyze --fatal-infos` 零问题，全量 `flutter test --no-pub` **643 passed / 3 skipped**，时间轴/语义树专项与 native 抽帧 1 项通过；Windows Release 42.3 秒构建及 10:01:54 +08:00 五秒 smoke 通过。真实 Emby、人工可见窗口交互/视觉及 macOS/Linux 原生实机验收仍待。详见[P1-C 验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15)。
 
 | 能力 | Windows | macOS | Linux | 主要证据与缺口 |
 |---|---|---|---|---|
-| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | P1-C 当前 Windows Release 构建及 smoke 通过；macOS/Linux 无真实原生构建/运行记录 |
+| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | 最新单视频候选批次 Windows Release 构建及 smoke 通过；macOS/Linux 无真实原生构建/运行记录 |
+| 内嵌章节片头片尾候选与审核 | ◐ V2/V4 | ◐ V0 | ◐ V0 | 单视频生成、采用/忽略及取消/失败保护通过 Dart/组件回归，Windows Release/smoke 通过；未单独启用 native 用例，不代表真实 Emby、可见窗口或三端视觉已验收；批量/任务中心仍待，见[候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15) |
 | 桌面外壳、导航与主题 | ◐ V2/V4 | 🧪 V2 | 🧪 V2 | 最新侧栏 hover 修复有 45 项导航/鼠标/键盘及平台变体回归和 Windows 启动冒烟；macOS/Linux 变体不是原生运行，完整原版视觉对照未完成，见[Emby 导航验收](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复) |
 | 本地目录来源与扫描 | ◐ V2 | ◐ V0–V2 | ◐ V0–V2 | 文件规则、SQLite、取消/失败保护有自动化；真实移动盘/NAS和三端完整目录流程未统一验收 |
 | macOS 持久目录授权 | 不适用 | ⬜ | 不适用 | 明确未实现，不能据此排除 macOS |

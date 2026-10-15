@@ -18,7 +18,7 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 - P1-B 的 7 个相关测试文件 66 项、全量 620 项通过/2 项跳过及 Windows Release/smoke 均是 P1-C 前的验证；迷你窗可见交互和 macOS/Linux 原生实机验收仍待。详见[播放器 P1-B 记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-b迷你悬浮窗与窗口置顶2026-10-14)。
 - 最新播放器 P1-C 时间轴预览图已完成自动化验证：`flutter analyze --fatal-infos` 零问题，全量 `flutter test --no-pub` 为 643 passed / 3 skipped；时间轴/语义树专项与 native 抽帧通过，Windows Release 构建和五秒 smoke 通过。真实 Emby、人工可见窗口交互/视觉及 macOS/Linux 原生实机验收仍待；P1-B 的 620+2 是此前批次，不能代替 P1-C 验证。详见[播放器 P1-C 记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15)。
 
-本地/Emby 共用播放器的手动片头/片尾标记与跳过策略代码及 Windows 自动化验证已完成；其后外观调整另做定向验证，原版视觉与三端原生验收待完成。自动识别与候选审核留待后续子批次。首页桌面交互与真实数据验收仍保留。详见[播放器总表](docs/PLAYER_STATUS.zh-CN.md)、[高级播放当前批次](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#后续播放器外观调整2026-10-13)和[当前阶段记录](docs/NEXT_STAGE.zh-CN.md)。
+本地/Emby 共用播放器已接入手动片头/片尾标记与跳过，以及单视频内嵌章节候选生成及采用/忽略；本批全量 668 项通过、3 项默认跳过，静态分析、Windows Release 与启动检查通过。原版媒体条目检测入口、系列批量分析与任务中心仍待迁移；首页桌面交互、真实数据、原版视觉与三端原生验收继续保留。详见[播放器总表](docs/PLAYER_STATUS.zh-CN.md)、[高级播放当前批次](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)和[当前阶段记录](docs/NEXT_STAGE.zh-CN.md)。
 
 仍未完成或未完整验收的主要范围包括：Jellyfin、Plex、ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权，三桌面端原生与视觉对照。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
 
