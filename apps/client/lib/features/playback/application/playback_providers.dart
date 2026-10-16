@@ -26,6 +26,26 @@ final playbackLauncherProvider = Provider<PlaybackLauncher>(
   (_) => DesktopPlaybackLauncher(),
 );
 
+/// A batch in the main engine can change markers while a player is already
+/// open. Send only source identities; its session re-reads its own current item.
+Future<void> notifyPlayerMarkerChanges(Set<String> sourceIds) async {
+  for (final window in await WindowController.getAll()) {
+    try {
+      if (window.arguments.isEmpty ||
+          (jsonDecode(window.arguments) as Map)['type'] != 'player') {
+        continue;
+      }
+      await window
+          .invokeMethod('playbackMarkersChanged', {
+            'sourceIds': sourceIds.toList(),
+          })
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // Closing an old player never turns a committed analysis into failure.
+    }
+  }
+}
+
 /// Main and player windows have separate engines. Keep one video window and
 /// send only media identity; paths and access checks are resolved afresh there.
 class DesktopPlaybackLauncher implements PlaybackLauncher {

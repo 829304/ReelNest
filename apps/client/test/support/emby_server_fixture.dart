@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 /// Local protocol fixture; never contacts an external Emby account.
 class EmbyServerFixture {
+  bool _closing = false;
   late HttpServer server;
   int loginCount = 0, viewsCount = 0, userCount = 0;
   int loginStatus = 200, viewsStatus = 200;
@@ -30,7 +32,7 @@ class EmbyServerFixture {
   String get address => 'http://127.0.0.1:${server.port}/proxy/emby/';
   Future<void> start() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    server.listen((request) async {
+    Future<void> respond(HttpRequest request) async {
       final body = await utf8.decoder.bind(request).join();
       requests.add((
         method: request.method,
@@ -169,8 +171,23 @@ class EmbyServerFixture {
         request.response.write('{}');
       }
       await request.response.close();
+    }
+
+    server.listen((request) {
+      unawaited(
+        respond(request).catchError((Object error, StackTrace stack) {
+          // Force-closing the fixture may abort a request while its body is still
+          // arriving. That teardown I/O failure is expected; other handler errors
+          // must still fail the owning test rather than disappear in a Future.
+          if (_closing && error is IOException) return;
+          Zone.current.handleUncaughtError(error, stack);
+        }),
+      );
     });
   }
 
-  Future<void> close() => server.close(force: true);
+  Future<void> close() async {
+    _closing = true;
+    await server.close(force: true);
+  }
 }

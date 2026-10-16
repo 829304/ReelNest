@@ -16,7 +16,70 @@
 - `Sources/MediaLibCore/Models/PlaybackMarker.swift` 与 `Database/PlaybackMarkerRepository.swift`：标记分类、来源、归一化、保存与内嵌章节替换。
 - `Sources/MediaLibCore/Models/AppSettings.swift` 与 `MpvPlayerController.applyVideoSettings`：单片循环默认关闭且记住开关；A/B 不持久化。
 
-## 当前批次：内嵌章节片头片尾候选（2026-10-15）
+## 当前 UI 批次：播放器控制栏 Dock 重构（2026-10-15）
+
+状态：控制栏布局与视觉实现已更新。此前六个播放器相关测试文件 **62 项**通过，全项目 `flutter analyze --no-pub --fatal-infos` 无问题，260 个 Dart 文件格式检查 0 改动，差异空白检查通过。最新固定深色 Chrome 更新后，targeted analyze 无问题，`playback_test.dart` **20/20**、7 个播放器弹层相关测试 **47/47** 通过；Windows Release **34.5 秒**构建成功。2026-10-16 **11:03:30 +08:00** 五秒 smoke 通过：窗口响应、正常关闭、退出码 0。此 smoke 不等同真实 Windows 可见窗口视觉/实体键鼠验收；macOS/Linux 原生目视及三桌面端 UI 对照仍待。
+
+本轮从原依赖画面明暗、宽 **568 px** 的浅色玻璃控制条调整为最大宽 **720 px** 的响应式深色悬浮 Dock。此前宽 **700 px** 测试窗口实测 Dock 为 **664×76 px**；本次最终收敛高度为 **72 px**。圆角 **16 px**，水平/垂直内边距 **16/6 px**。时间轴区域高 **24 px**、轨道 **3 px**；主播放按钮从 **38×38 px** 收敛为 **34×34 px**，播放图标 **18 px**；辅助按钮为 **32×32 px**、图标 **17 px**。紧凑布局左右组为 **160/94 px**，宽布局为 **196/100 px**。片头/片尾提示 bottom 从 **136 px** 调整为 **114 px**，仍不与时间轴命中区冲突。迷你悬浮窗只保留 Dock 按钮，`P` 快捷键仍可用；右键精度菜单中重复的“迷你悬浮窗/还原窗口”入口已删除。深色材质、hover/focus/pressed/selected 动效、几何居中及其余原有功能映射和弹层入口保留。
+
+控制栏锁定入口同步统一为固定 **36 px** 深色玻璃圆形控件，替代原自适应浅色 `PlayerPanelSurface`。未锁定时显示 19 px 白色 `lock_open_rounded`；锁定后显示白色强调圆面与深色 `lock_rounded`。两态以 **160 ms fade+scale** 切换，保留“锁定控制栏/显示控制栏” Tooltip、Semantics toggled、鼠标 hover/pressed/focus 反馈和原锁定逻辑。`playback_test.dart` 增加 36 px 尺寸及开锁→闭锁→开锁图标回归。
+
+播放器页应用固定深色 Chrome 色板，覆盖 Dock、右键精度菜单、字幕/音轨/剧集/音量/设置/画质/标记面板，以及音频设备、字幕字体等嵌套菜单；不再随海报明暗切换为浅色。播放器页局部 `TooltipTheme` 统一字幕、音轨、章节/标记、画质、时间、音量、设置、迷你悬浮窗、全屏和锁定等操作提示，样式为半透明深灰黑底 `#F21A1D22`、白字 `#F2FFFFFF`、细白描边 `#29FFFFFF`，默认向上显示。该局部主题只作用于深色播放器，不改变媒体库等普通页面的主题。
+
+播放器加载态移除 `_loadingOverlay` 外层 `_statusGlass` 矩形玻璃卡片（无背景、边框、模糊或阴影面板），只保留居中的 **42 px** 加载环和两行提示文字；文字增加轻微黑色 Shadow 以提高亮画面上的可读性，并提供 `player-loading-overlay` liveRegion 语义。`slider_overlay_scope_test.dart` 回归检查加载态节点与文案存在，且该节点祖先没有 `BackdropFilter`。
+
+错误态同样移除“内置播放器无法播放”外层深色玻璃矩形卡片及 `BackdropFilter`，只显示居中的禁播图标、标题、错误原因和紧凑“重试”胶囊按钮；图标与文字带轻微黑色阴影，新增 `player-error-overlay` 语义 key、liveRegion 和完整 label。无其他调用后删除 `_statusGlass` helper。`slider_overlay_scope_test.dart` 增加错误态回归，检查错误信息和重试入口存在，且 `player-error-overlay` 不在 `BackdropFilter` 下。
+
+实现位于 `apps/client/lib/features/playback/presentation/video_player_page.dart`，对应组件回归更新于 `apps/client/test/playback_test.dart` 与 `apps/client/test/slider_overlay_scope_test.dart`。最新 Chrome 色板/菜单入口调整后，targeted analyze clean，`playback_test.dart` **20/20**，7 个播放器弹层相关测试 **47/47**；Windows Release 34.5 秒成功，2026-10-16 11:03:30 +08:00 五秒 smoke 窗口响应、正常关闭、退出码 0。该 smoke 未覆盖真实可见窗口视觉或实体键鼠，macOS/Linux 原生目视验收仍待。此前 10:54 的 20/20、34.4 秒和 10:46 的 20/20、36.5 秒均为前序更新结果。
+
+## 当前批次：播放故障诊断与加载健壮性（进行中，2026-10-16）
+
+状态：本轮实现与 Windows 验证已完成。最终改动包含 engine `finally` 的三行兜底错误确认及删除测试 unused import；之后重新启用 `REELNEST_MPV_PATH=Release/libmpv-2.dll` 的 `test/video_load_native_test.dart`，**1 项通过**，`flutter analyze --no-pub` 无问题，`dart format lib test` 检查 **265 个文件、0 改动**，`git diff --check` 通过。全量 `701 passed / 4 skipped`（2:32，exit 0）是在这最后小补丁前完成，未为三行改动重跑全套；不得混作最终代码状态的全量回归。
+
+Windows 正式 `lib/main.dart` Release 构建成功（**40.8 秒**）。AOT `apps/client/build/windows/x64/runner/Release/data/app.so`：2026-10-16 01:12:31（+08:00），11,764,616 字节。2026-10-16 **01:12:55.4413209 +08:00** 五秒 smoke 通过：`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`；stderr 仅有正常 Impeller 提示。此结果不代替真实 Emby 业务复现或 macOS/Linux 原生验收。
+
+### 诊断日志与隐私
+
+- 新增 `apps/client/lib/player/playback_diagnostics.dart` 与 `video_load_monitor.dart`。播放器窗口创建诊断 sink；每次 `PlaybackSession.open` 创建不含媒体身份的 attempt，session 与 engine 共用同一 trace。阶段包含 `source`、`preferences`、`cache`、`emby resource`、`queue`、`engine config`、`open`、`ready`、`tracks`、`previous release`、`timeline`、`track prefs`、`surface`、`play`、`records` 和 `playback`。
+- 持久化到应用 support 目录 `logs/playback-<pid>-<microseconds>.jsonl`。单文件达 **512 KiB** 后滚动一份 `.previous`；队列上限 **256 条**。初始化或轮转时尽力清理本模块文件：保留 **7 天**且最多 **20 份**；清理范围仅匹配本诊断模块文件。写日志失败不影响播放，关闭窗口时刷盘。
+- 字段限于阶段、`elapsedMs`、异常类型、安全 package 或 Dart 堆栈（最多 **12 帧**）、HTTP 状态与分类。不得保存原始异常文本、mpv 原始文本、媒体 ID/名称/路径、播放 URL、令牌/凭据或字幕内容。
+
+### 就绪、错误分类与取消清理
+
+- 不再只依赖 duration 判断就绪：当 mpv `idle-active=no` 且（时长大于零或存在有效 video/audio params）时可判定 ready，兼容没有时长元数据但已建立可播放媒体流的情况。
+- 单条 mpv error 事件不立即判定播放失败；需结合 `idle` 状态确认，并允许 decoder fallback。HTTP 状态需在异常回退/映射中保留，避免 generic 错误覆盖具体分类；真实 mpv 的 HTTP 503 即便处于 warn 级别也要分类并记录状态。
+- 保留 **20 秒** readiness 与 **25 秒**外层解码预算；画面 surface 挂接新增 **10 秒**上限。dispose 时取消等待，各异步 await 后检查对象是否已销毁；清理异常不得覆盖原始失败，也不能让 loading 状态残留。
+
+本批仅增强播放内部诊断及已确认故障路径，不改变产品功能、UI、日志对用户媒体的身份暴露或服务端行为。用户报告的间歇 Emby 播放失败没有对应的历史诊断日志；本批修复的是已确认的错误处理与诊断缺口，尚不能断言已确定其真实根因或已彻底修复该服务器问题。新日志只会在安装新版 EXE 后，从后续播放尝试开始生成，不能回溯旧故障。Windows 日志目录为 `C:/Users/hzx/AppData/Roaming/io.github.user829304/reelnest/logs`；字段中的时间为 UTC ISO 8601，按香港时间查看需换算 +08:00。未连接真实 Emby，也未修改用户媒体数据。用户间歇故障仍待安装新版后实际复现并依据新日志诊断；macOS/Linux 原生未验收。
+
+## 当前批次：检测入口、系列批量分析与任务中心（2026-10-15）
+
+状态：代码与 Windows 自动化验证已完成（685 passed / 3 skipped、分析、Release 和启动检查通过）；真实来源、三端原生与视觉验收仍待。开发前基线为 `fab5dda`，668 passed / 3 skipped 是上一批结果。范围沿用原版已有能力，在线字幕、字幕样式与音频延迟本批不展开。
+
+原版依据为 `64f8ee2` 的 `VideoCacheMenuItems`、`AppState.playbackMarkerAnalysisItems` / `runIntroOutroMarkerAnalysisTask`、`BackgroundTaskSnapshot` / `BackgroundTaskRetryPolicy` / `BackgroundTaskListPolicy` / `BackgroundTaskPersistence` 及 `BackgroundTaskCenterView`。此前单视频候选批次的识别与审核规则继续复用，下面仅补入口、调度与历史。
+
+- 媒体条目右键“检测片头片尾”进入后台任务：有直属子项则分析符合资格的直属视频，否则分析自身。音乐、照片、未知时长及不大于 60 秒的条目不参与。复用已入库的远程时长或已有播放记录时长；本地尚无时长时不猜测、不扫描视频文件。系列仅覆盖当前已载入的符合资格单集，不自动补全服务器目录或等待全库同步。
+- 检测只读已存内嵌章节，不启动 mpv、FFmpeg、视频下载或全库扫描。没有有效章节时结果为没有发现可审核候选；pending、accepted、rejected 和手动保护沿用前批规则。
+- 本地影片/系列/单集、Emby 条目、详情海报和首页卡片接入原入口；移除播放器标记弹层的临时检测按钮，候选采用/忽略继续保留。检测资格在右键时查询，首次绘制海报不逐卡探测，也不因异步资格刷新拆换卡片组件；查询跨帧时持有临时订阅，卡片重用/卸载及旧菜单回传均核对身份。
+- 任务中心合并检测任务与既有扫描/缓存任务，显示准备/已分析进度、候选数量、完成/取消/失败，支持失败重试与清除记录；首页运行状态通过被动 `observedTasksProvider` 接收同一任务。`queued/running` 才是活跃任务；不在纯读取中自动重跑任务。
+- 原版创建 markerAnalysis 任务时可取消、取消路由也已存在，但任务中心视图未渲染其取消按钮。本批按用户明确要求补齐这一可达性缺口；保留原取消语义，属于明确记录的缺陷修补，不把原版 UI 缺口宣称为已逐项复制。
+- 相同 root 的并发启动复用一个任务，后台串行分析；每视频一个事务，范围/媒体版本发生变化则拒绝旧任务写入。Emby 当前选库范围参与资格查询，已取消选择但仍缓存的媒体不参与新检测/重试；库归属和视频版本也参与逐视频复核。取消在内层候选生成及外层提交前均检查，保留此前已提交候选；失败重试重新查询当前范围，不重放旧列表，也不重建同 ID 的已忽略候选。
+- 任务记录写入既有 `player_preferences` 的 `global.markerAnalysisTasks`；持久化/恢复上限 60，新任务插入保留 40 条（运行中任务不被挤掉）。重启把未结束记录标为失败，手动重试；清除记录不删除候选。记录读写失败在任务中心提示，不能使已提交候选变成假失败或阻断播放器。
+- 私密任务隐藏名称，来源变为私密或删除后遮蔽历史标题；原始异常、凭据、视频 URL 和章节内容不进入任务记录。主窗口退出先取消并等待检测、历史写入，再关闭数据库。后台提交后以来源身份通知已打开的播放器重读标记，通知失败不回滚已生成候选。
+
+后端入口：`marker_analysis_repository.dart`（资格/范围与事务复核）、`playback_marker_analysis_controller.dart`（调度/取消/历史）、`marker_analysis_providers.dart`（资格与运行状态投影）、`marker_analysis_task.dart`（任务快照）。不新增数据库表或历史升级逻辑。
+
+本批最终验证（2026-10-15，`fab5dda` 之后的工作树）：
+
+- `flutter test --no-pub --concurrency=1`：**685 passed / 3 skipped**（02:27）。三个默认跳过项依赖显式配置的真实 mpv，本批未单独启用；历史 native 结果继续单独计证。
+- 新增 `marker_analysis_test.dart` **14 项**，覆盖范围/时长、整组进度、来源隔离、Emby 元数据时长和当前选库、并发防重、排队/运行取消、内外事务取消、失败重试、配置/内容变更、历史恢复/清理/上限、私密标题、退出等待及记录读写失败。`marker_analysis_ui_test.dart` **3 项**覆盖右键懒查询/跨帧返回/原 root 入队、首页系列入口和任务中心操作；既有候选审核 **3 项**改为已生成候选的采用/忽略及迟到审核隔离。
+- `flutter analyze --no-pub` 无问题；260 个 Dart 文件格式检查 0 修改，差异空白检查通过。首页动作与运行状态另有 **22 项**定向回归通过。
+- 开发中修复了菜单关闭后才读取已销毁 WidgetRef 导致动作丢失的问题；测试夹具的 fakeAsync 内直接等待数据库导致挂起也已改正。一次定向命令误列不存在的测试文件，该轮未视为成功；最终全量覆盖当前实际测试文件并通过。整合中的 683 项和较早的 685 项仅作中间证据，不替代上述最终冻结版本结果。
+- `flutter build windows --release --no-pub --target lib/main.dart` 成功（**41.0 秒**）。2026-10-15 **19:51:30 +08:00** 的 `scripts/windows-smoke.ps1 -ObservationSeconds 5` 确认隐藏窗口响应、正常关闭、退出码 0。使用本机既有应用数据，未主动启动检测、扫描或播放；产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。
+
+仅使用生成的索引、章节和模拟服务夹具，不使用真实 Emby 进行本批业务写回。真实 Emby、已打开播放器窗口的跨引擎通知、实体键鼠、macOS/Linux 原生与原版视觉逐项验收仍须分别记录；Windows 启动检查不能证明上述业务闭环。
+
+## 前一批：内嵌章节片头片尾候选（2026-10-15）
 
 状态：单视频代码及 Windows 自动化验证已完成；真实来源、实体键鼠及三端原生/视觉验收仍待。本节描述候选批次；下方早期章节中“候选未迁移”仅为当时状态。
 
@@ -41,6 +104,20 @@
 - `flutter build windows --release --no-pub --target lib/main.dart` 成功，耗时 **40.8 秒**。`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 **2026-10-15 14:53:36 +08:00** 确认隐藏窗口响应、正常关闭、退出码 0；该检查使用本机现有应用数据，不执行媒体扫描、播放或服务器观看状态写回。
 
 本批 V1–V4 证据不表示候选在真实 Emby、实体键鼠或 macOS/Linux 原生环境已验收，也不证明原版逐像素一致。开发前基线 652 passed / 3 skipped 单独保留，不当作本批数字。
+
+## 用户授权：播放器输入速率提示（代码冻结，Windows 验证完成，三端验收待定，2026-10-16）
+
+用户确认播放器右上角持续展示播放输入速率：底部播放进度 Dock 显示时显示，Dock 自动隐藏时同步隐藏；不限定为缓冲/卡顿期间显示。这是明确授权的单项新增需求，其他产品范围约束不变。
+
+后端已实现 `VideoClock.networkBytesPerSecond`（`int?`，bytes/sec），通过 mpv `cache-speed` observe 更新。仅 HTTP(S) 视频资源赋值；未知速率、非 HTTP(S)/本地/离线来源为 null；0 是有效读数；切换资源时先清空，转码 session 的时间轴映射保留。mpv 将 `cache-speed` 定义为缓存到下层输入源方向的当前 I/O 读取速度，以约一秒窗口统计；底层 `raw-input-rate` 是网络层或其他字节输入层的估算，可能不准确或缺失。它表示播放器观测到的输入速率估计，不代表整机总网速。参见 [mpv 官方属性说明](https://mpv.io/manual/stable/#properties)。
+
+后端/Emby 相关自动化 **54 项通过**。新增 `test/video_network_speed_native_test.dart` 使用本机节流 HTTP 视频流验证实际 `cache-speed` 可产出大于 0 的输入字节率；暂停播放时缓存预取期间仍可读取速率。该原生用例与既有加载/HTTP 503 原生测试文件分别在隔离进程运行，合计 **2 项通过**。曾尝试在同一测试文件连续创建两个播放器，第二个用例的 503 日志状态丢失；改为沿用原生用例的独立进程隔离后复验通过。此结果不证明或修复底层库的多实例日志行为。
+
+UI 已完成并冻结：HUD 只局部订阅 timeline 速率，避免外层 timeline 订阅引发播放器整页高频重建；与底部控件共用 `shouldShowPlayerControlLayer` 可见掩码。仅已知远程资源且不在 mini/lock 状态时显示；显示与 controls/paused/loading/error 同步。在线媒体 loading/error 或尚无速率时显示 `-- KB/s`；有效 0 显示 `0 KB/s`。小于 1 KB/s 显示小数，KB/s 与 MB/s 以 1024 换算。尚未识别来源、非远程路径、本地/离线来源不创建 HUD 项。视觉为 top 64/right 18，下载图标与阴影文字，无矩形底板；HUD `IgnorePointer`，避免拦截播放器操作。
+
+本轮代码验证（不含完整全量测试）：`network-speed-backend.log` 对应 backend **54 passed**；`network-speed-ui.log` 对应 UI **27 passed**，其中含 **4 项速率 HUD** 测试及真实自动隐藏/鼠标唤醒、采样不续时、loading 未知值检查；`network-speed-native.log` 对应两个独立 native 测试文件合计 **2 passed**。增强后的速度 native 用例在同一进程内连续创建并关闭两个 Player；两次均观察到 `cache-speed > 0`，暂停期间也能读取预取速率。这证明本次速率采样的连续实例场景可用，但不证明另一用例遇到的多实例 HTTP 503 日志状态问题已修复。全项目 analyze 无问题，269 个 Dart 文件格式检查 **0 改动**，diff whitespace 检查通过。**本轮未重复上一轮 701 项全量**，该数字不是本轮验证结果。
+
+正式 `lib/main.dart` Windows Release 构建 **39.6 秒成功**（`network-speed-build.log`）。AOT 产物 `apps/client/build/windows/x64/runner/Release/data/app.so` 于 **2026-10-16 01:27:35 +08** 生成，大小 **11,797,384 bytes**。五秒 smoke 于 **2026-10-16T01:28:42.7234575+08** 通过：`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`；stderr 仅正常 Impeller 提示。该结果不代表真实 Emby、实体键鼠、macOS/Linux 原生或三桌面端 UI 视觉验收完成；上述项目继续待验收。
 
 ## 前端接口
 

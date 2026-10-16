@@ -13,6 +13,7 @@ class VideoClock {
     this.rate = 1,
     this.warning,
     this.error,
+    this.networkBytesPerSecond,
   });
   final Duration position;
   final Duration duration;
@@ -23,6 +24,10 @@ class VideoClock {
   final double rate;
   final String? warning;
   final String? error;
+
+  /// Estimated input bytes/second for an online stream. Null for local files,
+  /// offline copies, unsupported backends or a not-yet-available sample.
+  final int? networkBytesPerSecond;
 }
 
 abstract interface class VideoEngine {

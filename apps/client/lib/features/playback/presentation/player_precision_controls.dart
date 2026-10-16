@@ -26,10 +26,8 @@ class PlayerMarkerPanel extends StatefulWidget {
 }
 
 class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
-  ScanCancellation? _analysisCancellation;
   MediaIdentity? _identity;
   VideoEngine? _engine;
-  bool _analyzing = false;
   String? _actionStatus;
   final _reviewingMarkerIds = <String>{};
 
@@ -49,7 +47,6 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session == session) return;
     oldWidget.session.removeListener(_handleSessionChange);
-    _cancelAnalysis();
     _actionStatus = null;
     _reviewingMarkerIds.clear();
     _identity = session.item?.identity;
@@ -60,7 +57,6 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
   @override
   void dispose() {
     session.removeListener(_handleSessionChange);
-    _analysisCancellation?.cancel();
     super.dispose();
   }
 
@@ -70,19 +66,12 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
     if (identity == _identity && identical(engine, _engine)) return;
     _identity = identity;
     _engine = engine;
-    _cancelAnalysis();
     if (mounted) {
       setState(() {
         _actionStatus = null;
         _reviewingMarkerIds.clear();
       });
     }
-  }
-
-  void _cancelAnalysis() {
-    _analysisCancellation?.cancel();
-    _analysisCancellation = null;
-    _analyzing = false;
   }
 
   bool get _canUse =>
@@ -109,37 +98,6 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
 
   Future<void> _delete(PlaybackMarker marker) async {
     await session.deletePlaybackMarker(marker.id);
-  }
-
-  Future<void> _analyze() async {
-    final expectedSession = session;
-    final identity = expectedSession.item?.identity;
-    final expectedEngine = expectedSession.engine;
-    if (!_canUse || _analyzing || identity == null) return;
-    _analysisCancellation?.cancel();
-    final cancellation = ScanCancellation();
-    _analysisCancellation = cancellation;
-    setState(() {
-      _analyzing = true;
-      _actionStatus = null;
-    });
-    final count = await expectedSession.analyzeIntroOutroMarkers(
-      cancellation: cancellation,
-    );
-    if (!mounted ||
-        !identical(_analysisCancellation, cancellation) ||
-        session != expectedSession ||
-        expectedSession.engine != expectedEngine ||
-        expectedSession.item?.identity != identity) {
-      return;
-    }
-    _analysisCancellation = null;
-    setState(() {
-      _analyzing = false;
-      if (count != null && expectedSession.controlError == null) {
-        _actionStatus = count == 0 ? '没有发现可审核候选' : '发现 $count 个待审核标记';
-      }
-    });
   }
 
   Future<void> _review(PlaybackMarker marker, {required bool accepted}) async {
@@ -339,19 +297,6 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
                     ),
                   ],
                 ),
-                // This phase exposes current-video analysis beside its review
-                // list. The original media-item context-menu entry, series
-                // batch analysis and task-center flow remain later migrations.
-                SizedBox(
-                  width: double.infinity,
-                  child: _action(
-                    key: const ValueKey('analyze-intro-outro-markers'),
-                    icon: Icons.auto_awesome_rounded,
-                    label: _analyzing ? '正在检测…' : '检测片头片尾',
-                    busy: _analyzing,
-                    action: _canUse && !_analyzing ? _analyze : null,
-                  ),
-                ),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 140),
                   child: _actionStatus == null
@@ -401,7 +346,6 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
     required IconData icon,
     required String label,
     required Future<void> Function()? action,
-    bool busy = false,
   }) => Material(
     color: Colors.transparent,
     child: InkWell(
@@ -419,16 +363,7 @@ class _PlayerMarkerPanelState extends State<PlayerMarkerPanel> {
         child: Row(
           spacing: 6,
           children: [
-            if (busy)
-              SizedBox.square(
-                dimension: 13,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.6,
-                  color: palette.primary,
-                ),
-              )
-            else
-              Icon(icon, size: 13, color: palette.primary),
+            Icon(icon, size: 13, color: palette.primary),
             Expanded(
               child: Text(
                 label,
@@ -755,8 +690,6 @@ Future<void> showPlayerPrecisionMenu(
   required PlayerPalette palette,
   required PlayerNotice onNotice,
   required VoidCallback onOpenPlaybackInfo,
-  required VoidCallback? onToggleMiniMode,
-  required bool miniMode,
 }) => showGeneralDialog<void>(
   context: context,
   barrierDismissible: true,
@@ -769,8 +702,6 @@ Future<void> showPlayerPrecisionMenu(
     palette: palette,
     onNotice: onNotice,
     onOpenPlaybackInfo: onOpenPlaybackInfo,
-    onToggleMiniMode: onToggleMiniMode,
-    miniMode: miniMode,
   ),
 );
 
@@ -781,8 +712,6 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     required this.palette,
     required this.onNotice,
     required this.onOpenPlaybackInfo,
-    required this.onToggleMiniMode,
-    required this.miniMode,
   });
 
   final Offset position;
@@ -790,8 +719,6 @@ class _PlayerPrecisionMenu extends StatelessWidget {
   final PlayerPalette palette;
   final PlayerNotice onNotice;
   final VoidCallback onOpenPlaybackInfo;
-  final VoidCallback? onToggleMiniMode;
-  final bool miniMode;
 
   bool get _canControl =>
       !session.loading &&
@@ -832,151 +759,142 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     final top = position.dy
         .clamp(12, screen.height - estimatedHeight - 12)
         .toDouble();
-    return Stack(
-      children: [
-        Positioned(
-          left: left,
-          top: top,
-          width: width,
-          child: PlayerPanelEntrance(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([
-                session,
-                session.precision,
-                session.timeline,
-              ]),
-              builder: (context, _) {
-                final state = session.precision.value;
-                final loop = state.loop;
-                return Material(
-                  color: Colors.transparent,
-                  child: PlayerPanelSurface(
-                    key: const ValueKey('player-precision-menu'),
-                    palette: palette,
-                    radius: 15,
-                    shadowRadius: 18,
-                    shadowOffset: const Offset(0, 8),
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _section('播放'),
-                          _item(
-                            key: const ValueKey('restart-playback'),
-                            icon: Icons.first_page_rounded,
-                            title: '从头播放',
-                            shortcut: 'Home',
-                            onTap: _canControl
-                                ? () => session.seek(Duration.zero)
-                                : null,
-                          ),
-                          _item(
-                            key: const ValueKey('open-playback-info'),
-                            icon: Icons.info_outline_rounded,
-                            title: '播放信息',
-                            shortcut: 'I',
-                            onTap: () async {
-                              Navigator.of(context).pop();
-                              onOpenPlaybackInfo();
-                            },
-                          ),
-                          if (onToggleMiniMode != null)
+    return Theme(
+      data: playerOverlayThemeData(Theme.of(context)),
+      child: Stack(
+        children: [
+          Positioned(
+            left: left,
+            top: top,
+            width: width,
+            child: PlayerPanelEntrance(
+              child: AnimatedBuilder(
+                animation: Listenable.merge([
+                  session,
+                  session.precision,
+                  session.timeline,
+                ]),
+                builder: (context, _) {
+                  final state = session.precision.value;
+                  final loop = state.loop;
+                  return Material(
+                    color: Colors.transparent,
+                    child: PlayerPanelSurface(
+                      key: const ValueKey('player-precision-menu'),
+                      palette: palette,
+                      radius: 15,
+                      shadowRadius: 18,
+                      shadowOffset: const Offset(0, 8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _section('播放'),
                             _item(
-                              key: const ValueKey('toggle-mini-mode'),
-                              icon: miniMode
-                                  ? Icons.open_in_full_rounded
-                                  : Icons.picture_in_picture_alt_rounded,
-                              title: miniMode ? '还原窗口' : '迷你悬浮窗',
-                              shortcut: 'P',
+                              key: const ValueKey('restart-playback'),
+                              icon: Icons.first_page_rounded,
+                              title: '从头播放',
+                              shortcut: 'Home',
+                              onTap: _canControl
+                                  ? () => session.seek(Duration.zero)
+                                  : null,
+                            ),
+                            _item(
+                              key: const ValueKey('open-playback-info'),
+                              icon: Icons.info_outline_rounded,
+                              title: '播放信息',
+                              shortcut: 'I',
                               onTap: () async {
                                 Navigator.of(context).pop();
-                                onToggleMiniMode!();
+                                onOpenPlaybackInfo();
                               },
                             ),
-                          Divider(height: 11, color: palette.divider),
-                          _section('循环'),
-                          _item(
-                            key: const ValueKey('toggle-current-loop'),
-                            icon: Icons.repeat_one_rounded,
-                            title: '单片循环',
-                            value: loop.loopCurrentItem ? '已开启' : '已关闭',
-                            selected: loop.loopCurrentItem,
-                            onTap: _canControl
-                                ? () => _loop(!loop.loopCurrentItem)
-                                : null,
-                          ),
-                          _item(
-                            key: const ValueKey('cycle-ab-loop'),
-                            icon: Icons.repeat_rounded,
-                            title: loop.start == null
-                                ? '设置 A 点'
-                                : loop.end == null
-                                ? '设置 B 点'
-                                : '重设 A 点',
-                            value: _loopValue(loop),
-                            shortcut: 'B',
-                            onTap: _canControl ? _cycleAB : null,
-                          ),
-                          if (loop.start != null)
+                            Divider(height: 11, color: palette.divider),
+                            _section('循环'),
                             _item(
-                              key: const ValueKey('clear-ab-loop'),
-                              icon: Icons.cancel_outlined,
-                              title: '清除 A-B 循环',
-                              shortcut: 'Shift+B',
-                              onTap: _canControl ? _clearAB : null,
+                              key: const ValueKey('toggle-current-loop'),
+                              icon: Icons.repeat_one_rounded,
+                              title: '单片循环',
+                              value: loop.loopCurrentItem ? '已开启' : '已关闭',
+                              selected: loop.loopCurrentItem,
+                              onTap: _canControl
+                                  ? () => _loop(!loop.loopCurrentItem)
+                                  : null,
                             ),
-                          Divider(height: 11, color: palette.divider),
-                          _section('逐帧'),
-                          Row(
-                            spacing: 6,
-                            children: [
-                              Expanded(
-                                child: _compactAction(
-                                  key: const ValueKey('step-frame-backward'),
-                                  icon: Icons.skip_previous_rounded,
-                                  title: '上一帧',
-                                  shortcut: ',',
-                                  action: _canControl
-                                      ? () => session.stepFrame(backward: true)
-                                      : null,
-                                ),
-                              ),
-                              Expanded(
-                                child: _compactAction(
-                                  key: const ValueKey('step-frame-forward'),
-                                  icon: Icons.skip_next_rounded,
-                                  title: '下一帧',
-                                  shortcut: '.',
-                                  action: _canControl
-                                      ? () => session.stepFrame()
-                                      : null,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (!state.supported)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 7),
-                              child: Text(
-                                '当前播放引擎不支持循环或逐帧操作。',
-                                style: TextStyle(
-                                  color: palette.subdued,
-                                  fontSize: 10.5,
-                                ),
-                              ),
+                            _item(
+                              key: const ValueKey('cycle-ab-loop'),
+                              icon: Icons.repeat_rounded,
+                              title: loop.start == null
+                                  ? '设置 A 点'
+                                  : loop.end == null
+                                  ? '设置 B 点'
+                                  : '重设 A 点',
+                              value: _loopValue(loop),
+                              shortcut: 'B',
+                              onTap: _canControl ? _cycleAB : null,
                             ),
-                        ],
+                            if (loop.start != null)
+                              _item(
+                                key: const ValueKey('clear-ab-loop'),
+                                icon: Icons.cancel_outlined,
+                                title: '清除 A-B 循环',
+                                shortcut: 'Shift+B',
+                                onTap: _canControl ? _clearAB : null,
+                              ),
+                            Divider(height: 11, color: palette.divider),
+                            _section('逐帧'),
+                            Row(
+                              spacing: 6,
+                              children: [
+                                Expanded(
+                                  child: _compactAction(
+                                    key: const ValueKey('step-frame-backward'),
+                                    icon: Icons.skip_previous_rounded,
+                                    title: '上一帧',
+                                    shortcut: ',',
+                                    action: _canControl
+                                        ? () =>
+                                              session.stepFrame(backward: true)
+                                        : null,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _compactAction(
+                                    key: const ValueKey('step-frame-forward'),
+                                    icon: Icons.skip_next_rounded,
+                                    title: '下一帧',
+                                    shortcut: '.',
+                                    action: _canControl
+                                        ? () => session.stepFrame()
+                                        : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (!state.supported)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 7),
+                                child: Text(
+                                  '当前播放引擎不支持循环或逐帧操作。',
+                                  style: TextStyle(
+                                    color: palette.subdued,
+                                    fontSize: 10.5,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

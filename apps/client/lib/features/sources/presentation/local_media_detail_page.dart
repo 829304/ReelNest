@@ -17,6 +17,7 @@ import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
 import 'emby_media_actions.dart';
 import 'emby_video_context_menu.dart';
+import 'marker_analysis_menu.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
 import 'emby_detail_extras.dart';
@@ -329,49 +330,52 @@ class _DetailHero extends StatelessWidget {
       if (detail?.contentRating case final contentRating?)
         (icon: Icons.person_outline_rounded, label: contentRating),
     ];
-    final artwork = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(13),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .24),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: AspectRatio(
-        aspectRatio: landscape ? 16 / 9 : 2 / 3,
-        child: ClipRRect(
+    final artwork = MarkerAnalysisContextMenu(
+      identity: item.identity,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(13),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              LocalMediaArtwork(
-                source: source,
-                item: item,
-                fit: BoxFit.cover,
-                revision: artworkRevision,
-              ),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0x20FFFFFF), Color(0x00000000)],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .24),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: AspectRatio(
+          aspectRatio: landscape ? 16 / 9 : 2 / 3,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                LocalMediaArtwork(
+                  source: source,
+                  item: item,
+                  fit: BoxFit.cover,
+                  revision: artworkRevision,
+                ),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0x20FFFFFF), Color(0x00000000)],
+                    ),
                   ),
                 ),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: .30),
-                    width: .85,
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .30),
+                      width: .85,
+                    ),
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                  borderRadius: BorderRadius.circular(13),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -902,6 +906,8 @@ class _EpisodeRow extends ConsumerWidget {
     );
     return source.kind == MediaSourceKind.emby
         ? EmbyVideoContextMenu(item: item, child: row)
+        : source.kind.isFileSource
+        ? MarkerAnalysisContextMenu(identity: item.identity, child: row)
         : row;
   }
 }

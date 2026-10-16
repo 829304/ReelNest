@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../../domain/media_source.dart';
 import '../../../player/media_kit_video_engine.dart';
+import '../../../player/playback_diagnostics.dart';
 import '../../sources/application/source_providers.dart';
 import '../../sources/application/emby_providers.dart';
 import '../application/playback_providers.dart';
@@ -31,6 +32,7 @@ class PlayerWindowApp extends ConsumerStatefulWidget {
 class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     with WindowListener {
   final _page = GlobalKey<VideoPlayerPageState>();
+  final _diagnostics = PlaybackDiagnostics();
   late final PlaybackSession _session;
   late final PlayerWindowCoordinator _windowCoordinator;
   late final MediaIdentity _initial;
@@ -47,13 +49,22 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       createEngine: MediaKitVideoEngine.new,
       emby: ref.read(embyConnectionProvider),
       cache: ref.read(embyCacheProvider),
+      diagnostics: _diagnostics,
     );
     _windowCoordinator = PlayerWindowCoordinator(
       const DesktopPlayerWindowGateway(),
     );
     _session.addListener(_onPlaybackChanged);
     windowManager.addListener(this);
-    unawaited(_configure());
+    unawaited(
+      _configure().catchError((Object error, StackTrace stack) {
+        _diagnostics.begin().failure(
+          'window_configuration_failed',
+          error,
+          stack,
+        );
+      }),
+    );
   }
 
   void _onPlaybackChanged() {
@@ -109,6 +120,15 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
         await _page.currentState?.requestClose();
         return _destroyed;
       }
+      if (call.method == 'playbackMarkersChanged') {
+        final ids = List<String>.from(
+          (call.arguments as Map)['sourceIds'] as List,
+        );
+        if (!_destroyed && ids.contains(_session.item?.identity.sourceId)) {
+          await _session.refreshTimeline();
+        }
+        return null;
+      }
       if (call.method == 'status') {
         return {
           'loading': _session.loading,
@@ -153,6 +173,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     await ref.read(embyCacheProvider).dispose();
     ref.read(embyConnectionProvider).dispose();
     await ref.read(sourceRepositoryProvider).close();
+    await _diagnostics.close();
     // window_manager.destroy posts WM_QUIT on Windows, which would exit
     // every engine. Close this native window after committing the checkpoint.
     windowManager.removeListener(this);
@@ -174,6 +195,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
     _session.removeListener(_onPlaybackChanged);
     _windowCoordinator.dispose();
     _session.dispose();
+    unawaited(_diagnostics.close());
     super.dispose();
   }
 

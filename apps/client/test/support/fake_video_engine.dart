@@ -4,8 +4,39 @@ import 'package:flutter/widgets.dart';
 import 'package:reelnest/player/video_engine.dart';
 import 'package:reelnest/player/video_tracks.dart';
 import 'package:reelnest/player/video_timeline.dart';
+import 'package:reelnest/player/video_subtitle_settings_engine.dart';
+import 'package:reelnest/features/playback/domain/video_subtitle_settings.dart';
 
-class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
+class FakeVideoEngine
+    implements VideoEngine, VideoTimelineEngine, VideoSubtitleSettingsEngine {
+  @override
+  VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
+  @override
+  VideoTimingSettings timing = const VideoTimingSettings();
+  @override
+  Future<void> setSubtitleStyle(VideoSubtitleStyle style) async {
+    _checkControl();
+    subtitleStyle = style.normalized;
+  }
+
+  @override
+  Future<void> setAudioDelay(double seconds) async {
+    _checkControl();
+    timing = timing.copyWith(audioDelay: seconds);
+  }
+
+  @override
+  Future<void> setSubtitleScale(double scale) async {
+    _checkControl();
+    timing = timing.copyWith(subtitleScale: scale);
+  }
+
+  @override
+  Future<void> setSubtitlePosition(double position) async {
+    _checkControl();
+    timing = timing.copyWith(subtitlePosition: position);
+  }
+
   List<VideoChapter> chapterList = const [];
   final chapterEvents = StreamController<List<VideoChapter>>.broadcast(
     sync: true,
@@ -137,6 +168,7 @@ class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
   @override
   Future<void> setSubtitleDelay(double seconds) async {
     _checkControl();
+    timing = timing.copyWith(subtitleDelay: seconds);
     emitTracks(delay: seconds);
   }
 
@@ -162,6 +194,8 @@ class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
     bool? completed,
     String? error,
     double? rate,
+    int? networkBytesPerSecond,
+    bool clearNetworkSpeed = false,
   }) {
     value = VideoClock(
       position: position ?? value.position,
@@ -171,6 +205,9 @@ class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
       volume: value.volume,
       rate: rate ?? value.rate,
       error: error,
+      networkBytesPerSecond: clearNetworkSpeed
+          ? null
+          : networkBytesPerSecond ?? value.networkBytesPerSecond,
     );
     events.add(value);
   }
@@ -203,6 +240,7 @@ class FakeVideoEngine implements VideoEngine, VideoTimelineEngine {
       completed: value.completed,
       volume: volume,
       rate: value.rate,
+      networkBytesPerSecond: value.networkBytesPerSecond,
     );
     events.add(value);
   }

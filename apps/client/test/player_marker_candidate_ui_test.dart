@@ -25,18 +25,21 @@ class _MarkerUiSession extends PlaybackSession {
     required super.createEngine,
   }) : super(checkpointInterval: const Duration(hours: 1));
 
-  bool delayAnalysis = false;
-  ScanCancellation? receivedCancellation;
-  Completer<int?>? delayedResult;
+  bool delayReview = false;
+  PlaybackMarker? receivedReviewMarker;
+  Completer<void>? delayedReview;
 
   @override
-  Future<int?> analyzeIntroOutroMarkers({ScanCancellation? cancellation}) {
-    if (!delayAnalysis) {
-      return super.analyzeIntroOutroMarkers(cancellation: cancellation);
+  Future<void> reviewAutomaticPlaybackMarker(
+    PlaybackMarker marker, {
+    required bool accepted,
+  }) {
+    if (!delayReview) {
+      return super.reviewAutomaticPlaybackMarker(marker, accepted: accepted);
     }
-    receivedCancellation = cancellation;
-    delayedResult = Completer<int?>();
-    return delayedResult!.future;
+    receivedReviewMarker = marker;
+    delayedReview = Completer<void>();
+    return delayedReview!.future;
   }
 }
 
@@ -83,9 +86,9 @@ void main() {
 
   tearDown(() async {
     if (!resourcesClosed) {
-      final delayed = session.delayedResult;
+      final delayed = session.delayedReview;
       if (delayed != null && !delayed.isCompleted) {
-        delayed.complete(null);
+        delayed.complete();
       }
       await session.close(discardProgress: true);
       session.dispose();
@@ -145,9 +148,9 @@ void main() {
   }
 
   Future<void> closeHarness(WidgetTester tester) async {
-    final delayed = session.delayedResult;
+    final delayed = session.delayedReview;
     if (delayed != null && !delayed.isCompleted) {
-      delayed.complete(null);
+      delayed.complete();
     }
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -157,24 +160,22 @@ void main() {
     resourcesClosed = true;
   }
 
-  testWidgets('detects, accepts and rejects current-video candidates', (
-    tester,
-  ) async {
-    try {
-      await pumpPanel(tester);
-      await tester.tap(
-        find.byKey(const ValueKey('analyze-intro-outro-markers')),
-      );
-      await waitUntil(
-        tester,
-        () =>
-            session.precision.value.markers
-                .where((marker) => marker.isPendingReview)
-                .length ==
-            2,
-      );
+  Future<void> generateCandidates(WidgetTester tester) async {
+    final count = await tester.runAsync(
+      () => session.analyzeIntroOutroMarkers(),
+    );
+    expect(count, 2);
+  }
 
-      expect(find.text('发现 2 个待审核标记'), findsOneWidget);
+  testWidgets('reviews already-generated candidates', (tester) async {
+    try {
+      await generateCandidates(tester);
+      await pumpPanel(tester);
+
+      expect(
+        find.byKey(const ValueKey('analyze-intro-outro-markers')),
+        findsNothing,
+      );
       final pending = session.precision.value.markers
           .where((marker) => marker.isPendingReview)
           .toList();
@@ -221,63 +222,63 @@ void main() {
         find.byKey(ValueKey('playback-marker-${credits.id}')),
         findsNothing,
       );
-
-      await tester.tap(
-        find.byKey(const ValueKey('analyze-intro-outro-markers')),
-      );
-      await waitUntil(
-        tester,
-        () => find.text('没有发现可审核候选').evaluate().isNotEmpty,
-      );
     } finally {
       await closeHarness(tester);
     }
   });
 
-  testWidgets('closing the panel cancels a current-video detection', (
+  testWidgets('closing the panel suppresses a late review result', (
     tester,
   ) async {
     try {
-      session.delayAnalysis = true;
+      await generateCandidates(tester);
+      session.delayReview = true;
       await pumpPanel(tester);
+      final marker = session.precision.value.markers.firstWhere(
+        (value) => value.isPendingReview,
+      );
       await tester.tap(
-        find.byKey(const ValueKey('analyze-intro-outro-markers')),
+        find.byKey(ValueKey('accept-automatic-marker-${marker.id}')),
       );
       await tester.pump();
-      expect(find.text('正在检测…'), findsOneWidget);
-      expect(session.receivedCancellation, isNotNull);
+      expect(session.receivedReviewMarker?.id, marker.id);
 
       await tester.pumpWidget(const SizedBox.shrink());
-      expect(
-        session.receivedCancellation!.check,
-        throwsA(isA<ScanCancelled>()),
-      );
+      session.delayedReview!.complete();
+      await tester.pump();
+      expect(tester.takeException(), isNull);
     } finally {
       await closeHarness(tester);
     }
   });
 
-  testWidgets('switching video suppresses a late detection result', (
+  testWidgets('switching video suppresses a late review result', (
     tester,
   ) async {
     try {
-      session.delayAnalysis = true;
+      await generateCandidates(tester);
+      session.delayReview = true;
       await pumpPanel(tester);
+      final marker = session.precision.value.markers.firstWhere(
+        (value) => value.isPendingReview,
+      );
       await tester.tap(
-        find.byKey(const ValueKey('analyze-intro-outro-markers')),
+        find.byKey(ValueKey('accept-automatic-marker-${marker.id}')),
       );
       await tester.pump();
-      final cancellation = session.receivedCancellation!;
+      expect(session.receivedReviewMarker?.id, marker.id);
 
       var switched = false;
       unawaited(session.open(second).then((_) => switched = true));
       await waitUntil(tester, () => switched);
-      expect(cancellation.check, throwsA(isA<ScanCancelled>()));
-      session.delayedResult!.complete(2);
+      session.delayedReview!.complete();
       await tester.pump();
 
-      expect(find.text('发现 2 个待审核标记'), findsNothing);
-      expect(find.text('检测片头片尾'), findsOneWidget);
+      expect(find.textContaining('已采用自动标记'), findsNothing);
+      expect(
+        find.byKey(ValueKey('accept-automatic-marker-${marker.id}')),
+        findsNothing,
+      );
     } finally {
       await closeHarness(tester);
     }

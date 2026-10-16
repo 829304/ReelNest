@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
 import '../../../api/emby/emby_playback.dart';
+import '../../../api/emby/emby_client.dart' show EmbyFailure;
 import '../../../api/emby/emby_subtitle.dart';
 import '../../../api/emby/emby_quality.dart';
 import '../../sources/data/emby_connection_repository.dart';
@@ -13,6 +14,10 @@ import '../../sources/data/emby_cache_repository.dart';
 import '../../../player/video_engine.dart';
 import '../../../player/video_tracks.dart';
 import '../../../player/video_timeline.dart';
+import '../../../player/playback_diagnostics.dart';
+import '../../../player/video_subtitle_settings_engine.dart';
+import '../../../platform/subtitle_font_catalog.dart';
+import '../../../storage/runtime_storage_paths.dart';
 import '../../../player/mpv_video_frame_preview.dart';
 import '../../sources/data/source_repository.dart';
 import '../data/playback_repository.dart';
@@ -26,6 +31,7 @@ import '../domain/video_queue.dart';
 import '../domain/playback_record.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_frame_preview.dart';
+import '../domain/video_subtitle_settings.dart';
 import 'video_frame_preview_cache.dart';
 
 /// Owns a single engine; transitions and checkpoints are serialized. No widget
@@ -41,11 +47,35 @@ class PlaybackSession extends ChangeNotifier {
     this.cache,
     this.remoteReportInterval = const Duration(seconds: 15),
     this.waitForSurface,
+    this.diagnostics,
+    Future<List<String>> Function()? subtitleFonts,
     VideoPreviewGenerator? previewGenerator,
   }) : preferences =
            preferences ?? PlayerPreferencesRepository(sources.database),
-       _previewGenerator = previewGenerator ?? generateMpvVideoPreview;
+       _previewGenerator = previewGenerator ?? generateMpvVideoPreview,
+       _subtitleFonts = subtitleFonts ?? SubtitleFontCatalog().families;
   final SourceRepository sources;
+  final PlaybackDiagnostics? diagnostics;
+  PlaybackTrace? _trace;
+  final Future<List<String>> Function() _subtitleFonts;
+  Future<List<String>>? _fontFamilies;
+  Future<List<String>> get subtitleFontFamilies {
+    if (_fontFamilies != null) return _fontFamilies!;
+    final future = _fontFamilies = Future<List<String>>.sync(_subtitleFonts)
+        .catchError((Object error, StackTrace stack) {
+          _fontFamilies = null;
+          Error.throwWithStackTrace(error, stack);
+        });
+    // A tab's FutureBuilder attaches on the next frame. Handle early failures
+    // immediately while preserving the original failed Future for its error UI.
+    unawaited(
+      future.then<void>((_) {}, onError: (Object _, StackTrace stack) {}),
+    );
+    return future;
+  }
+
+  VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
+  VideoTimingSettings timing = const VideoTimingSettings();
   final PlaybackRepository records;
   final VideoPreviewGenerator _previewGenerator;
   VideoPreviewResource? _previewResource;
@@ -216,6 +246,9 @@ class PlaybackSession extends ChangeNotifier {
         ? _precision.value.loop
         : const PlaybackLoopState();
     final wasPlaying = clock.playing;
+    final trace = diagnostics?.begin();
+    final previousTrace = _trace;
+    trace?.event('open_begin');
     VideoEngine? candidate;
     String? candidateLease;
     _checkpoint?.cancel();
@@ -224,8 +257,10 @@ class PlaybackSession extends ChangeNotifier {
     transitionMessage = null;
     notifyListeners();
     try {
+      trace?.stage('source_lookup');
       final selected = await sources.media(identity);
       final source = await sources.source(identity.sourceId);
+      trace?.event('source_selected', code: source.kind.name);
       if (selected.isSeries ||
           selected.type == 'music' ||
           selected.type == 'photo') {
@@ -234,9 +269,13 @@ class PlaybackSession extends ChangeNotifier {
       String resource;
       String? localPath;
       String? nextCacheWarning;
+      trace?.stage('preferences');
       final nextHistoryEpoch = await records.historyEpoch(identity);
       final record = await records.read(identity);
       final nextOptions = await preferences.options;
+      final nextStyle = await preferences.subtitleStyle;
+      final nextTiming = await preferences.timing;
+      String? nextSubtitleWarning;
       final loopCurrentItem = await preferences.loopCurrentItem;
       final markerSkipBehavior = await preferences.markerSkipBehavior;
       final resume =
@@ -248,6 +287,7 @@ class PlaybackSession extends ChangeNotifier {
       var streamOffset = Duration.zero;
       String? playSessionId;
       if (source.kind.isFileSource) {
+        trace?.stage('local_resource');
         localPath = p.normalize(
           p.joinAll([source.location, ...p.posix.split(identity.localId)]),
         );
@@ -260,9 +300,11 @@ class PlaybackSession extends ChangeNotifier {
       } else if (source.kind == MediaSourceKind.emby && emby != null) {
         ({String path, String lease})? cached;
         if (!force) {
+          trace?.stage('cache_lookup');
           try {
             cached = await cache?.acquire(identity);
-          } catch (_) {
+          } catch (error, stack) {
+            trace?.failure('cache_fallback', error, stack);
             // A disconnected cache volume must not prevent online playback.
             // Keep its manifest intact so reconnecting the disk restores it.
             nextCacheWarning = '本地缓存读取失败，已尝试在线播放。请检查缓存目录或磁盘连接。';
@@ -272,6 +314,7 @@ class PlaybackSession extends ChangeNotifier {
           candidateLease = cached.lease;
           resource = localPath = cached.path;
         } else {
+          trace?.stage('emby_resource');
           playSessionId = newEmbyIdentity();
           // A suffix generated at the resume point cannot loop the entire
           // film or an A point before that offset. Request a full timeline for
@@ -296,6 +339,12 @@ class PlaybackSession extends ChangeNotifier {
       } else {
         throw const SourceFailure('此媒体源尚不支持播放。');
       }
+      trace?.event(
+        'resource_ready',
+        remote: localPath == null,
+        cached: candidateLease != null,
+      );
+      trace?.stage('queue_and_preferences');
       final sidecars = localPath == null
           ? <SidecarSubtitle>[]
           : await SidecarSubtitle.find(localPath);
@@ -309,20 +358,29 @@ class PlaybackSession extends ChangeNotifier {
       final inventory = await sources.inventory();
       final nextQueue = VideoQueue.forItem(selected, inventory.items);
       if (previous != null) {
+        trace?.stage('previous_checkpoint');
         try {
           await previous.pause();
         } catch (_) {
           /* Save last valid clock. */
         }
         await save(completed: clock.completed);
-        if (saveError != null) return;
+        if (saveError != null) {
+          trace?.event('open_aborted', code: 'checkpoint_failed');
+          return;
+        }
       }
       if (_closed || _closing != null) return;
       final current = candidate = createEngine();
+      if (current is DiagnosableVideoEngine) {
+        (current as DiagnosableVideoEngine).diagnosticTrace = trace;
+      }
+      trace?.stage('decoder_load');
       await current
           .open(resource, streamOffset > Duration.zero ? Duration.zero : resume)
           .timeout(const Duration(seconds: 25));
       if (current.clock.error != null) throw StateError(current.clock.error!);
+      trace?.stage('playback_configuration');
       await current.setVolume(
         force
             ? clock.volume
@@ -337,9 +395,24 @@ class PlaybackSession extends ChangeNotifier {
       await current.setVolumeBoost(
         (await preferences.number('videoVolumeBoost', 1)).clamp(1, 2),
       );
-      await current.setSubtitleDelay(
-        (await preferences.number('videoDefaultSubtitleDelay', 0)).clamp(-3, 3),
-      );
+      try {
+        await current.setSubtitleDelay(nextTiming.subtitleDelay);
+        if (current is VideoSubtitleSettingsEngine) {
+          final settings = current as VideoSubtitleSettingsEngine;
+          await settings.setSubtitleStyle(nextStyle);
+          await settings.setAudioDelay(nextTiming.audioDelay);
+          await settings.setSubtitleScale(nextTiming.subtitleScale);
+          await settings.setSubtitlePosition(nextTiming.subtitlePosition);
+        } else if (!nextStyle.isStandard ||
+            nextTiming.audioDelay != 0 ||
+            nextTiming.subtitleScale != 1 ||
+            nextTiming.subtitlePosition != 100) {
+          nextSubtitleWarning = '此播放后端暂不支持已保存的字幕样式或同步设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure('subtitle_settings_initialization_failed', error, stack);
+        nextSubtitleWarning = '部分字幕或音画同步设置未能应用，视频仍可播放，请重新调整。';
+      }
       final precisionEngine = current is VideoTimelineEngine
           ? current as VideoTimelineEngine
           : null;
@@ -350,8 +423,10 @@ class PlaybackSession extends ChangeNotifier {
       if (_closed || _closing != null) return;
       // Commit only after the target can actually decode. Until this point a
       // rejected target leaves the old session, clocks and controls intact.
+      trace?.stage('previous_release');
       await _release(save: false);
       engine = current;
+      _trace = trace;
       candidate = null;
       item = selected;
       _historyEpoch = nextHistoryEpoch;
@@ -386,7 +461,8 @@ class PlaybackSession extends ChangeNotifier {
       options = nextOptions;
       error = null;
       saveError = null;
-      controlError = null;
+      controlError = nextSubtitleWarning;
+      _readSubtitleSettings(current);
       _hasClock = false;
       _completedSaved = false;
       _didApplyTrackPreference = false;
@@ -412,6 +488,7 @@ class PlaybackSession extends ChangeNotifier {
           if (engine == current) _observe(value);
         },
         onError: (Object e) {
+          trace?.failure('clock_stream_failed', e, StackTrace.current);
           error = '视频播放失败，请检查文件或重新打开。';
           loading = false;
           notifyListeners();
@@ -419,6 +496,7 @@ class PlaybackSession extends ChangeNotifier {
       );
       notifyListeners();
       tracks.value = current.tracks;
+      trace?.stage('timeline');
       try {
         await _precision.attach(
           identity,
@@ -435,30 +513,53 @@ class PlaybackSession extends ChangeNotifier {
           skipBehavior: markerSkipBehavior,
           position: current.clock.position + streamOffset,
         );
-      } catch (_) {
+      } catch (error, stack) {
+        trace?.failure('timeline_initialization_failed', error, stack);
         controlError = '章节或书签读取失败，可以刷新后重试。';
       }
       try {
+        trace?.stage('track_preferences');
         await _applyTrackPreferences(current);
-      } catch (_) {
+      } catch (error, stack) {
+        trace?.failure('track_preferences_failed', error, stack);
         controlError = '音轨或字幕偏好未能应用，可以重新选择。';
       }
       // open() leaves the candidate paused, including while the old session
       // flushes its stop report. Wait for the committed surface to be rendered
       // and track preferences to be applied before allowing audio/time to run.
-      await waitForSurface?.call();
+      trace?.stage('surface');
+      await waitForSurface?.call().timeout(const Duration(seconds: 10));
       if (_closed || _closing != null) return;
+      trace?.stage('play');
       if (autoplay) await current.play();
       loading = false;
       _observe(current.clock);
+      trace?.event(
+        'open_succeeded',
+        durationMs: current.clock.duration.inMilliseconds,
+      );
       try {
+        trace?.stage('queue_records');
         await _refreshQueueRecords();
-      } catch (_) {
+      } catch (error, stack) {
+        trace?.failure('queue_records_failed', error, stack);
         transitionMessage = '剧集观看状态读取失败，请重试。';
       }
-    } catch (e) {
-      final message = e is SourceFailure ? e.message : '视频无法打开或加载超时，请检查文件后重试。';
+      trace?.stage('playback');
+    } catch (e, stack) {
+      trace?.failure(
+        'open_failed',
+        e,
+        stack,
+        issue: e is EmbyFailure
+            ? PlaybackIssue('emby_${e.kind.name}', status: e.status)
+            : null,
+      );
+      final message = e is SourceFailure
+          ? e.message
+          : PlaybackIssue.from(e).message;
       if (previous != null && engine == previous) {
+        _trace = previousTrace;
         transitionMessage = message;
         if (wasPlaying && !clock.completed) {
           try {
@@ -469,11 +570,25 @@ class PlaybackSession extends ChangeNotifier {
         }
       } else {
         error = message;
-        await _release(save: false);
+        try {
+          await _release(save: false);
+        } catch (error, stack) {
+          trace?.failure('failed_engine_release_failed', error, stack);
+        }
       }
     } finally {
-      if (candidate != null) await candidate.dispose();
-      if (candidateLease != null) await cache?.release(candidateLease);
+      // A cleanup error must not hide the original failure or keep loading set.
+      try {
+        if (candidate != null) await candidate.dispose();
+      } catch (error, stack) {
+        trace?.failure('candidate_dispose_failed', error, stack);
+      }
+      try {
+        if (candidateLease != null) await cache?.release(candidateLease);
+      } catch (error, stack) {
+        trace?.failure('cache_release_failed', error, stack);
+      }
+      trace?.event('open_finished');
       loading = false;
       previewFrames.attach(_previewResource);
       _updateMarkerSkip();
@@ -589,6 +704,7 @@ class PlaybackSession extends ChangeNotifier {
         rate: value.rate,
         warning: value.warning,
         error: value.error,
+        networkBytesPerSecond: value.networkBytesPerSecond,
       );
     }
     clock = value;
@@ -602,6 +718,7 @@ class PlaybackSession extends ChangeNotifier {
       notifyListeners();
     }
     if (value.error != null) {
+      if (error == null) _trace?.event('playback_failed', code: 'engine_error');
       error = item?.remote == null
           ? '视频播放失败：${value.error}'
           : '远程视频播放失败，请检查连接或重新打开。';
@@ -639,6 +756,7 @@ class PlaybackSession extends ChangeNotifier {
     bool force = false,
     VideoClock? snapshot,
   }) {
+    final trace = _trace;
     final selected = item;
     final sessionId = _playSessionId;
     if (selected == null ||
@@ -694,7 +812,8 @@ class PlaybackSession extends ChangeNotifier {
           paused: !value.playing,
         );
         if (item?.identity == selected.identity) syncError = null;
-      } catch (_) {
+      } catch (error, stack) {
+        trace?.failure('remote_report_failed', error, stack);
         if (item?.identity == selected.identity) {
           syncError = 'Emby 播放状态同步失败，本机播放进度仍会保存。';
         }
@@ -723,6 +842,7 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> save({bool completed = false}) {
+    final trace = _trace;
     final selected = item;
     final value = clock;
     final policy = options;
@@ -743,7 +863,8 @@ class PlaybackSession extends ChangeNotifier {
           watchedThreshold: await preferences.watchedThreshold,
         );
         saveError = null;
-      } catch (_) {
+      } catch (error, stack) {
+        trace?.failure('checkpoint_failed', error, stack);
         saveError = '播放进度保存失败，请检查本地索引。';
         if (!_closed) notifyListeners();
       }
@@ -756,7 +877,8 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed || _closing != null) return;
     try {
       await action();
-    } catch (_) {
+    } catch (exception, stack) {
+      _trace?.failure('command_failed', exception, stack);
       error = '播放器操作失败，请重新打开视频。';
       loading = false;
       notifyListeners();
@@ -1122,8 +1244,11 @@ class PlaybackSession extends ChangeNotifier {
     try {
       await action();
       controlError = null;
-    } catch (_) {
-      controlError = failureMessage;
+    } catch (exception, stack) {
+      _trace?.failure('control_failed', exception, stack);
+      controlError = exception is SubtitleSettingsRollbackFailure
+          ? '设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : failureMessage;
     }
     if (!_closed) notifyListeners();
   });
@@ -1165,7 +1290,8 @@ class PlaybackSession extends ChangeNotifier {
         (token) => emby!.subtitles(item!, cancellation: token),
       );
       subtitleError = null;
-    } catch (_) {
+    } catch (exception, stack) {
+      _trace?.failure('subtitle_inventory_failed', exception, stack);
       subtitleError = '服务器字幕读取失败，请重试。';
     }
   }
@@ -1181,7 +1307,9 @@ class PlaybackSession extends ChangeNotifier {
         final bytes = await _subtitleWork(
           (token) => emby!.subtitle(item!, stream, cancellation: token),
         );
-        _subtitleDirectory ??= await Directory.systemTemp.createTemp(
+        final temporary = await RuntimeStoragePaths.current.temporary();
+        await temporary.create(recursive: true);
+        _subtitleDirectory ??= await temporary.createTemp(
           'reelnest-subtitles-',
         );
         final language = (stream.language ?? 'und').replaceAll(
@@ -1274,12 +1402,113 @@ class PlaybackSession extends ChangeNotifier {
       await engine!.addSubtitle(path);
     }
   });
-  Future<void> subtitleDelay(double seconds) => _controls(() async {
-    final clamped = seconds.isFinite ? (seconds * 10).round() / 10 : 0.0;
-    final value = clamped.clamp(-3.0, 3.0);
-    await engine!.setSubtitleDelay(value);
-    await preferences.rememberNumber('videoDefaultSubtitleDelay', value);
-  });
+  void _readSubtitleSettings(VideoEngine current) {
+    if (current is VideoSubtitleSettingsEngine) {
+      final settings = current as VideoSubtitleSettingsEngine;
+      subtitleStyle = settings.subtitleStyle;
+      timing = settings.timing;
+    } else {
+      subtitleStyle = VideoSubtitleStyle.standard;
+      timing = VideoTimingSettings(subtitleDelay: current.tracks.subtitleDelay);
+    }
+    tracks.value = current.tracks;
+  }
+
+  Future<void> setSubtitleStyle(VideoSubtitleStyle style) =>
+      updateSubtitleStyle((_) => style);
+
+  /// Evaluate a user's field edit only when its serialized operation runs.
+  /// Earlier edits may still be applying or rolling back when this is queued.
+  Future<void> updateSubtitleStyle(
+    VideoSubtitleStyle Function(VideoSubtitleStyle current) update,
+  ) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoSubtitleSettingsEngine) {
+      throw UnsupportedError('Subtitle style is unavailable');
+    }
+    final settings = current as VideoSubtitleSettingsEngine;
+    final before = settings.subtitleStyle;
+    final next = update(before).normalized;
+    await settings.setSubtitleStyle(next);
+    try {
+      await preferences.rememberSubtitleStyle(next);
+    } catch (error, stack) {
+      try {
+        await settings.setSubtitleStyle(before);
+      } catch (rollback, rollbackStack) {
+        _trace?.failure(
+          'subtitle_settings_rollback_failed',
+          rollback,
+          rollbackStack,
+        );
+        throw const SubtitleSettingsRollbackFailure();
+      }
+      Error.throwWithStackTrace(error, stack);
+    } finally {
+      _readSubtitleSettings(current);
+    }
+  }, failureMessage: '字幕样式未能应用或保存，视频仍可播放，请重试。');
+
+  Future<void> _timingSetting(
+    String key,
+    double value,
+    double Function(VideoTimingSettings) previous,
+    Future<void> Function(VideoEngine, double) apply,
+  ) => _controls(() async {
+    final current = engine!;
+    _readSubtitleSettings(current);
+    final before = previous(timing);
+    await apply(current, value);
+    try {
+      await preferences.rememberNumber(key, value);
+    } catch (error, stack) {
+      try {
+        await apply(current, before);
+      } catch (rollback, rollbackStack) {
+        _trace?.failure(
+          'subtitle_settings_rollback_failed',
+          rollback,
+          rollbackStack,
+        );
+        throw const SubtitleSettingsRollbackFailure();
+      }
+      Error.throwWithStackTrace(error, stack);
+    } finally {
+      _readSubtitleSettings(current);
+    }
+  }, failureMessage: '音画同步设置未能应用或保存，视频仍可播放，请重试。');
+
+  VideoSubtitleSettingsEngine _subtitleSettings(VideoEngine current) {
+    if (current is VideoSubtitleSettingsEngine) {
+      return current as VideoSubtitleSettingsEngine;
+    }
+    throw UnsupportedError('Subtitle settings are unavailable');
+  }
+
+  Future<void> audioDelay(double seconds) => _timingSetting(
+    'videoDefaultAudioDelay',
+    VideoTimingSettings.syncDelay(seconds),
+    (s) => s.audioDelay,
+    (e, v) => _subtitleSettings(e).setAudioDelay(v),
+  );
+  Future<void> subtitleDelay(double seconds) => _timingSetting(
+    'videoDefaultSubtitleDelay',
+    VideoTimingSettings.syncDelay(seconds),
+    (s) => s.subtitleDelay,
+    (e, v) => e.setSubtitleDelay(v),
+  );
+  Future<void> subtitleScale(double scale) => _timingSetting(
+    'videoDefaultSubtitleScale',
+    VideoTimingSettings.scale(scale),
+    (s) => s.subtitleScale,
+    (e, v) => _subtitleSettings(e).setSubtitleScale(v),
+  );
+  Future<void> subtitlePosition(double position) => _timingSetting(
+    'videoDefaultSubtitlePosition',
+    VideoTimingSettings.position(position),
+    (s) => s.subtitlePosition,
+    (e, v) => _subtitleSettings(e).setSubtitlePosition(v),
+  );
   Future<void> volumeBoost(double value) => _controls(() async {
     final boost = value.isFinite ? value.clamp(1.0, 2.0) : 1.0;
     await engine!.setVolumeBoost(boost);
@@ -1338,7 +1567,9 @@ class PlaybackSession extends ChangeNotifier {
       serverSubtitlePaths.clear();
       if (directory != null &&
           p.isWithin(
-            p.normalize(Directory.systemTemp.absolute.path),
+            p.normalize(
+              (await RuntimeStoragePaths.current.temporary()).absolute.path,
+            ),
             p.normalize(directory.absolute.path),
           ) &&
           p.basename(directory.path).startsWith('reelnest-subtitles-')) {

@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-13
+- 最后更新：2026-10-16
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -12,13 +12,39 @@
 
 本文件解释当前数据结构，实际建表 SQL 仍以 `library_database.dart` 为准。项目尚未发布，不维护开发中间版本升级链；`schemaVersion` 当前为 1，结构不匹配时抛出 `LibrarySchemaMismatch`，不会自动清空或迁移本机开发数据库。
 
-数据库由 Drift/SQLite 管理，默认位置为应用支持目录下的：
+数据库由 Drift/SQLite 管理。macOS/Linux 仍由各平台 `path_provider` 决定应用支持目录，数据库相对路径为：
 
 ```text
 library/reelnest.sqlite
 ```
 
-具体应用支持目录由各平台 `path_provider` 决定。不要在跨平台文档中把某台机器的绝对路径写成固定产品路径。
+不要在跨平台文档中把某台机器的绝对路径写成固定产品路径。Windows 便携版数据库位置为 exe 同级的 `userdata/library/reelnest.sqlite`，详见下一节；本轮 Windows 路径、Release、启动关闭与打包已验证。
+
+### Windows 便携存储（本轮 Windows 验证完成；旧凭据残留需手动清理）
+
+用户于 2026-10-16 明确要求 Windows 改为绿色便携布局，相关路径代码现已接入；以解析后的 exe 父目录 `resolvedExecutable.parent` 为唯一根，不依赖启动时 cwd：
+
+```text
+<exe-parent>/
+├── log/                         # 应用日志
+├── userdata/
+│   ├── library/reelnest.sqlite  # 当前 SQLite 数据库
+│   └── credentials/             # DPAPI 加密凭据文件
+├── cache/                       # 应用缓存
+└── temp/                        # 临时文件
+```
+
+目标行为是不向 Windows 用户 C 盘配置目录或注册表写应用配置。native `main.cpp` 只为当前进程设置 `TMP`/`TEMP`，不改用户/系统环境变量。启动 prepare 若发现目标不可写或路径链接逃逸，由 bootstrap 既有错误处理显示 `PortableStorageFailureApp`；数据库实际 open 阶段的复检失败会拒绝打开，不回退 AppData。凭据由 Windows `PortableCredentialStore` 按逻辑 key 保存独立 DPAPI 密文 `.bin`，写入先验证临时密文，再经 `MoveFileEx(REPLACE_EXISTING | WRITE_THROUGH)` 原子替换，不使用 `flutter_secure_storage`/Windows 凭据库；密文绑定当前 Windows 账户，换电脑需重新登录。
+
+普通 Windows runtime 使用便携目录，不调用 `path_provider` 获取 AppData 路径或调用 `flutter_secure_storage` 读写凭据。当前使用空白便携配置，Emby 需重新添加；不导入旧凭据或媒体库状态，也不保留旧数据导入或 schema 迁移兼容。旧数据库/日志、Local 缓存及 Release 便携副本已清理；旧 Roaming 仍残留一个 518 字节 `flutter_secure_storage.dat`，因删除受阻需用户手动清除，新版不读取或改写该文件。
+
+一次性清理仅针对旧应用数据，不允许普通运行时自动清库；代码、Flutter data 资源、SDK 和媒体不在清理范围。全量 `flutter test` **731 passed / 6 skipped**，`flutter analyze --no-pub` 零问题，289 个 Dart 文件格式检查 0 改动，`git diff --check` 通过。Windows Profile `portable_runtime_test` 构建 20.4 秒后 1 项通过，验证进程 TMP 与 `Directory.systemTemp` 同址、切换 cwd 后 log 仍落 exe/log，且真实 mpv 可打开合成媒体。生产 `lib/main.dart` Windows Release **39.2 秒成功**。从 `apps/client/build/portable-launch-cwd` 启动的五秒 smoke 两次通过，最新为 **2026-10-16 15:15:41.0485208 +08:00**；均通过单次 `WM_CLOSE` 正常退出，退出码 0。只读检查新 `userdata` 数据库 sources=0、media=0、credentialFiles=0；exe 同级 `log/` 已生成日志，启动 cwd 保持空，旧 Local 缓存未重建。清理后 Roaming 旧 `flutter_secure_storage.dat` 前后 hash/大小一致（518 字节），新版未改写且不读取；需用户手动删除。ZIP 包 **37,917,144 字节、37 entries**，包含 `reelnest.exe` 和 `data/app.so`，排除 `userdata/`、`cache/`、`log/`、`temp/` 与 PDB。以上只证明本轮 Windows 便携验证，不代表 macOS/Linux 便携。
+
+当前 P2 已修正 `userdata/library` 路径边界：启动 prepare 与 `LibraryDatabase.open` 均验证解析后的 library 目录、数据库和 sidecar 路径位于便携根内，数据库 open 再检查并返回 canonical path；prepare 对嵌套 library 做写权限 probe。启动 prepare 发现越界/不可写时由 bootstrap 既有 catch 显示 `PortableStorageFailureApp`；数据库实际 open 复检失败则拒绝打开、不回退 AppData；未修改全局异常路由。8 项新增路径专项覆盖 Windows junction 与数据库/sidecar symlink，包含内部 junction 正常建库和外部目标未被修改；三文件共 28 项定向测试及全量 753 passed / 6 skipped 通过，analyze 无问题，296 文件格式检查 0 改动，Windows Release 45.7 秒及五秒 smoke 通过。无 schema 变更、无用户数据删除，详见[项目边界 P2 修正](PROJECT_SCOPE.zh-CN.md#p2-修正数据库目录边界校验windows-验证完成)。
+
+发行约束：`scripts/package-windows.ps1` 采用 `reelnest.exe`、`*.dll`、`data/` 白名单创建 ZIP，拒绝覆盖已存在 ZIP，排除运行时 `log/`、`userdata/`、`cache/`、`temp/` 和 PDB；`build.yml` Windows job 上传打包 ZIP。此次 ZIP 白名单核验通过，不含数据库或便携登录态。
+
+以上记录 Windows 本轮已验证的便携路径、启动/关闭、空白数据库与发行包行为。macOS/Linux 的目录和凭据存储约定保持不变，本节不表示其他平台已实现便携化。
 
 ## 核心身份
 
@@ -178,10 +204,10 @@ library/reelnest.sqlite
 | `start_us`, `end_us` | 起止时间，微秒；结束时间可空 |
 | `origin` | `embedded`、`manual` 或 `automatic` |
 | `review_status` | `accepted`、`pending` 或 `rejected`；当前手动/内嵌标记归一为 accepted |
-| `detector_identifier`, `confidence` | 自动候选来源与置信度的模型字段，当前未实现识别执行链路 |
+| `detector_identifier`, `confidence` | 当前内嵌章节候选标识为 `embedded-chapter-keyword`，置信度沿原版为 0.88/0.76；单项和系列任务共用生成链路 |
 | `created_at`, `updated_at` | UTC 毫秒时间 |
 
-非空内嵌章节快照在事务内替换该媒体的内嵌章节，保留手动标记；空快照及转码部分时间轴不会清除已保存的完整章节。删除接口只删除指定媒体的手动标记。单片循环开关保存于 `player_preferences` 的 `global.videoLoopCurrentItem`；跳过策略保存于 `global.videoMarkerSkipBehavior`，默认 `prompt`；A/B 点仅在会话内保存，不写数据库。手动片头/片尾范围复用本表，无新增表或 schema。自动识别与候选审核属于后续批次。当前验证范围和边界见[高级播放接口与规则](PLAYER_PRECISION_BACKEND.zh-CN.md)。
+非空内嵌章节快照在事务内替换该媒体的内嵌章节，保留手动标记；空快照及转码部分时间轴不会清除已保存的完整章节。删除接口只删除指定媒体的手动标记。单片循环开关保存于 `player_preferences` 的 `global.videoLoopCurrentItem`；跳过策略保存于 `global.videoMarkerSkipBehavior`，默认 `prompt`；A/B 点仅在会话内保存，不写数据库。手动片头/片尾及基于内嵌章节生成的自动候选复用本表，无新增表或 schema。自动候选为 pending，采用变 accepted、忽略变 rejected；普通读取隐藏 rejected，生成时包含它以防重复。审核只修改对应身份的 pending automatic 行。当前验证范围和边界见[高级播放接口与规则](PLAYER_PRECISION_BACKEND.zh-CN.md)。
 
 ### `media_library_preferences`
 
@@ -196,7 +222,21 @@ library/reelnest.sqlite
 
 通用键值表，`value` 由拥有该键的模块解释。当前用于播放器全局/媒体偏好、清理代次、来源连接非敏感配置、库视图状态、侧栏折叠、缓存目录和容量设置等。
 
+`global.markerAnalysisTasks` 保存片头片尾检测的有界 JSON 任务快照：任务/root 身份、状态、计数、时间和安全错误。最多持久化/恢复 60 条，新插入保留 40 条且保护运行中请求；退出中断的 queued/running 恢复为 failed，不自动重跑。清除记录只删除非活跃快照，不删除 `playback_markers`。私密标题统一为“片头片尾检测”；不存凭据、播放 URL、章节正文或原始异常。此键与持久候选分开提交，记录保存失败会提示但不抹去已提交候选。
+
 键空间必须带模块或范围前缀；新代码不能使用含义不明的通用键。JSON、数值和布尔值均以 TEXT 保存，读取端负责校验与默认值。敏感凭据禁止写入该表。
+
+当前字幕样式/音画同步批次已将下列全局默认值接入现有 `player_preferences` 键值表（代码已冻结；Windows 构建及 smoke 通过，平台与 UI 验收范围见[模块记录](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步代码已冻结windows-验证完成2026-10-16)）：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoSubtitleStyle` | JSON 字符串 | `{fontName, bold, colorPreset, borderSize, backgroundOpacity}`；默认分别为 `null`、`false`、`white`、`3`、`0` |
+| `global.videoDefaultAudioDelay` | 数值字符串 | 秒；默认 `0` |
+| `global.videoDefaultSubtitleDelay` | 数值字符串 | 秒；默认 `0` |
+| `global.videoDefaultSubtitleScale` | 数值字符串 | 比例；默认 `1` |
+| `global.videoDefaultSubtitlePosition` | 数值字符串 | 百分位置；默认 `100` |
+
+这些均为不按来源/媒体区分的全局默认，不代表当前播放媒体身份状态。`VideoSubtitleStyle` JSON 还会把边框/背景范围归一化；`colorPreset` 写 enum 名称。具体读写/恢复代码见 `features/playback/data/player_preferences_repository.dart` 与 `playback_session.dart`；自动化已覆盖全局偏好恢复及存储失败回滚。当前 Windows Profile 字体集成测试验证主/子 engine 字体通道生命周期，不等同于完整偏好持久化或人工 UI 验收。业务目标和失败策略见[播放器字幕与音轨说明](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步代码已冻结windows-验证完成2026-10-16)。本批不新增表、不改变 schema，也不清理本机数据。
 
 ## 远程来源数据
 
@@ -322,13 +362,13 @@ TEMP 表不随数据库文件持久化，也不属于备份范围。
 - 带鉴权查询参数或请求头的资源 URL。
 - 用户真实服务器响应中的敏感字段。
 
-Emby 当前使用按来源隔离的 `SecureCredentialStore`，键形如：
+Emby 凭据的逻辑 key 按来源隔离，形如：
 
 ```text
 io.github.user829304.reelnest.emby.source.<sourceId>
 ```
 
-服务器地址和本地目录路径仍可能属于隐私数据，即使它们不是认证凭据。测试报告和截图应脱敏。
+Windows 当前代码将上述逻辑 key 交由 `PortableCredentialStore` 以 DPAPI 密文文件保存；非 Windows 继续使用原平台 `SecureCredentialStore`。服务器地址和本地目录路径仍可能属于隐私数据，即使它们不是认证凭据。测试报告和截图应脱敏。
 
 ## 删除与保留规则
 

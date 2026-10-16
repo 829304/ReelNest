@@ -1,12 +1,18 @@
 # ReelNest 文档
 
-更新时间：2026-10-15。
+更新时间：2026-10-16。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
-- 当前播放器主线：单视频内嵌章节片头片尾候选生成及采用/忽略已接入；68 项定向回归、全量 668 passed / 3 skipped、分析、Windows Release 与五秒 smoke 通过。开发前基线 `e3cbb8a` 已提交；原版媒体条目检测入口、系列批量分析/任务中心及真实来源、三端实机、原版 UI 验收仍待，见[候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)。
+- 当前两项 P2 修复定向、全量和 Windows Release/smoke 验证完成：28 项定向、全量 753 passed / 6 skipped，analyze、296 文件格式检查及 diff-check 通过；Release 45.7 秒，五秒 smoke 正常响应并关闭。无 schema 变更、无用户数据删除、未提交推送。详见[字幕说明](PLAYER_TRACKS.zh-CN.md#p2-修正快速连续样式更新合并windows-验证完成)与[项目边界](PROJECT_SCOPE.zh-CN.md#p2-修正数据库目录边界校验windows-验证完成)。
+- Windows 绿色便携存储本轮验证完成：全量 731 passed / 6 skipped、analyze clean、289 Dart format 0 改动、Profile 原生 portable_runtime 1 项通过；Release 39.2 秒、不同 cwd 单次 WM_CLOSE smoke 两次、空白 userdata 和 ZIP 白名单均通过。ZIP 含 exe/`data/app.so`，不含用户数据目录或 PDB。Roaming 仍有 518 字节旧凭据 `.dat`，删除受限，需用户手动删除；新版不读取或改写。旧 DB/log、Local 缓存和 Release 副本已清，便携运行需使用空白配置重新添加 Emby；验证范围仅限 Windows，不代表 macOS/Linux 便携。详见[项目边界](PROJECT_SCOPE.zh-CN.md#用户确认的-windows-便携存储约束本轮-windows-验证完成)与[数据字典](DATA_DICTIONARY.zh-CN.md)。
+- 播放故障诊断批次最终定向 native、analyze、格式/diff 检查通过，Windows Release 40.8 秒和五秒 smoke 通过；701/4 全量为最后三行兜底修正前结果。真实 Emby 根因仍待新版复现，macOS/Linux 原生未验收；详见[高级播放与当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md)。
+- 用户于 2026-10-16 明确授权新增播放器输入速率提示：代码已冻结，backend 54、UI 27、隔离 native 2 项通过，analyze、269 文件格式及 diff 检查通过；Windows Release 39.6 秒及五秒 smoke 通过。本轮未跑上一轮 701 项全量；真实 Emby、实体键鼠和 macOS/Linux/三端视觉验收仍待。详见[专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
+- 播放器六项实时统计实现及 Windows 验证完成：全量 743 passed / 6 skipped，analyze 无问题，296 个 Dart 文件格式检查 0 改动；Windows Profile texture 专项、production Release（46.1 秒）及五秒启动/关闭 smoke 通过。真实 Emby、实际硬解启用、转码/切画质、macOS/Linux、可见 UI/视觉及长时间性能验收仍待；本轮无存储、配置导入或 schema 变更，未提交推送。详见[实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md)。
+- 当前播放器主线：片头片尾的首页/媒体库/详情检测入口、系列批量分析与任务中心已接入；最终全量 685 passed / 3 skipped、分析、Windows Release 和启动检查通过。开发前基线为 `fab5dda`；真实来源、三端实机、原版 UI 验收仍待。字幕样式/音画同步初始实现的 718/6、native 和 Windows Profile 字体验证保留为历史结果；本轮字幕连续样式更新 P2 修复后 753/6 全量通过，Windows Release/smoke 复验待补。ASS/位图、macOS/Linux、Emby 和视觉验收未覆盖。详见[字幕音轨记录](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步p2-修复全量测试通过release-待验2026-10-16)。
+- 最新播放器 UI 固定深色 Chrome 色板覆盖 Dock、右键精度菜单、各设置面板及嵌套菜单，不随海报明暗变浅且不影响普通页面；右键菜单重复迷你悬浮窗入口已移除，迷你悬浮窗仅保留 Dock 按钮和 `P` 快捷键。`playback_test.dart` 20/20、7 个弹层相关测试 47/47、targeted analyze clean；Windows Release 34.5 秒及 2026-10-16 11:03:30 +08:00 五秒 smoke 通过。真实窗口/三端视觉验收未完成，见[Dock 批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md#当前-ui-批次播放器控制栏-dock-重构2026-10-15)。
 - 最近完成：高级播放首批章节/书签、单片循环、A–B 与逐帧底层和 UI 接入，以及侧栏/主题整理；此前首页 H1/H2/H3、视频健康评分和来源刷新状态保护已接通。
 - 最新侧栏 hover 修复完成 45 项定向回归和 Windows Release/启动冒烟；Windows 结果不代表 macOS/Linux 原生验收，细节见[Emby 导航记录](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复)。
 - 来源媒体库 P0 UI 增量已记录：海报卡进度/评分/悬停状态、Emby 视频库响应式工具栏与筛选/状态面板、本地/Emby 共用详情页层级调整。相关范围、原版文件映射和 98 项定向验证见[Emby 导航](EMBY_NAVIGATION.zh-CN.md)、[详情](EMBY_DETAILS.zh-CN.md)及[源码映射](design/SOURCE_MAPPING.md)；原生截图/逐像素验收仍待，全量整合复验见下方记录。
@@ -83,9 +89,10 @@
 | [共用视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 本地/Emby 共用播放器已实现能力、固定剩余范围及验收边界 |
 | [本地视频播放与续播](LOCAL_PLAYBACK.zh-CN.md) | 独立窗口、进度、基础控制和失败保护 |
 | [播放队列与播完行为](PLAYER_QUEUE.zh-CN.md) | 同系列队列、相邻项和三种结束行为 |
-| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置 |
+| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置；P2 连续样式更新修复后全量测试通过，Windows Release/smoke 复验待补 |
 | [基础播放设置与防休眠](PLAYER_BASIC_SETTINGS.zh-CN.md) | 倍速、续播、已看阈值、音量和平台防休眠 |
-| [高级播放首批接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md) | 章节/书签、单片循环、A–B、逐帧、前端接入及原生验证边界 |
+| [高级播放首批接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md) | 章节/书签、单片循环、A–B、逐帧、用户授权的输入速率提示及验证边界 |
+| [播放器实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md) | 六项用户授权统计的实现、属性语义、显示/采样与隐私边界；本轮 Windows 验证完成，跨平台及真实场景验收待完成 |
 
 ## Emby 视频
 

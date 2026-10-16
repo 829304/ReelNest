@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <set>
 #include <flutter/method_channel.h>
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
@@ -10,6 +11,51 @@
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
 
 namespace {
+int CALLBACK CollectFontFamily(const LOGFONTW* font, const TEXTMETRICW*,
+                               DWORD, LPARAM data) {
+  if (font->lfFaceName[0] != L'@') {
+    reinterpret_cast<std::set<std::wstring>*>(data)->insert(font->lfFaceName);
+  }
+  return 1;
+}
+class SubtitleFontsPlugin : public flutter::Plugin {
+ public:
+  explicit SubtitleFontsPlugin(flutter::BinaryMessenger* messenger) {
+    channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+        messenger, "reelnest/subtitle_fonts", &flutter::StandardMethodCodec::GetInstance());
+    channel_->SetMethodCallHandler([](const auto& call, auto result) {
+      if (call.method_name() != "families") { result->NotImplemented(); return; }
+      HDC dc = GetDC(nullptr);
+      if (!dc) { result->Error("font_enumeration_failed", "Cannot enumerate fonts"); return; }
+      LOGFONTW query{};
+      query.lfCharSet = DEFAULT_CHARSET;
+      std::set<std::wstring> families;
+      EnumFontFamiliesExW(dc, &query, CollectFontFamily,
+                         reinterpret_cast<LPARAM>(&families), 0);
+      ReleaseDC(nullptr, dc);
+      flutter::EncodableList values;
+      for (const auto& family : families) {
+        const int length = WideCharToMultiByte(CP_UTF8, 0, family.data(),
+            static_cast<int>(family.size()), nullptr, 0, nullptr, nullptr);
+        if (length <= 0) continue;
+        std::string name(length, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, family.data(), static_cast<int>(family.size()),
+            name.data(), length, nullptr, nullptr);
+        values.emplace_back(name);
+      }
+      result->Success(flutter::EncodableValue(values));
+    });
+  }
+ private:
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
+};
+void RegisterSubtitleFonts(flutter::PluginRegistry* registry) {
+  auto* registrar = flutter::PluginRegistrarManager::GetInstance()
+      ->GetRegistrar<flutter::PluginRegistrarWindows>(
+          registry->GetRegistrarForPlugin("ReelNestSubtitleFonts"));
+  registrar->AddPlugin(std::make_unique<SubtitleFontsPlugin>(registrar->messenger()));
+}
+
 class PlaybackSleepPlugin : public flutter::Plugin {
  public:
   explicit PlaybackSleepPlugin(flutter::BinaryMessenger* messenger) {
@@ -76,10 +122,12 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   RegisterPlaybackSleep(flutter_controller_->engine());
+  RegisterSubtitleFonts(flutter_controller_->engine());
   DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
     auto* window = reinterpret_cast<flutter::FlutterViewController*>(controller);
     RegisterPlugins(window->engine());
     RegisterPlaybackSleep(window->engine());
+    RegisterSubtitleFonts(window->engine());
   });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

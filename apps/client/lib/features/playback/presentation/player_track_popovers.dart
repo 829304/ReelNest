@@ -62,33 +62,36 @@ Future<void> showPlayerPanel(
               : 420,
         )
         .toDouble();
-    return Stack(
-      children: [
-        Positioned(
-          left: (anchor.center.dx - width / 2)
-              .clamp(8, screen.width - width - 8)
-              .toDouble(),
-          bottom: bottom,
-          width: width,
-          child: PlayerPanelEntrance(
-            child: CallbackShortcuts(
-              bindings: {
-                const SingleActivator(LogicalKeyboardKey.escape): () =>
-                    Navigator.pop(context),
-              },
-              child: Focus(
-                autofocus: true,
-                child: PlayerTrackPopover(
-                  panel: panel,
-                  session: session,
-                  palette: palette,
-                  maxHeight: maxHeight,
+    return Theme(
+      data: playerOverlayThemeData(Theme.of(context)),
+      child: Stack(
+        children: [
+          Positioned(
+            left: (anchor.center.dx - width / 2)
+                .clamp(8, screen.width - width - 8)
+                .toDouble(),
+            bottom: bottom,
+            width: width,
+            child: PlayerPanelEntrance(
+              child: CallbackShortcuts(
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.escape): () =>
+                      Navigator.pop(context),
+                },
+                child: Focus(
+                  autofocus: true,
+                  child: PlayerTrackPopover(
+                    panel: panel,
+                    session: session,
+                    palette: palette,
+                    maxHeight: maxHeight,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   },
 );

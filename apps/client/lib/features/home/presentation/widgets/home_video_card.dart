@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../sources/presentation/local_media_artwork.dart';
+import '../../../playback/application/marker_analysis_providers.dart';
 import '../../../../domain/media.dart';
+import '../../../../domain/media_source.dart';
 import '../../domain/home_snapshot.dart';
 import '../../application/home_actions.dart';
 
@@ -18,6 +20,22 @@ class HomeVideoCard extends ConsumerStatefulWidget {
 
 class _HomeVideoCardState extends ConsumerState<HomeVideoCard> {
   bool _hover = false, _busy = false;
+  var _menuRequest = 0;
+
+  @override
+  void didUpdateWidget(covariant HomeVideoCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.video.item.identity != widget.video.item.identity) {
+      _menuRequest++;
+    }
+  }
+
+  @override
+  void dispose() {
+    _menuRequest++;
+    super.dispose();
+  }
+
   Future<void> _action(String action) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -55,6 +73,31 @@ class _HomeVideoCardState extends ConsumerState<HomeVideoCard> {
         child: GestureDetector(
           onSecondaryTapDown: (details) async {
             if (_busy) return;
+            final request = ++_menuRequest;
+            final identity = video.item.identity;
+            var canAnalyze = false;
+            final eligibility = markerAnalysisEligibilityProvider(identity);
+            final hold = ref.listenManual(eligibility, (_, _) {});
+            try {
+              canAnalyze = await ref.read(eligibility.future);
+            } catch (error) {
+              if (context.mounted &&
+                  request == _menuRequest &&
+                  identity == widget.video.item.identity) {
+                final message = error is SourceFailure
+                    ? error.message
+                    : '无法检查当前条目，请重试。';
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(message)));
+              }
+            } finally {
+              hold.close();
+            }
+            if (!context.mounted ||
+                request != _menuRequest ||
+                identity != widget.video.item.identity) {
+              return;
+            }
             final action = await showMenu<String>(
               context: context,
               position: RelativeRect.fromLTRB(
@@ -75,9 +118,19 @@ class _HomeVideoCardState extends ConsumerState<HomeVideoCard> {
                 ),
                 if (video.entry.hasTrace || video.entry.record.watched)
                   const PopupMenuItem(value: 'clear', child: Text('清除播放记录')),
+                if (canAnalyze)
+                  const PopupMenuItem(
+                    value: 'markerAnalysis',
+                    child: Text('检测片头片尾'),
+                  ),
               ],
             );
-            if (action != null && mounted) await _action(action);
+            if (action != null &&
+                mounted &&
+                request == _menuRequest &&
+                identity == widget.video.item.identity) {
+              await _action(action);
+            }
           },
           child: ClipRRect(
             borderRadius: BorderRadius.circular(18),

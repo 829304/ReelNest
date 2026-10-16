@@ -11,6 +11,7 @@ import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
 
 import 'emby_cache_actions.dart';
+import 'marker_analysis_menu.dart';
 
 /// VideoItemContextMenuItems; server titles never expose local reclassification.
 class EmbyVideoContextMenu extends ConsumerStatefulWidget {
@@ -119,6 +120,7 @@ class _EmbyVideoContextMenuState extends ConsumerState<EmbyVideoContextMenu> {
             await launcher.open(target);
           }),
         EmbyCacheActions(item: item, menuOnly: true),
+        MarkerAnalysisMenuItem(identity: item.identity),
         const Divider(),
         if (hasTrace)
           action(

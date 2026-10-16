@@ -2,6 +2,17 @@ import Cocoa
 import FlutterMacOS
 import desktop_multi_window
 
+private class SubtitleFontsPlugin: NSObject, FlutterPlugin {
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(name: "reelnest/subtitle_fonts", binaryMessenger: registrar.messenger)
+    registrar.addMethodCallDelegate(SubtitleFontsPlugin(), channel: channel)
+  }
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    guard call.method == "families" else { result(FlutterMethodNotImplemented); return }
+    result(NSFontManager.shared.availableFontFamilies)
+  }
+}
+
 private class PlaybackSleepPlugin: NSObject, FlutterPlugin {
   private var activity: NSObjectProtocol?
   static func register(with registrar: FlutterPluginRegistrar) {
@@ -42,9 +53,11 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     PlaybackSleepPlugin.register(with: flutterViewController.registrar(forPlugin: "ReelNestPlaybackSleep"))
+    SubtitleFontsPlugin.register(with: flutterViewController.registrar(forPlugin: "ReelNestSubtitleFonts"))
     FlutterMultiWindowPlugin.setOnWindowCreatedCallback { controller in
       RegisterGeneratedPlugins(registry: controller)
       PlaybackSleepPlugin.register(with: controller.registrar(forPlugin: "ReelNestPlaybackSleep"))
+      SubtitleFontsPlugin.register(with: controller.registrar(forPlugin: "ReelNestSubtitleFonts"))
     }
 
     super.awakeFromNib()

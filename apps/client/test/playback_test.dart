@@ -1,10 +1,13 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reelnest/features/playback/presentation/video_player_page.dart';
+import 'package:reelnest/features/playback/presentation/player_track_popovers.dart';
+import 'package:reelnest/features/playback/presentation/player_visuals.dart';
 import 'package:reelnest/features/playback/presentation/player_window_coordinator.dart';
 import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
@@ -409,18 +412,101 @@ void main() {
       expect(engines, hasLength(1));
       expect(
         tester.getSize(find.byKey(const ValueKey('player-leading-actions'))),
-        const Size(176, 28),
+        const Size(180, 32),
       );
       expect(
         tester.getSize(find.byKey(const ValueKey('player-trailing-actions'))),
-        const Size(112, 28),
+        const Size(143, 32),
       );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-control-dock'))),
+        const Size(664, 72),
+      );
+      expect(tester.getSize(find.byTooltip('播放/暂停')), const Size(34, 34));
+      final playerTooltipTheme = tester
+          .widget<TooltipTheme>(
+            find.byKey(const ValueKey('player-tooltip-theme')),
+          )
+          .data;
+      final playerTooltipDecoration =
+          playerTooltipTheme.decoration! as BoxDecoration;
+      expect(playerTooltipTheme.preferBelow, isFalse);
+      expect(playerTooltipTheme.textStyle?.color, const Color(0xF2FFFFFF));
+      expect(playerTooltipDecoration.color, const Color(0xF21A1D22));
+      for (final tooltip in [
+        '字幕',
+        '音轨',
+        '章节与播放标记',
+        '音量',
+        '播放器设置',
+        '迷你悬浮窗',
+        '全屏',
+        '锁定控制栏',
+      ]) {
+        expect(find.byTooltip(tooltip), findsOneWidget);
+      }
+      expect(
+        tester.getCenter(find.byTooltip('播放/暂停')).dx,
+        closeTo(
+          tester
+              .getCenter(find.byKey(const ValueKey('player-control-dock')))
+              .dx,
+          .01,
+        ),
+      );
+      final subtitleControl = find.byTooltip('字幕');
+      expect(tester.getSize(subtitleControl), const Size(32, 32));
+      final subtitleSurface = find.descendant(
+        of: subtitleControl,
+        matching: find.byType(AnimatedContainer),
+      );
+      expect(subtitleSurface, findsOneWidget);
+      BoxDecoration subtitleDecoration() =>
+          tester.widget<AnimatedContainer>(subtitleSurface).decoration!
+              as BoxDecoration;
+      expect(subtitleDecoration().color, Colors.transparent);
+      final dockPointer = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await dockPointer.addPointer();
+      await dockPointer.moveTo(tester.getCenter(subtitleControl));
+      await tester.pump();
+      expect(subtitleDecoration().color, isNot(Colors.transparent));
+      await dockPointer.moveTo(Offset.zero);
+      await dockPointer.removePointer();
+      await tester.pump(const Duration(milliseconds: 180));
+      await tester.tap(subtitleControl);
+      await tester.pumpAndSettle();
+      final trackPopover = tester.widget<PlayerTrackPopover>(
+        find.byType(PlayerTrackPopover),
+      );
+      expect(trackPopover.palette.lightContent, isTrue);
+      expect(
+        Theme.of(tester.element(find.byType(PlayerTrackPopover)))
+            .popupMenuTheme
+            .color,
+        const Color(0xFF15181D),
+      );
+      Navigator.of(tester.element(find.byType(PlayerTrackPopover))).pop();
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('player-window-chrome')),
         findsOneWidget,
       );
       expect(find.byTooltip('锁定控制栏'), findsOneWidget);
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+      final lockControl = find.byKey(const ValueKey('player-controls-lock'));
+      expect(tester.getSize(lockControl), const Size.square(36));
+      expect(
+        find.descendant(
+          of: lockControl,
+          matching: find.byIcon(Icons.lock_open_rounded),
+        ),
+        findsOneWidget,
+      );
+      final miniModeDock = find.byKey(const ValueKey('player-mini-mode-dock'));
+      expect(miniModeDock, findsOneWidget);
+      expect(tester.getSize(miniModeDock), const Size.square(32));
+      await tester.tap(miniModeDock);
       await waitUntil(() => windowCoordinator.miniMode);
       expect(
         find.byKey(const ValueKey('player-mini-mode-controls')),
@@ -438,8 +524,22 @@ void main() {
       );
       await tester.tapAt(const Offset(400, 260), buttons: 2);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('toggle-mini-mode')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('toggle-mini-mode')));
+      expect(find.byKey(const ValueKey('toggle-mini-mode')), findsNothing);
+      final precisionMenu = tester.widget<PlayerPanelSurface>(
+        find.byKey(const ValueKey('player-precision-menu')),
+      );
+      expect(precisionMenu.palette.lightContent, isTrue);
+      expect(
+        Theme.of(
+          tester.element(find.byKey(const ValueKey('player-precision-menu'))),
+        ).popupMenuTheme.color,
+        const Color(0xFF15181D),
+      );
+      Navigator.of(
+        tester.element(find.byKey(const ValueKey('player-precision-menu'))),
+      ).pop();
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
       await waitUntil(() => windowCoordinator.miniMode);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
       await waitUntil(() => !windowCoordinator.miniMode);
@@ -470,6 +570,13 @@ void main() {
       await tester.tap(find.byTooltip('锁定控制栏'));
       await tester.pump(const Duration(milliseconds: 180));
       expect(find.byTooltip('显示控制栏'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: lockControl,
+          matching: find.byIcon(Icons.lock_rounded),
+        ),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<AnimatedOpacity>(
@@ -502,6 +609,13 @@ void main() {
       await tester.tap(find.byTooltip('显示控制栏'));
       await tester.pump(const Duration(milliseconds: 180));
       expect(find.byTooltip('锁定控制栏'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: lockControl,
+          matching: find.byIcon(Icons.lock_open_rounded),
+        ),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<AnimatedOpacity>(

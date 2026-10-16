@@ -1,6 +1,7 @@
 param(
     [string]$Executable = (Join-Path $PSScriptRoot '..\apps\client\build\windows\x64\runner\Release\reelnest.exe'),
-    [int]$ObservationSeconds = 12
+    [int]$ObservationSeconds = 12,
+    [string]$WorkingDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,6 +9,11 @@ if ($ObservationSeconds -lt 1 -or $ObservationSeconds -gt 60) {
     throw 'ObservationSeconds must be between 1 and 60.'
 }
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
+if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+    $WorkingDirectory = Split-Path -Parent $Executable
+} else {
+    $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).Path
+}
 $logRoot = Join-Path $PSScriptRoot '..\apps\client\build\smoke'
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 
@@ -43,7 +49,7 @@ public static class ReelNestSmokeWindow {
 '@
 }
 
-$app = Start-Process -FilePath $Executable -WorkingDirectory (Split-Path -Parent $Executable) `
+$app = Start-Process -FilePath $Executable -WorkingDirectory $WorkingDirectory `
     -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $logRoot 'release.stdout.log') `
     -RedirectStandardError (Join-Path $logRoot 'release.stderr.log')

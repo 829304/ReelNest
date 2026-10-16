@@ -54,6 +54,27 @@ void main() {
     await sandbox.delete(recursive: true);
   });
 
+  test('closing does not wait for a paused source-change listener', () async {
+    var done = false;
+    final subscription = repository.changes.listen(
+      (_) {},
+      onDone: () => done = true,
+    );
+    subscription.pause();
+    repository.traceChanged();
+    final closing = repository.close();
+    try {
+      await closing.timeout(const Duration(milliseconds: 500));
+      expect(subscription.isPaused, isTrue);
+      expect(done, isFalse);
+      subscription.resume();
+      await subscription.asFuture<void>().timeout(const Duration(seconds: 1));
+    } finally {
+      await subscription.cancel();
+      await closing;
+    }
+  });
+
   test(
     'parsed metadata survives SQLite reopen, rescan and root relocation',
     () async {

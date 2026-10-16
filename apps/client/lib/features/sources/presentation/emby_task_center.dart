@@ -9,6 +9,7 @@ import '../../../domain/source_scan.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
+import '../../playback/application/marker_analysis_providers.dart';
 import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
 import '../data/emby_cache_repository.dart';
@@ -54,203 +55,294 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
   @override
   Widget build(BuildContext context) {
     final cache = ref.watch(embyCacheProvider);
+    final markerAnalysis = ref.watch(markerAnalysisProvider);
     final scans = ref.watch(sourceScansProvider);
     final names = {
       for (final s
           in ref.watch(sourcesProvider).asData?.value ?? <MediaSource>[])
         s.id: s.name,
     };
-    return ValueListenableBuilder(
-      valueListenable: cache.tasks,
-      builder: (context, tasks, _) {
-        final sorted = tasks.values.toList()
+    return ValueListenableBuilder<List<MarkerAnalysisTask>>(
+      valueListenable: markerAnalysis.tasks,
+      builder: (context, markerTasks, _) {
+        final sortedMarkers = [...markerTasks]
           ..sort((a, b) {
-            final priority =
-                (cacheTaskActive(b) ? 1 : 0) - (cacheTaskActive(a) ? 1 : 0);
-            return priority == 0 ? 0 : priority;
+            final active = (b.active ? 1 : 0) - (a.active ? 1 : 0);
+            return active != 0 ? active : b.startedAt.compareTo(a.startedAt);
           });
-        return PageContent(
-          title: '任务中心',
-          subtitle: '查看扫描、文件更新和服务同步进度。',
-          header: Row(
-            children: [
-              const Icon(Icons.checklist, size: 42),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '任务中心',
-                      style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w900,
+        return ValueListenableBuilder(
+          valueListenable: cache.tasks,
+          builder: (context, tasks, _) {
+            final sorted = tasks.values.toList()
+              ..sort((a, b) {
+                final priority =
+                    (cacheTaskActive(b) ? 1 : 0) - (cacheTaskActive(a) ? 1 : 0);
+                return priority == 0 ? 0 : priority;
+              });
+            return PageContent(
+              title: '任务中心',
+              subtitle: '查看扫描、文件更新和服务同步进度。',
+              header: Row(
+                children: [
+                  const Icon(Icons.checklist, size: 42),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '任务中心',
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          '查看扫描、文件更新和服务同步进度。',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (tasks.values.any((t) => !cacheTaskActive(t)) ||
+                      scans.values.any((s) => !s.busy) ||
+                      markerTasks.any((task) => !task.active))
+                    SourceSheetButton(
+                      label: '清除记录',
+                      onPressed: () => unawaited(
+                        _run(() async {
+                          cache.clearFinished();
+                          ref
+                              .read(sourceScansProvider.notifier)
+                              .clearFinished();
+                          await markerAnalysis.clearFinished();
+                        }),
                       ),
                     ),
-                    Text('查看扫描、文件更新和服务同步进度。', style: TextStyle(fontSize: 13)),
-                  ],
-                ),
+                ],
               ),
-              if (tasks.values.any((t) => !cacheTaskActive(t)) ||
-                  scans.values.any((s) => !s.busy))
-                SourceSheetButton(
-                  label: '清除记录',
-                  onPressed: () {
-                    cache.clearFinished();
-                    ref.read(sourceScansProvider.notifier).clearFinished();
-                  },
-                ),
-            ],
-          ),
-          children: [
-            if (_error != null)
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            if (tasks.isEmpty && scans.isEmpty)
-              const SizedBox(
-                height: 360,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.check_circle_outline, size: 40),
-                      SizedBox(height: 12),
-                      Text(
-                        '暂无后台任务',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text('扫描、同步和缓存任务会在运行时集中展示。'),
-                    ],
+              children: [
+                if (_error != null || markerAnalysis.historyError != null)
+                  Text(
+                    _error ?? markerAnalysis.historyError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
-                ),
-              )
-            else ...[
-              Text(
-                '任务记录 · ${tasks.length + scans.length} 项',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (final active in [true, false]) ...[
-                for (final entry in scans.entries.where(
-                  (e) => e.value.busy == active,
-                ))
-                  _TaskRow(
-                    title: names[entry.key] ?? '媒体源',
-                    icon: Icons.sync,
-                    state: entry.value.queued
-                        ? '等待中'
-                        : entry.value.running
-                        ? '运行中'
-                        : entry.value.failed
-                        ? '失败'
-                        : entry.value.cancelled
-                        ? '已取消'
-                        : '已完成',
-                    detail: entry.value.busy
-                        ? entry.value.progress.phase ==
-                                  SourceScanPhase.persisting
-                              ? '正在入库 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
-                              : entry.value.progress.totalFiles > 0
-                              ? '已处理 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
-                              : '已读取 ${entry.value.progress.processedFiles} 个媒体条目'
-                        : entry.value.message ?? '操作已结束',
-                    active: entry.value.busy,
-                    progress: entry.value.progress.totalFiles == 0
-                        ? null
-                        : entry.value.progress.fraction,
-                    actions: [
-                      if (entry.value.busy)
-                        IconButton(
-                          tooltip: '取消扫描',
-                          onPressed: () => ref
-                              .read(sourceScansProvider.notifier)
-                              .cancel(entry.key),
-                          icon: const Icon(
-                            Icons.stop_circle_outlined,
-                            size: 18,
-                          ),
-                        ),
-                      if (entry.value.failed)
-                        IconButton(
-                          tooltip: '重试任务',
-                          onPressed: () => unawaited(
-                            _run(
-                              () => ref
-                                  .read(sourceScansProvider.notifier)
-                                  .scan(entry.key),
+                if (tasks.isEmpty && scans.isEmpty && markerTasks.isEmpty)
+                  const SizedBox(
+                    height: 360,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_outline, size: 40),
+                          SizedBox(height: 12),
+                          Text(
+                            '暂无后台任务',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          icon: const Icon(Icons.refresh, size: 18),
-                        ),
-                    ],
+                          SizedBox(height: 8),
+                          Text('扫描、同步和缓存任务会在运行时集中展示。'),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  Text(
+                    '任务记录 · ${tasks.length + scans.length + markerTasks.length} 项',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                for (final task in sorted.where(
-                  (t) => cacheTaskActive(t) == active,
-                ))
-                  _TaskRow(
-                    title: '缓存 · ${task.item.cardTitle}',
-                    icon: Icons.download_outlined,
-                    state: cacheTaskTitle(task),
-                    active:
-                        cacheTaskActive(task) &&
-                        task.state != VideoCacheTaskState.paused,
-                    progress: task.expected == null || task.expected == 0
-                        ? null
-                        : (task.received / task.expected!).clamp(0, 1),
-                    detail:
-                        task.error ??
-                        '${cacheBytes(task.received)}${task.expected == null ? '' : ' / ${cacheBytes(task.expected!)}'}',
-                    actions: [
-                      if (task.state == VideoCacheTaskState.queued ||
-                          task.state == VideoCacheTaskState.downloading)
-                        IconButton(
-                          tooltip: '暂停缓存',
-                          onPressed: () => cache.pause(task),
-                          icon: const Icon(
-                            Icons.pause_circle_outline,
-                            size: 18,
+                  const SizedBox(height: 12),
+                  for (final active in [true, false]) ...[
+                    for (final entry in scans.entries.where(
+                      (e) => e.value.busy == active,
+                    ))
+                      _TaskRow(
+                        title: names[entry.key] ?? '媒体源',
+                        icon: Icons.sync,
+                        state: entry.value.queued
+                            ? '等待中'
+                            : entry.value.running
+                            ? '运行中'
+                            : entry.value.failed
+                            ? '失败'
+                            : entry.value.cancelled
+                            ? '已取消'
+                            : '已完成',
+                        detail: entry.value.busy
+                            ? entry.value.progress.phase ==
+                                      SourceScanPhase.persisting
+                                  ? '正在入库 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                                  : entry.value.progress.totalFiles > 0
+                                  ? '已处理 ${entry.value.progress.processedFiles} / ${entry.value.progress.totalFiles}'
+                                  : '已读取 ${entry.value.progress.processedFiles} 个媒体条目'
+                            : entry.value.message ?? '操作已结束',
+                        active: entry.value.busy,
+                        progress: entry.value.progress.totalFiles == 0
+                            ? null
+                            : entry.value.progress.fraction,
+                        actions: [
+                          if (entry.value.busy)
+                            IconButton(
+                              tooltip: '取消扫描',
+                              onPressed: () => ref
+                                  .read(sourceScansProvider.notifier)
+                                  .cancel(entry.key),
+                              icon: const Icon(
+                                Icons.stop_circle_outlined,
+                                size: 18,
+                              ),
+                            ),
+                          if (entry.value.failed)
+                            IconButton(
+                              tooltip: '重试任务',
+                              onPressed: () => unawaited(
+                                _run(
+                                  () => ref
+                                      .read(sourceScansProvider.notifier)
+                                      .scan(entry.key),
+                                ),
+                              ),
+                              icon: const Icon(Icons.refresh, size: 18),
+                            ),
+                        ],
+                      ),
+                    for (final task in sortedMarkers.where(
+                      (task) => task.active == active,
+                    ))
+                      _TaskRow(
+                        title: task.title,
+                        icon: Icons.auto_awesome_outlined,
+                        state: task.stateTitle,
+                        detail: task.detail,
+                        active: task.active,
+                        progress: task.progress,
+                        actions: [
+                          _MarkerAnalysisTaskActions(
+                            task: task,
+                            controller: markerAnalysis,
+                            run: _run,
                           ),
-                        ),
-                      if (task.state == VideoCacheTaskState.paused)
-                        IconButton(
-                          tooltip: '继续缓存',
-                          onPressed: () =>
-                              unawaited(_run(() => cache.resume(task))),
-                          icon: const Icon(Icons.play_circle_outline, size: 18),
-                        ),
-                      if (task.state == VideoCacheTaskState.failed)
-                        IconButton(
-                          tooltip: '重试任务',
-                          onPressed: () => unawaited(
-                            _run(() => cache.enqueue(task.item, task.quality)),
-                          ),
-                          icon: const Icon(Icons.refresh, size: 18),
-                        ),
-                      if (cacheTaskActive(task))
-                        IconButton(
-                          tooltip: '取消缓存',
-                          onPressed: () =>
-                              unawaited(_run(() => cache.cancel(task))),
-                          icon: const Icon(Icons.cancel_outlined, size: 18),
-                        ),
-                    ],
-                  ),
+                        ],
+                      ),
+                    for (final task in sorted.where(
+                      (t) => cacheTaskActive(t) == active,
+                    ))
+                      _TaskRow(
+                        title: '缓存 · ${task.item.cardTitle}',
+                        icon: Icons.download_outlined,
+                        state: cacheTaskTitle(task),
+                        active:
+                            cacheTaskActive(task) &&
+                            task.state != VideoCacheTaskState.paused,
+                        progress: task.expected == null || task.expected == 0
+                            ? null
+                            : (task.received / task.expected!).clamp(0, 1),
+                        detail:
+                            task.error ??
+                            '${cacheBytes(task.received)}${task.expected == null ? '' : ' / ${cacheBytes(task.expected!)}'}',
+                        actions: [
+                          if (task.state == VideoCacheTaskState.queued ||
+                              task.state == VideoCacheTaskState.downloading)
+                            IconButton(
+                              tooltip: '暂停缓存',
+                              onPressed: () => cache.pause(task),
+                              icon: const Icon(
+                                Icons.pause_circle_outline,
+                                size: 18,
+                              ),
+                            ),
+                          if (task.state == VideoCacheTaskState.paused)
+                            IconButton(
+                              tooltip: '继续缓存',
+                              onPressed: () =>
+                                  unawaited(_run(() => cache.resume(task))),
+                              icon: const Icon(
+                                Icons.play_circle_outline,
+                                size: 18,
+                              ),
+                            ),
+                          if (task.state == VideoCacheTaskState.failed)
+                            IconButton(
+                              tooltip: '重试任务',
+                              onPressed: () => unawaited(
+                                _run(
+                                  () => cache.enqueue(task.item, task.quality),
+                                ),
+                              ),
+                              icon: const Icon(Icons.refresh, size: 18),
+                            ),
+                          if (cacheTaskActive(task))
+                            IconButton(
+                              tooltip: '取消缓存',
+                              onPressed: () =>
+                                  unawaited(_run(() => cache.cancel(task))),
+                              icon: const Icon(Icons.cancel_outlined, size: 18),
+                            ),
+                        ],
+                      ),
+                  ],
+                ],
+                const SizedBox(height: 22),
+                const OfflineSubscriptionsSection(),
               ],
-            ],
-            const SizedBox(height: 22),
-            const OfflineSubscriptionsSection(),
-          ],
+            );
+          },
         );
       },
+    );
+  }
+}
+
+class _MarkerAnalysisTaskActions extends ConsumerWidget {
+  const _MarkerAnalysisTaskActions({
+    required this.task,
+    required this.controller,
+    required this.run,
+  });
+
+  final MarkerAnalysisTask task;
+  final PlaybackMarkerAnalysisController controller;
+  final Future<void> Function(Future<void> Function() work) run;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final retryable =
+        task.state == MarkerAnalysisState.failed && controller.canRetry(task);
+    final eligible = retryable
+        ? ref
+                  .watch(markerAnalysisEligibilityProvider(task.root))
+                  .asData
+                  ?.value ==
+              true
+        : false;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (retryable && eligible)
+          IconButton(
+            tooltip: '重试任务',
+            onPressed: () => unawaited(
+              run(() async {
+                await controller.retry(task.id);
+              }),
+            ),
+            icon: const Icon(Icons.refresh, size: 18),
+          ),
+        if (task.isCancellable)
+          IconButton(
+            tooltip: '取消检测',
+            onPressed: () => controller.cancel(task.id),
+            icon: const Icon(Icons.cancel_outlined, size: 18),
+          ),
+      ],
     );
   }
 }

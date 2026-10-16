@@ -2,10 +2,10 @@
 
 - 状态：Active
 - 负责人：项目文档维护者
-- 最后更新：2026-10-15
+- 最后更新：2026-10-16
 - 适用范围：Windows、macOS、Linux 第一阶段
 - 权威范围：平台实现与验证证据汇总
-- 代码范围：ReelNest 基线 `e3cbb8a`（含 P1-C 时间轴预览、Emby 分页与计数修复）及其后的单视频片头片尾候选批次；历史模块证据分别保留
+- 代码范围：ReelNest 基线 `fab5dda` 及其后的片头片尾条目入口、系列批量分析和任务中心工作树；历史模块证据分别保留
 
 ## 使用方式
 
@@ -23,14 +23,19 @@
 
 ## 当前总览
 
-单视频内嵌章节片头片尾候选及采用/忽略已完成 Windows 自动化：68 项定向、全量 668 passed / 3 skipped、分析及 253 文件格式检查通过，Windows Release 40.8 秒构建、14:53:36 +08:00 五秒 smoke 通过。开发前基线为 `e3cbb8a`。原版媒体条目检测入口、系列批量分析及任务中心仍待迁移，真实来源及三端实机/视觉未据此升级验收。详见[当前候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)。
+最新片头片尾条目/系列任务批次已通过 Windows 自动化：最终全量 **685 passed / 3 skipped**，分析及 260 文件格式检查通过，Release **41.0 秒**构建、**19:51:30 +08:00** 五秒启动检查通过。覆盖首页/媒体库/详情原入口、系列逐项生成、取消/失败重试/历史；只分析已载入且时长有效的视频。真实 Emby、已打开播放器的跨引擎通知、实体键鼠、macOS/Linux 原生与视觉仍待，见[当前批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次检测入口系列批量分析与任务中心2026-10-15)。下方 668+3、643+3 等仅代表各自历史批次。
+
+前一批单视频内嵌章节片头片尾候选及采用/忽略已完成 Windows 自动化：68 项定向、全量 668 passed / 3 skipped、分析及 253 文件格式检查通过，Windows Release 40.8 秒构建、14:53:36 +08:00 五秒 smoke 通过。开发前基线为 `e3cbb8a`。当时原版媒体条目检测入口、系列批量分析及任务中心仍待迁移，真实来源及三端实机/视觉未据此升级验收。详见[当前候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#前一批内嵌章节片头片尾候选2026-10-15)。
+
+2026-10-16 主窗口关闭卡顿已定位并修复代码：paused source-change listener 与 `SourceRepository.close` 的等待环已解除；主/子窗口关闭路径覆盖 IPC 回复丢失、拒绝、实际消失等待及超时保留窗口。最终全量 **723 passed / 6 skipped**，analyze、281 个 Dart 文件 format 及 diff-check 通过，相关定向回归 **24 项通过**。Windows 正式 `lib/main.dart` Release 40.2 秒构建成功；单次 `PostMessage WM_CLOSE` smoke 于 11:15:30 +08:00 正常退出，关闭链路记录 **234 ms**。该结果只覆盖本机此次启动/退出，不延伸到有播放器、多页面/下载或其他桌面平台的闭环验收。
 
 最新播放器 P1-C 时间轴预览已完成自动化验证：`flutter analyze --fatal-infos` 零问题，全量 `flutter test --no-pub` **643 passed / 3 skipped**，时间轴/语义树专项与 native 抽帧 1 项通过；Windows Release 42.3 秒构建及 10:01:54 +08:00 五秒 smoke 通过。真实 Emby、人工可见窗口交互/视觉及 macOS/Linux 原生实机验收仍待。详见[P1-C 验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15)。
 
 | 能力 | Windows | macOS | Linux | 主要证据与缺口 |
 |---|---|---|---|---|
-| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | 最新单视频候选批次 Windows Release 构建及 smoke 通过；macOS/Linux 无真实原生构建/运行记录 |
-| 内嵌章节片头片尾候选与审核 | ◐ V2/V4 | ◐ V0 | ◐ V0 | 单视频生成、采用/忽略及取消/失败保护通过 Dart/组件回归，Windows Release/smoke 通过；未单独启用 native 用例，不代表真实 Emby、可见窗口或三端视觉已验收；批量/任务中心仍待，见[候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15) |
+| Flutter Release 构建与启动 | ✅ V4 | ⬜ | ⬜ | 最新条目入口/系列任务批次 Windows Release 构建及启动检查通过；macOS/Linux 无真实原生构建/运行记录 |
+| Windows 绿色便携存储布局 | ✅ V5 | 不适用 | 不适用 | 全量 731+6、analyze、289 文件 format、diff-check 通过；Profile 原生 portable_runtime 1 项通过。Release 39.2 秒成功；不同 cwd 五秒 smoke 两次单次 WM_CLOSE 正常退出，最新 15:15:41 +08:00。新库 sources/media/credential files 均为 0，日志落 exe/log，cwd 空、旧 Local 缓存未重建。ZIP 37,917,144 字节/37 entries，含 exe 与 `data/app.so`，排除四数据目录和 PDB。Roaming 旧 518 字节 `.dat` hash/size 未被新版改写，需用户手动删除；macOS/Linux 不据此宣称便携 |
+| 内嵌章节片头片尾候选与审核 | ◐ V2/V4 | ◐ V0 | ◐ V0 | 单项/系列生成、原版条目入口、任务中心、采用/忽略及取消/失败保护通过 Dart/组件回归，Windows Release/启动通过；未单独启用 native 用例，不代表真实 Emby、可见窗口或三端视觉已验收，见[当前批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次检测入口系列批量分析与任务中心2026-10-15) |
 | 桌面外壳、导航与主题 | ◐ V2/V4 | 🧪 V2 | 🧪 V2 | 最新侧栏 hover 修复有 45 项导航/鼠标/键盘及平台变体回归和 Windows 启动冒烟；macOS/Linux 变体不是原生运行，完整原版视觉对照未完成，见[Emby 导航验收](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复) |
 | 本地目录来源与扫描 | ◐ V2 | ◐ V0–V2 | ◐ V0–V2 | 文件规则、SQLite、取消/失败保护有自动化；真实移动盘/NAS和三端完整目录流程未统一验收 |
 | macOS 持久目录授权 | 不适用 | ⬜ | 不适用 | 明确未实现，不能据此排除 macOS |
@@ -42,7 +47,7 @@
 | 播放器窗口 chrome 与控制栏 | ◐ V2/V4 | ◐ V0 | ◐ V0 | P1-A 的剩余时间、锁定和播放信息有 62 项定向回归及 Windows Release/smoke；未重跑全量，616+2 是修改前基线。真实 Emby、可见窗口与 macOS/Linux 原生/目视验收待完成，见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md) |
 | 播放器迷你窗与置顶 | ◐ V2/V4 | ◐ V0 | ◐ V0 | P1-B 代码与 Windows 自动化完成，7 文件 66 项、全量 620+2、Release 和 smoke 通过；Windows smoke 不含迷你窗可见交互验收，macOS/Linux 原生实机仍待，见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md) |
 | 播放器时间轴预览图 | ◐ V2/V5 | ◐ V0 | ◐ V0 | P1-C 自动化通过：全量 643+3、专项时间轴/语义树及 Windows native 抽帧 1 项通过；Windows Release/smoke 通过，但未做真实可见窗口视觉验收。macOS/Linux 无原生验收；真实 Emby 待完成，见[高级播放验证记录](PLAYER_PRECISION_BACKEND.zh-CN.md#播放器-p1-c时间轴预览图2026-10-15) |
-| 播放器关窗后主窗口交互 | ✅ V5 ⚠ | ⬜ | ⬜ | Windows Profile 原生、连续关窗和压力回归通过；当次 Release 退出仍记录数据库重复关闭异常，见[关窗审计](FRONTEND_CLOSE_AUDIT_2026-10-11.zh-CN.md) |
+| 播放器关窗后主窗口交互 | ◐ V2/V5 | ⬜ | ⬜ | 已修复 paused listener 关闭等待环及主/子窗口关闭协调；source/close 定向 24 项、全量 723+6、analyze、281 文件格式和 diff-check 通过。Windows Release 与单次 WM_CLOSE smoke 通过，日志耗时 234 ms；仅本机此次启动/退出，其他库/活跃任务/有播放器及 macOS/Linux 场景仍待验证 |
 | Emby 登录、选库与会话 | ◐ V2 | 🧪 V2 | 🧪 V2 | 协议和安全存储替身测试已覆盖；真实保存凭据与三端安全存储生命周期仍需验收 |
 | Emby 同步、浏览与详情 | ◐ V2/V5 | 🧪 V2 | 🧪 V2 | Windows 原生套件使用模拟 Emby；真实服务器验证曾因凭据预检阻断，最新搜索批次也未做真实 Emby |
 | Emby 播放、字幕与状态写回 | ◐ V5 | 🧪 V2 | 🧪 V2 | Windows 原生套件验证模拟服务 + 真实 mpv；真实 Emby 播放、观看写回和服务器差异仍待 V6 |

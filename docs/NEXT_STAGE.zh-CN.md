@@ -1,10 +1,26 @@
 # 当前阶段与历史实施记录
 
-更新：2026-10-15。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+更新：2026-10-16。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 
 ## 当前阶段
 
-最新完成：单视频内嵌章节片头片尾候选生成及采用/忽略，68 项定向回归、全量 668 passed / 3 skipped、静态分析、Windows Release（40.8 秒）与 14:53:36 +08:00 五秒 smoke 均通过。识别规则沿用原版，pending 不参与跳过，rejected 保留以避免相同候选反复生成，不覆盖手动范围；当前初始数据库结构不变。原版媒体条目检测入口、系列批量分析和任务中心后续迁移，字幕样式/音频延迟未在本批实施，真实来源和三端实机/视觉验收仍待。本批之前的 P1 播放辅助和 Emby 分页/计数修复已提交为 `e3cbb8a`（当时全量 652 passed / 3 skipped）。详见[本批接口、边界与验证](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)。下方按历史批次保留当时的完成和待办状态。
+当前播放器故障诊断与加载健壮性批次已完成本轮代码及 Windows 验证：最终定向 native 1 项、analyze、265 文件格式检查和 diff-check 通过；Windows Release 40.8 秒成功，01:12:55 +08:00 五秒 smoke 通过。全量 **701 passed / 4 skipped** 是最后三行 `finally` 修正前的基线，未重复全量。真实 Emby 间歇故障尚无历史日志，根因未确定，需用新版实际复现；macOS/Linux 原生未验收。详见[高级播放与当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md)。
+
+2026-10-16 后续修复主窗口关闭卡顿：已确认 `SourceRepository.close` 等待 paused change-stream listener，而 listener 需在 provider container dispose 时取消，构成等待循环。调整 stream 关闭与 app 清理顺序；子窗口关闭不再依赖可能丢失的 IPC 回复，而轮询原生窗口清单，false 回复或超时保留播放器窗口、不强制销毁。后台 marker/offline/cache 并行取消并等待完成，数据库最后关闭，单步清理异常记录后继续释放其他 owner；关闭日志写入现有 `logs/playback-*.jsonl`，不含 URL/账号。代码已冻结：全量 **723 passed / 6 skipped**、analyze 零问题、281 Dart 文件 format 0 改动、diff-check 通过；新增关闭回归和 source paused-listener 定向共 **24 项通过**。首次全量的一项 fixture teardown `HttpException` 已在测试夹具中限定处理为关闭期间预期断连，其他异常仍抛出；修后全量为上述 723/6。Windows 正式 `lib/main.dart` Release 构建 **40.2 秒成功**；2026-10-16 11:15:30.6878930 +08:00 单次 `PostMessage WM_CLOSE` smoke 通过（窗口响应、正常关闭、退出码 0）。关闭日志记录总耗时 **234 ms**：后台任务收尾 225 ms、数据库关闭 8 ms。该结果仅覆盖本机此次启动/退出，不推导所有库、活跃下载、多页面、有播放器或 macOS/Linux 场景均已通过。
+
+2026-10-16 用户新增授权播放器右上角输入速率提示，并确认随底部播放进度 Dock 同步显隐。代码已冻结：backend 54、UI 27、隔离 native 2 项通过；全项目 analyze、269 个 Dart 文件格式 0 改动及 diff 检查通过。本轮未重跑上一轮 701 项全量。Windows 正式 Release 39.6 秒成功，五秒 smoke 正常响应并退出；真实 Emby、实体键鼠、macOS/Linux 原生和三端视觉验收仍待。不得将本地/离线缓存磁盘读取冒充网络速率。详见[专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
+
+当前两项 P2 修复的定向、全量及 Windows Release/smoke 验证均完成。三文件共 **28 项定向测试通过**；全量 `flutter test --no-pub --reporter expanded` **753 passed / 6 skipped**（49 秒，exit 0）；analyze 无问题，296 个文件格式检查 0 改动，diff-check 通过。Windows production Release **45.7 秒成功**；2026-10-16 16:57:14.4629377 +08:00 五秒 smoke 的窗口响应、正常关闭及退出码 0 均通过。字幕更新在串行执行时按 engine 最新状态合并；便携 SQLite 对 library、数据库及 sidecar 的路径逃逸做启动与 open 双重防护。无 schema 变更、无用户数据删除、未提交推送。详情见[字幕记录](PLAYER_TRACKS.zh-CN.md#p2-修正快速连续样式更新合并windows-验证完成)和[项目边界](PROJECT_SCOPE.zh-CN.md#p2-修正数据库目录边界校验windows-验证完成)。
+
+当前用户已批准的播放器字幕样式与音画同步批次代码已冻结。`flutter test` 718 passed / 6 skipped，analyze 无问题；279 个 Dart 文件格式检查 0 改动、`git diff --check` 通过。真实 libmpv 文本字幕 native 用例 1 项通过，覆盖 5 个样式与 4 个 timing 属性读回、libass 像素变化、暂停及播放位置不变；Windows Profile 字体主/子 engine 集成用例 1 项通过，Profile 构建 21.9 秒，子窗口销毁后主 engine 仍可枚举字体。正式 Windows Release 37.8 秒构建成功，`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 2026-10-16 09:34:00 +08:00 通过（隐藏窗口响应、正常关闭、退出码 0），产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。ASS/位图字幕不在 native 样本内；driver 尾部的通用 plugin 提示未阻断通过，但不等同人工 UI 验收。macOS/Linux、真实 Emby 和视觉验收待完成。细节见[模块记录](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步代码已冻结windows-验证完成2026-10-16)。
+
+六项实时统计实现及本轮 Windows 验证完成。`flutter test --no-pub --reporter expanded` 全量 743 passed / 6 skipped（39 秒，exit 0）；`flutter analyze --no-pub` 无问题；`lib`、`test`、`integration_test` 的 296 个文件格式检查 0 改动，diff-check 通过。Windows Profile 真 `MediaKitVideoEngine` texture 专项 1 case 通过（构建 22.1 秒）；暂停只读、seek、重开及 dispose 安全均有覆盖。正式 production `lib/main.dart` Windows Release 构建成功（46.1 秒）；2026-10-16 16:41:35.4687675 +08:00 五秒 smoke 的隐藏窗口响应、正常关闭及退出码 0 均通过。禁用音轨（`aid=no`）时 AV sync 不可用，普通静音/音量 0 不会令其失效。能力报告中的硬解读取可用不代表实际硬件解码已启用；当前 texture VO 不提供 `vo-passes`，UI 显示 `--`，不切换 VO 或播放选项强行采集。真实 Emby、实际硬解启用状态、转码/切画质、macOS/Linux、可见 UI/视觉及长时间性能验收仍未覆盖。本轮无存储行为、配置导入或 schema 变更，未提交推送。细节见[实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md)。
+
+最新播放器 UI 批次完成 Dock/菜单固定深色 Chrome 色板统一：Dock、右键精度菜单、字幕/音轨/剧集/音量/设置/画质/标记面板及音频设备/字幕字体等嵌套菜单不再随海报明暗切换为浅色；该局部主题不影响媒体库等普通页面。右键精度菜单中的重复迷你悬浮窗/还原窗口入口已删除，迷你悬浮窗仅保留 Dock 按钮，`P` 快捷键保留。Dock 高 72 px，主播放按钮 34×34 px、辅助按钮 32×32 px，图标分别为 18/17 px。`playback_test.dart` 20/20、7 个播放器弹层相关测试 47/47、targeted analyze clean；Windows Release 34.5 秒成功，2026-10-16 11:03:30 +08:00 五秒 smoke 窗口响应、正常关闭、退出码 0 均通过。真实 Windows 可见窗口、实体键鼠及 macOS/Linux 原生目视继续待验收。详见[Dock 批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md#当前-ui-批次播放器控制栏-dock-重构2026-10-15)。
+
+本批已接入原版片头片尾检测的首页/媒体库/详情条目入口、系列批量分析、任务中心进度/取消/失败重试及历史。最终全量 **685 passed / 3 skipped**、分析、260 文件格式检查通过，Windows Release **41.0 秒**构建、**19:51:30 +08:00** 五秒启动检查通过；基线 `fab5dda` 的 668+3 是上批结果。移除上批播放器标记面板临时检测入口，保留审核。字幕样式与音画同步后续批次已完成代码及 Windows 验证，详见上方最新结果；在线字幕仍保留在原版既有迁移清单；真实来源、三端原生及视觉验收仍待。详见[当前批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次检测入口系列批量分析与任务中心2026-10-15)。下方历史批次的“入口/批量待迁移”只描述当时状态。
+
+前一批完成：单视频内嵌章节片头片尾候选生成及采用/忽略，68 项定向回归、全量 668 passed / 3 skipped、静态分析、Windows Release（40.8 秒）与 14:53:36 +08:00 五秒 smoke 均通过。识别规则沿用原版，pending 不参与跳过，rejected 保留以避免相同候选反复生成，不覆盖手动范围；当前初始数据库结构不变。原版媒体条目检测入口、系列批量分析和任务中心后续迁移，字幕样式/音频延迟未在本批实施，真实来源和三端实机/视觉验收仍待。本批之前的 P1 播放辅助和 Emby 分页/计数修复已提交为 `e3cbb8a`（当时全量 652 passed / 3 skipped）。详见[本批接口、边界与验证](PLAYER_PRECISION_BACKEND.zh-CN.md#前一批内嵌章节片头片尾候选2026-10-15)。下方按历史批次保留当时的完成和待办状态。
 
 2026-10-12 用户调整范围：暂不实现照片模块，照片/相册、照片搜索、系统照片库与首页照片墙移出当前计划和验收清单，不自动排入后续阶段。入口及首页标识已移除，91 项相关回归和静态分析通过；正式构建与启动结果见[照片范围记录](PHOTO_SCOPE_DECISION.zh-CN.md)。下方历史批次涉及照片的记录仅保留追溯用途；影视海报、背景和演员图片继续保留。详见[项目边界](PROJECT_SCOPE.zh-CN.md)。
 

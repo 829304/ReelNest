@@ -44,7 +44,7 @@ class PlayerPalette {
   Color get divider => (lightContent ? Colors.white : Colors.black).withValues(
     alpha: lightContent ? .14 : .12,
   );
-  Color get shadow => Colors.black.withValues(alpha: lightContent ? .08 : .10);
+  Color get shadow => Colors.black.withValues(alpha: lightContent ? .42 : .10);
   List<Color> get barFill => lightContent
       ? [
           Colors.white.withValues(alpha: .24),
@@ -55,25 +55,22 @@ class PlayerPalette {
           Colors.white.withValues(alpha: .60),
         ];
   List<Color> get popoverFill => lightContent
-      ? [
-          Colors.white.withValues(alpha: .28),
-          Colors.white.withValues(alpha: .23),
-        ]
+      ? [const Color(0xF21D2026), const Color(0xFA0C0E12)]
       : [
           Colors.white.withValues(alpha: .78),
           Colors.white.withValues(alpha: .68),
         ];
   List<Color> get border => lightContent
       ? [
-          Colors.white.withValues(alpha: .34),
-          Colors.white.withValues(alpha: .15),
+          Colors.white.withValues(alpha: .22),
+          Colors.white.withValues(alpha: .08),
         ]
       : [
           Colors.white.withValues(alpha: .72),
           Colors.black.withValues(alpha: .16),
         ];
   Color get opaqueBase => lightContent
-      ? const Color.fromRGBO(41, 43, 48, 1)
+      ? const Color(0xFF101217)
       : const Color.fromRGBO(240, 242, 245, 1);
 
   static Future<PlayerPalette> forPoster(String? path) async {
@@ -113,6 +110,29 @@ class PlayerPalette {
     }
   }
 }
+
+/// Keeps nested player menus on the same dark material as the playback dock.
+/// This local theme is intentionally not applied to the rest of the app.
+ThemeData playerOverlayThemeData(ThemeData base) => base.copyWith(
+  colorScheme: base.colorScheme.copyWith(
+    surface: const Color(0xFF15181D),
+    onSurface: const Color(0xF2FFFFFF),
+  ),
+  dividerColor: const Color(0x24FFFFFF),
+  popupMenuTheme: PopupMenuThemeData(
+    color: const Color(0xFF15181D),
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+    textStyle: base.textTheme.bodyMedium?.copyWith(
+      color: const Color(0xE8FFFFFF),
+      fontSize: 12,
+    ),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(10),
+      side: const BorderSide(color: Color(0x29FFFFFF), width: .8),
+    ),
+  ),
+);
 
 /// Shared player panel material translated from PlayerView.swift.
 ///

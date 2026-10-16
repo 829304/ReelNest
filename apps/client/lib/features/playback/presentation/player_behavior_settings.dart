@@ -3,9 +3,26 @@ import 'package:flutter/services.dart';
 
 import '../application/playback_session.dart';
 import 'player_basic_settings.dart';
+import 'player_subtitle_sync_settings.dart';
 import 'player_visuals.dart';
 
-/// PlayerAdvancedSettingsOverlay's frame and basic playback settings.
+enum PlayerAdvancedSettingsTab { playback, sync, subtitles }
+
+extension on PlayerAdvancedSettingsTab {
+  String get title => switch (this) {
+    PlayerAdvancedSettingsTab.playback => '播放',
+    PlayerAdvancedSettingsTab.sync => '音画同步',
+    PlayerAdvancedSettingsTab.subtitles => '字幕',
+  };
+
+  IconData get icon => switch (this) {
+    PlayerAdvancedSettingsTab.playback => Icons.play_circle_outline_rounded,
+    PlayerAdvancedSettingsTab.sync => Icons.graphic_eq_rounded,
+    PlayerAdvancedSettingsTab.subtitles => Icons.closed_caption_outlined,
+  };
+}
+
+/// PlayerAdvancedSettingsOverlay's frame and currently migrated settings tabs.
 Future<void> showPlayerBehaviorSettings(
   BuildContext context,
   PlaybackSession session,
@@ -16,7 +33,48 @@ Future<void> showPlayerBehaviorSettings(
   barrierLabel: '关闭播放器更多设置',
   barrierColor: Colors.black.withValues(alpha: .26),
   transitionDuration: Duration.zero,
-  pageBuilder: (context, _, _) {
+  pageBuilder: (context, _, _) =>
+      _PlayerBehaviorSettingsDialog(session: session, palette: palette),
+);
+
+class _PlayerBehaviorSettingsDialog extends StatefulWidget {
+  const _PlayerBehaviorSettingsDialog({
+    required this.session,
+    required this.palette,
+  });
+
+  final PlaybackSession session;
+  final PlayerPalette palette;
+
+  @override
+  State<_PlayerBehaviorSettingsDialog> createState() =>
+      _PlayerBehaviorSettingsDialogState();
+}
+
+class _PlayerBehaviorSettingsDialogState
+    extends State<_PlayerBehaviorSettingsDialog> {
+  PlayerAdvancedSettingsTab selected = PlayerAdvancedSettingsTab.playback;
+  Future<List<String>>? fontFamilies;
+
+  PlaybackSession get session => widget.session;
+  PlayerPalette get palette => widget.palette;
+
+  void select(PlayerAdvancedSettingsTab tab) {
+    if (selected == tab) return;
+    setState(() {
+      selected = tab;
+      if (tab == PlayerAdvancedSettingsTab.subtitles) {
+        fontFamilies ??= session.subtitleFontFamilies;
+      }
+    });
+  }
+
+  void retryFonts() => setState(() {
+    fontFamilies = session.subtitleFontFamilies;
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
     return CallbackShortcuts(
       bindings: {
@@ -44,87 +102,40 @@ Future<void> showPlayerBehaviorSettings(
                   shadowOffset: const Offset(0, 10),
                   child: Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 14,
-                        ),
-                        child: Row(
-                          spacing: 12,
-                          children: [
-                            PlayerSymbolIcon(
-                              PlayerSymbol.settings,
-                              color: palette.primary,
-                            ),
-                            Expanded(
-                              child: Text(
-                                '播放器更多设置',
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                  color: palette.primary,
-                                ),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 30,
-                              height: 30,
-                              child: PlayerControlSurface(
-                                palette: palette,
-                                enabled: true,
-                                child: IconButton(
-                                  tooltip: '关闭设置',
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: Icon(
-                                    Icons.close,
-                                    size: 13,
-                                    color: palette.secondary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _header(context),
                       Divider(height: 1, color: palette.rowStroke),
                       Expanded(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            SizedBox(
-                              width: 150,
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Container(
-                                  height: 32,
-                                  alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 11,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: palette.selectedFill,
-                                    borderRadius: BorderRadius.circular(9),
-                                  ),
-                                  child: Text(
-                                    '播放',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: palette.primary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
+                            _sidebar(),
                             VerticalDivider(width: 1, color: palette.rowStroke),
                             Expanded(
                               child: SingleChildScrollView(
-                                padding: const EdgeInsets.all(18),
-                                child: PlayerBasicSettings(
-                                  session: session,
-                                  palette: palette,
+                                key: ValueKey(
+                                  'player-settings-content-${selected.name}',
                                 ),
+                                padding: const EdgeInsets.all(18),
+                                child: switch (selected) {
+                                  PlayerAdvancedSettingsTab.playback =>
+                                    PlayerBasicSettings(
+                                      session: session,
+                                      palette: palette,
+                                    ),
+                                  PlayerAdvancedSettingsTab.sync =>
+                                    PlayerSyncSettings(
+                                      session: session,
+                                      palette: palette,
+                                    ),
+                                  PlayerAdvancedSettingsTab.subtitles =>
+                                    PlayerSubtitleStyleSettings(
+                                      session: session,
+                                      palette: palette,
+                                      fontFamilies: fontFamilies ??=
+                                          session.subtitleFontFamilies,
+                                      onRetryFonts: retryFonts,
+                                    ),
+                                },
                               ),
                             ),
                           ],
@@ -139,5 +150,94 @@ Future<void> showPlayerBehaviorSettings(
         ),
       ),
     );
-  },
-);
+  }
+
+  Widget _header(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+    child: Row(
+      spacing: 12,
+      children: [
+        PlayerSymbolIcon(PlayerSymbol.settings, color: palette.primary),
+        Expanded(
+          child: Text(
+            '播放器更多设置',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: palette.primary,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 30,
+          height: 30,
+          child: PlayerControlSurface(
+            palette: palette,
+            enabled: true,
+            child: IconButton(
+              tooltip: '关闭设置',
+              padding: EdgeInsets.zero,
+              onPressed: () => Navigator.pop(context),
+              icon: Icon(Icons.close, size: 13, color: palette.secondary),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _sidebar() => SizedBox(
+    width: 150,
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        spacing: 7,
+        children: [
+          for (final tab in PlayerAdvancedSettingsTab.values)
+            Semantics(
+              button: true,
+              selected: selected == tab,
+              child: InkWell(
+                key: ValueKey('player-settings-tab-${tab.name}'),
+                onTap: () => select(tab),
+                borderRadius: BorderRadius.circular(9),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 11),
+                  decoration: BoxDecoration(
+                    color: selected == tab
+                        ? palette.selectedFill
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Row(
+                    spacing: 8,
+                    children: [
+                      Icon(
+                        tab.icon,
+                        size: 14,
+                        color: selected == tab
+                            ? palette.primary
+                            : palette.secondary,
+                      ),
+                      Text(
+                        tab.title,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: selected == tab
+                              ? palette.primary
+                              : palette.secondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}

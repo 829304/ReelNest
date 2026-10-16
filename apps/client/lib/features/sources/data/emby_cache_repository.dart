@@ -6,7 +6,8 @@ import 'dart:ui' as ui;
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import '../../../storage/runtime_storage_paths.dart';
 
 import '../../../api/emby/emby_quality.dart';
 import '../../../domain/media_source.dart';
@@ -70,7 +71,7 @@ class EmbyCacheRepository {
     ArtworkDecodeQueue? decodeQueue,
   }) : decodes = decodeQueue ?? ArtworkDecodeQueue(),
        _ownsDecodes = decodeQueue == null,
-       cacheDirectory = cacheDirectory ?? getApplicationCacheDirectory;
+       cacheDirectory = cacheDirectory ?? RuntimeStoragePaths.current.cache;
   final SourceRepository sources;
   final ArtworkDecodeQueue decodes;
   final bool _ownsDecodes;

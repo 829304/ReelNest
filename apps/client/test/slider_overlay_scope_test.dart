@@ -93,9 +93,16 @@ class _LayoutSession extends PlaybackSession {
 
   void ready() {
     loading = false;
+    error = null;
     engine = FakeVideoEngine();
     clock = const VideoClock(duration: Duration(seconds: 100), playing: true);
     timeline.value = clock;
+    notifyListeners();
+  }
+
+  void fail(String message) {
+    loading = false;
+    error = message;
     notifyListeners();
   }
 }
@@ -127,6 +134,31 @@ void main() {
           ),
         );
         await tester.pump();
+        final loadingOverlay = find.byKey(
+          const ValueKey('player-loading-overlay'),
+        );
+        expect(loadingOverlay, findsOneWidget);
+        expect(find.text('正在打开视频'), findsOneWidget);
+        expect(
+          find.ancestor(
+            of: loadingOverlay,
+            matching: find.byType(BackdropFilter),
+          ),
+          findsNothing,
+        );
+        session.fail('视频无法打开或加载超时，请检查文件后重试。');
+        await tester.pump();
+        final errorOverlay = find.byKey(const ValueKey('player-error-overlay'));
+        expect(errorOverlay, findsOneWidget);
+        expect(find.text('内置播放器无法播放'), findsOneWidget);
+        expect(find.text('重试'), findsOneWidget);
+        expect(
+          find.ancestor(
+            of: errorOverlay,
+            matching: find.byType(BackdropFilter),
+          ),
+          findsNothing,
+        );
         session.ready();
         await tester.pump();
         final mouse = await tester.createGesture(

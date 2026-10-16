@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:async';
 
 import 'package:drift/drift.dart';
@@ -7,8 +6,8 @@ import 'package:drift/native.dart';
 // Drift marks its wire protocol experimental; both peers use our locked version.
 // ignore: experimental_member_use
 import 'package:drift/remote.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import 'runtime_storage_paths.dart';
 
 class LibrarySchemaMismatch implements Exception {
   const LibrarySchemaMismatch();
@@ -80,16 +79,15 @@ class LibraryDatabase extends GeneratedDatabase {
     await super.close();
   }
 
-  factory LibraryDatabase.open() => LibraryDatabase(
-    LazyDatabase(() async {
-      final support = await getApplicationSupportDirectory();
-      final directory = Directory(p.join(support.path, 'library'));
-      await directory.create(recursive: true);
-      return NativeDatabase.createInBackground(
-        File(p.join(directory.path, 'reelnest.sqlite')),
-      );
-    }),
-  );
+  factory LibraryDatabase.open() {
+    final paths = RuntimeStoragePaths.current;
+    return LibraryDatabase(
+      LazyDatabase(() async {
+        final file = await paths.databaseFile();
+        return NativeDatabase.createInBackground(file);
+      }),
+    );
+  }
 
   @override
   int get schemaVersion => 1;

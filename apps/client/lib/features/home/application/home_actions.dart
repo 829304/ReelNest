@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/media_source.dart';
 
 import '../../playback/application/playback_providers.dart';
+import '../../playback/application/marker_analysis_providers.dart';
 import '../../sources/application/source_providers.dart';
 import '../../sources/application/emby_providers.dart';
 import '../../library/application/video_preferences_provider.dart';
@@ -87,6 +88,8 @@ Future<void> homeVideoAction(
           sources.traceChanged();
         }
         if (context.mounted) ref.invalidate(playbackRecordProvider(id));
+      case 'markerAnalysis':
+        await ref.read(markerAnalysisProvider).enqueue(item.identity);
     }
     if (context.mounted) ref.invalidate(homeSourceStatsProvider(id.sourceId));
   } catch (error) {

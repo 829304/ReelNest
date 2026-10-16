@@ -1152,7 +1152,12 @@ class SourceRepository {
       }),
     );
     await _maintenanceDone?.future;
-    await _changes.close();
+    // Subscribers belong to the UI/provider container and may be paused while
+    // their route is offstage. Waiting for them to consume `done` deadlocks
+    // shutdown: the container cancels them only after this repository closes.
+    // Stop accepting events now; drain our writes and database independently
+    // of when an external subscriber resumes or cancels.
+    unawaited(_changes.close());
     await database.close();
   }
 }

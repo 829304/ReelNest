@@ -1,12 +1,14 @@
 # 共用视频播放器实现盘点
 
-最后更新：2026-10-15。单视频内嵌章节片头片尾候选生成及采用/忽略已接入：68 项定向回归、全量 668 passed / 3 skipped、静态分析、Windows Release 和五秒 smoke 均通过。原版媒体条目检测入口、系列批量分析及任务中心仍待迁移；真实 Emby、人工可见窗口交互/视觉及 macOS/Linux 原生实机验收仍待。开发前基线为 `e3cbb8a`。详见[当前候选批次](PLAYER_PRECISION_BACKEND.zh-CN.md#当前批次内嵌章节片头片尾候选2026-10-15)。
+最后更新：2026-10-16。播放诊断批次最终定向 native **1 项通过**、analyze、265 文件格式检查及差异检查通过；Windows Release 40.8 秒成功，01:12:55 +08:00 五秒 smoke 通过。全量 **701 passed / 4 skipped** 是最后三行兜底修正前的结果。真实 Emby 根因尚未确定，macOS/Linux 原生未验收。另：输入速率提示代码已冻结，backend 54 项、UI 27 项及隔离 native 2 项通过，全项目 analyze、269 文件格式和 diff 检查通过；本轮未重跑 701 项全量。Windows Release 39.6 秒和五秒 smoke 通过；真实 Emby、实体键鼠、macOS/Linux 原生和三端视觉验收仍待。见[专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
 
 本文为当前状态总表；2026-10-09 的基础播放器记录和后续日期型批次只证明当时范围，不能覆盖本表。盘点依据原版 `PlayerView.swift`、`MpvPlayerController.swift`、`AppSettings.swift` 与 ReelNest 的 `features/playback`、`player` 实际代码；上述原文件在参考基线 `64f8ee2` 与原仓库当前 HEAD 之间没有变化。
 
 ## 结论与范围
 
 本地与 Emby 视频共用的播放会话、播放器页面、续播、音轨/字幕、剧集连播和精确播放第一批已接通，并有 Windows 自动化及分层原生证据；完整原版播放器尚未迁移完毕，UI 也没有完成一比一验收。
+
+2026-10-16 发现主窗口关闭卡顿的依赖死锁：`SourceRepository.close` 等待 change stream 关闭，而 paused listener 只有 provider container dispose 后才能取消；bootstrap 原先又在 `source.close` 返回后才 dispose container。已调整 stream 关闭和 app 清理顺序；主/子窗口关闭请求改为观察原生窗口实际消失，避免等待可能丢失的 IPC 回复，明确拒绝或超时仍保留播放器窗口、不强制销毁。关闭时并行取消后台 marker/offline/cache owner 并等待收尾，数据库最后关闭；单步异常记录并继续释放其他 owner。最终全量 **723 passed / 6 skipped**、analyze 零问题、281 个 Dart 文件格式 0 改动及 diff-check 通过；关闭回归定向 **24 项通过**。Windows 正式 `lib/main.dart` Release 构建 **40.2 秒成功**；2026-10-16 11:15:30.6878930 +08:00 单次 `PostMessage WM_CLOSE` smoke 正常退出，`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。日志 `playback-4368-1792120525622583.jsonl` 记录 main close 至 native close 请求 **234 ms**（后台任务收尾 225 ms、数据库关闭 8 ms）。这只证明本机此次启动/退出，不推导所有媒体库、活跃下载、多页面、有播放器或 macOS/Linux 场景均通过。
 
 此前按基础播放、字幕/音轨、队列三个小批次推进，没有先提供完整剩余清单；部分旧文档仍把已完成的队列列为待办，造成进度不透明。下表统一状态。剩余项来自原版，不是新产品功能；今后拆分批次不应增加范围，确需调整时单独说明。
 
@@ -22,6 +24,8 @@
 | mpv 播放 | 本地文件、移动硬盘及已挂载 NAS 的文件路径播放；有真实解码验证 |
 | 本地/Emby 共用播放器 | 来源模块分别准备本地路径或远程播放资源；播放会话、控制页、字幕音轨、队列和精确控制复用同一实现 |
 | 基本控制 | 播放/暂停、拖进度、左右键跳转、音量/静音、全屏、双击全屏、关闭 |
+| 控制栏 Dock | 固定深色 Chrome 色板覆盖播放器 Dock、右键精度菜单、设置/选择面板及嵌套菜单，不随海报明暗变浅，且不影响普通页面；Dock 高 72 px，主播放键 34×34 px、辅助按钮 32×32 px。迷你悬浮窗仅保留 Dock 按钮和 `P` 快捷键，右键精度菜单重复入口已移除。最新 `playback_test.dart` 20/20、弹层相关 47/47、targeted analyze、Windows Release 34.5 秒及 11:03:30 smoke 通过；真实窗口及三桌面端可见 UI 验收待补 |
+| 输入速率提示（用户授权新增） | HUD/UI 已冻结；backend 54、UI 27、隔离 native 2 项通过，analyze/269 文件格式/diff 检查通过。Windows Release 39.6 秒及五秒 smoke 通过；真实 Emby、实体键鼠、macOS/Linux 原生与三端视觉仍待。远程未知值 `-- KB/s`，本地/离线不显示；不得冒充网络速率 |
 | 观看记录 | 周期/暂停/切换/播完/关闭保存；默认续播回退 5 秒，90% 已看且不因回退清除 |
 | 安全切换/关闭 | 保存失败保留会话；重试或明确放弃；缺文件/离线/坏视频不提前释放旧解码器 |
 | 本地字幕 | 内嵌/同目录/手动外挂、开关、第二字幕、字幕快慢、语言/关闭偏好、原生 libass 渲染 |
@@ -33,6 +37,7 @@
 | 迷你悬浮窗与置顶 | `P` 与精确播放右键入口、保持比例和右下角定位、迷你播放控制、退出时恢复窗口状态及置顶偏好；播放设置可持久化“窗口置顶” |
 | 时间轴预览图（P1-C） | 关闭/流畅优先/画面优先三档、悬停和拖动预览、松手后 seek、148×83 浮层及边缘钳制；独立 headless mpv、受限缓存/并发和远程 Range 安全边界已实现，自动化验证完成，最终验收待进行 |
 | 基本快捷键 | 空格、左右/上下、M、F、Esc；B/Shift+B、逗号/句号、Home；弹层优先接收 Esc |
+| 片头片尾检测与审核 | 已存内嵌章节生成候选、采用/忽略；首页/媒体库/详情右键发起单项或系列分析；任务中心进度、取消、重试及历史。只覆盖已载入且时长有效的视频，真实来源与三端原生验收待完成 |
 
 ## 历史：基础设置验证（Windows，2026-10-09）
 
@@ -56,9 +61,12 @@
 
 | 功能组 | 剩余项目 |
 |---|---|
-| 时间轴与精确控制 | 手动边界与跳过、P1-C 预览、单视频内嵌章节候选及审核已接入并通过 Windows 自动化。原版媒体条目检测入口、系列批量分析与任务中心仍待迁移；已有控制仍需三桌面端实机与视觉验收 |
+| 时间轴与精确控制 | 手动边界与跳过、P1-C 预览、章节候选与审核、原版条目检测入口及系列批量任务已接入；最新批次最终验证见专项记录。已有控制仍需真实来源、三桌面端实机与视觉验收 |
 | 窗口与辅助工具 | 启动宽度/比例及视频尺寸适配、截图及截图内容选择、右键菜单剩余操作；P1-C 自动化已通过，真实 Emby、人工可见窗口及 macOS/Linux 原生验收待完成；防休眠实机空闲超时仍待 |
-| 字幕与音频高级项 | 在线字幕、字幕样式/大小/位置、音频延迟、均衡器及预设；字幕延迟已有，但完整同步设置页没有迁移 |
+| 字幕与音频高级项 | 字幕样式快速连续更新 P2 已修复；3 个定向测试文件 28 项、全量 753 passed / 6 skipped、analyze、296 文件格式检查均通过。Windows production Release 45.7 秒成功，五秒 smoke 正常响应并退出（16:57:14 +08:00）。ASS/位图、macOS/Linux、真实 Emby 和人工 UI/视觉验收待完成。在线字幕、均衡器/预设仍未迁移。详情见[字幕与音轨批次](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步p2-修复及-windows-验证完成2026-10-16) |
+| 实时播放统计（实现及 Windows 验证完成） | 六项只读统计已接入播放信息面板。全量 `flutter test --no-pub --reporter expanded` 743 passed / 6 skipped；analyze 无问题，296 文件格式检查 0 改动，diff-check 通过；Windows Profile 真 `MediaKitVideoEngine` texture 1 case 通过。正式 production `lib/main.dart` Windows Release 构建成功（46.1 秒），五秒 smoke 于 2026-10-16 16:41:35 +08:00 正常响应、关闭且退出码 0。禁用音轨（`aid=no`）时 AV sync 不可用，普通静音/音量 0 不会令其失效。当前 texture VO 不提供 `vo-passes`，UI 显示 `--`；硬解读取可用不代表实际硬解已启用。真实 Emby、转码/切画质、macOS/Linux、可见 UI/视觉及长时间性能验收未覆盖；本轮无存储、配置导入或 schema 变更，未提交推送。详见[实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md) |
+
+字幕样式快速连续更新 P2 已修复并完成 Windows 验证；3 个定向测试文件合计 28 项、全量 753 passed / 6 skipped 通过，analyze、296 文件格式检查、Windows Release 与 smoke 均通过。其他平台和 UI 视觉验收仍待。详见[字幕与音轨说明](PLAYER_TRACKS.zh-CN.md#p2-修正快速连续样式更新合并windows-验证完成)。
 | 画面与性能设置 | 比例/裁切/旋转/镜像/去隔行，亮度/对比度/饱和度/Gamma，锐化/降噪，硬解选择、去色带/HDR 映射、弱网内存缓冲控制 |
 | 输入与快捷键 | 原完整默认映射、自定义/冲突处理、滚轮音量、中键/侧键动作、触控板进度/音量/缩放与灵敏度 |
 | 文件入口与外部播放 | 从系统打开未入库文件的临时播放、默认/自定义外部播放器及系统文件关联接入；关联注册属于平台依赖 |
@@ -99,4 +107,4 @@ P1-C 自动化验证完成：全量 643 passed / 3 skipped、分析零问题、�
 
 历史整合基线（P1-A 之前）：两轮 P0、侧栏/Emby 与 Logo 改动经全量 616 项通过、2 项默认原生用例跳过；各独立批次仍保留其当时的验证范围。最新 P1-B 全量结果见上文。详见[播放器专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#提交前整合复验2026-10-14)。
 
-单视频内嵌章节候选及采用/忽略已接入并通过 Windows 自动化；原版媒体条目检测入口、系列批量分析及任务中心仍待迁移。播放器其余高级项继续保留在迁移清单；真实 Emby、macOS/Linux 原生和三桌面端 UI 对照也仍待验收。分批实现细节见[基础播放](LOCAL_PLAYBACK.zh-CN.md)、[字幕音轨](PLAYER_TRACKS.zh-CN.md)、[队列](PLAYER_QUEUE.zh-CN.md)和[高级播放接口](PLAYER_PRECISION_BACKEND.zh-CN.md)。
+片头片尾候选、审核及条目/批量任务已接入；本地未知时长与尚未载入的远程单集不会凭猜测参与检测。字幕样式/音画同步初始实现的 Windows 验证已完成；本轮快速连续样式更新 P2 修复后的定向/全量测试、Windows Release 与 smoke 均通过，其他平台与实际效果验收仍待。在线字幕保留原版待迁移地位，不另开新增功能计划。播放器其余高级项、真实 Emby、macOS/Linux 原生和三桌面端 UI 对照仍待完成。分批细节见[基础播放](LOCAL_PLAYBACK.zh-CN.md)、[字幕音轨](PLAYER_TRACKS.zh-CN.md)、[队列](PLAYER_QUEUE.zh-CN.md)和[高级播放接口](PLAYER_PRECISION_BACKEND.zh-CN.md)。

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../player/video_engine.dart';
+import '../../../player/video_playback_stats.dart';
 import '../../../player/video_tracks.dart';
 import '../application/playback_session.dart';
+import 'player_realtime_stats_panel.dart';
 import 'player_visuals.dart';
 
 /// PlayerView's centered playback information sheet. It only renders metadata
@@ -27,14 +30,57 @@ class PlayerPlaybackInfoOverlay extends StatefulWidget {
 
 class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
   late Future<MediaSource> _source;
+  late final VideoStatsSampler _statsSampler;
+  VideoEngine? _statsEngine;
+  Object? _statsResourceKey;
 
   @override
   void initState() {
     super.initState();
-    _source = widget.session.sources.source(
-      widget.session.item!.identity.sourceId,
-      includeCounts: false,
-    );
+    _source = _loadSource();
+    _statsSampler = VideoStatsSampler();
+    widget.session.addListener(_handleSessionChange);
+    _syncStatsBinding();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerPlaybackInfoOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session == widget.session) return;
+    oldWidget.session.removeListener(_handleSessionChange);
+    widget.session.addListener(_handleSessionChange);
+    _source = _loadSource();
+    _syncStatsBinding();
+  }
+
+  @override
+  void dispose() {
+    widget.session.removeListener(_handleSessionChange);
+    _statsSampler.dispose();
+    super.dispose();
+  }
+
+  Future<MediaSource> _loadSource() => widget.session.sources.source(
+    widget.session.item!.identity.sourceId,
+    includeCounts: false,
+  );
+
+  void _handleSessionChange() => _syncStatsBinding();
+
+  void _syncStatsBinding() {
+    final session = widget.session;
+    final engine =
+        session.loading || session.error != null || session.item == null
+        ? null
+        : session.engine;
+    final resourceKey = engine == null ? null : session.item;
+    if (identical(engine, _statsEngine) &&
+        identical(resourceKey, _statsResourceKey)) {
+      return;
+    }
+    _statsEngine = engine;
+    _statsResourceKey = resourceKey;
+    _statsSampler.bind(engine, resourceKey: resourceKey);
   }
 
   @override
@@ -213,6 +259,17 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
                   '循环',
                   Icons.repeat_rounded,
                   _loopText(loop.loopCurrentItem, loop.start, loop.end),
+                ),
+                ValueListenableBuilder<VideoPlaybackStats>(
+                  valueListenable: _statsSampler,
+                  builder: (context, stats, _) => PlayerRealtimeStatsPanel(
+                    stats: stats,
+                    loading: session.loading,
+                    buffering: session.clock.buffering,
+                    playing: session.clock.playing,
+                    available: session.engine != null && session.error == null,
+                    palette: widget.palette,
+                  ),
                 ),
               ],
             ),

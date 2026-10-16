@@ -15,6 +15,7 @@ import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/playback/data/playback_marker_repository.dart';
 import 'package:reelnest/features/playback/domain/playback_marker.dart';
+import 'package:reelnest/features/playback/domain/video_subtitle_settings.dart';
 import 'package:reelnest/player/video_timeline.dart';
 import 'package:reelnest/features/sources/data/emby_cache_repository.dart';
 import 'package:reelnest/features/sources/application/emby_providers.dart';
@@ -249,6 +250,15 @@ void main() {
       await player.toggle();
       await player.volume(63);
       await player.rate(1.5);
+      const subtitleStyle = VideoSubtitleStyle(
+        bold: true,
+        colorPreset: VideoSubtitleColorPreset.cyan,
+      );
+      await player.setSubtitleStyle(subtitleStyle);
+      await player.audioDelay(.2);
+      await player.subtitleDelay(-.3);
+      await player.subtitleScale(1.25);
+      await player.subtitlePosition(84);
       final option = player.qualityOptions.last;
       await player.selectQuality(option);
       expect(player.error, isNull);
@@ -257,6 +267,19 @@ void main() {
       expect(player.clock.position, const Duration(seconds: 20));
       expect(player.clock.volume, 63);
       expect(player.clock.rate, 1.5);
+      expect(engines.last.subtitleStyle, subtitleStyle);
+      expect(
+        engines.last.timing,
+        const VideoTimingSettings(
+          audioDelay: .2,
+          subtitleDelay: -.3,
+          subtitleScale: 1.25,
+          subtitlePosition: 84,
+        ),
+      );
+      engines.last.emit(networkBytesPerSecond: 1048576);
+      expect(player.clock.networkBytesPerSecond, 1048576);
+      expect(player.timeline.value.networkBytesPerSecond, 1048576);
       expect(
         Uri.parse(engines.last.openedPath!).queryParameters['StartTimeTicks'],
         '200000000',
@@ -269,6 +292,9 @@ void main() {
         '50000000',
       );
       expect(player.clock.position, const Duration(seconds: 5));
+      expect(player.clock.networkBytesPerSecond, isNull);
+      expect(engines.last.subtitleStyle, subtitleStyle);
+      expect(engines.last.timing.subtitleDelay, -.3);
       final old = player.engine;
       failOpen = true;
       await player.selectQuality(player.qualityOptions.first);

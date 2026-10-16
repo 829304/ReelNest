@@ -10,10 +10,23 @@ import 'package:path/path.dart' as p;
 import 'video_engine.dart';
 import 'video_tracks.dart';
 import 'video_timeline.dart';
+import 'playback_diagnostics.dart';
+import 'video_load_monitor.dart';
+import 'video_network_speed.dart';
+import 'video_subtitle_settings_engine.dart';
+import 'video_playback_stats.dart';
+import 'mpv_playback_stats_reader.dart';
+import '../features/playback/domain/video_subtitle_settings.dart';
 import '../platform/playback_sleep_guard.dart';
 
 class MediaKitVideoEngine
-    implements VideoEngine, VideoTimelineEngine, VideoAspectEngine {
+    implements
+        VideoEngine,
+        VideoTimelineEngine,
+        VideoAspectEngine,
+        VideoSubtitleSettingsEngine,
+        VideoStatsEngine,
+        DiagnosableVideoEngine {
   MediaKitVideoEngine({Player? player}) {
     MediaKit.ensureInitialized();
     _player =
@@ -22,6 +35,7 @@ class MediaKitVideoEngine
           configuration: const PlayerConfiguration(
             title: 'ReelNest',
             libass: true,
+            logLevel: MPVLogLevel.warn,
           ),
         );
     _video = VideoController(_player);
@@ -40,6 +54,7 @@ class MediaKitVideoEngine
       }
     }
 
+    _publish = publish;
     _subscriptions.addAll([
       _player.stream.position.listen(publish),
       _player.stream.duration.listen(publish),
@@ -57,20 +72,98 @@ class MediaKitVideoEngine
         // stream as decoder failures. addSubtitle verifies its new track and
         // reports that rejection separately; the playing video stays valid.
         if (error.startsWith('Can not open external file ')) return;
-        _error = _networkResource ? '远程视频无法解码或连接中断。' : error;
-        publish(null);
+        _backendIssue = PlaybackIssue.prefer(
+          _backendIssue,
+          PlaybackIssue.backend(error),
+        );
+        diagnosticTrace?.event(
+          'backend_error',
+          code: _backendIssue!.code,
+          status: _backendIssue!.status,
+        );
+        if (!_opening) _scheduleFailureCheck(publish);
+      }),
+      _player.stream.log.listen((entry) {
+        if (entry.level != 'error' &&
+            entry.level != 'warn' &&
+            entry.level != 'fatal') {
+          return;
+        }
+        final issue = PlaybackIssue.backend(entry.text);
+        if (!entry.text.startsWith('Can not open external file ') &&
+            [
+              'http',
+              'network',
+              'dns',
+              'tls',
+              'timeout',
+              'decoder',
+            ].contains(issue.code)) {
+          _backendIssue = PlaybackIssue.prefer(_backendIssue, issue);
+          if (!_opening) _scheduleFailureCheck(publish);
+        }
+        // Prefixes and messages can contain paths; keep only classified codes.
+        diagnosticTrace?.event(
+          'backend_${entry.level == 'warn' ? 'warning' : 'detail'}',
+          code: issue.code,
+          status: issue.status,
+        );
       }),
     ]);
   }
   late final Player _player;
   late final VideoController _video;
   late final PlaybackSleepGuard _sleep;
+  late final void Function(dynamic) _publish;
   String? _warning;
   final _changes = StreamController<VideoClock>.broadcast();
   final _subscriptions = <StreamSubscription<dynamic>>[];
   String? _error;
-  bool _networkResource = false;
+  @override
+  PlaybackTrace? diagnosticTrace;
+  PlaybackIssue? _backendIssue;
+  bool _opening = false;
+  VideoLoadMonitor? _loadMonitor;
+  Timer? _failureCheck;
   bool _disposed = false;
+  int _statsGeneration = 0;
+  bool _networkResource = false;
+  bool _observingNetworkSpeed = false;
+  int? _networkBytesPerSecond;
+
+  void _checkAlive() {
+    if (_disposed) throw const PlaybackIssue('cancelled');
+  }
+
+  void _scheduleFailureCheck(void Function(dynamic) publish) {
+    _failureCheck?.cancel();
+    _failureCheck = Timer(const Duration(milliseconds: 150), () async {
+      try {
+        final idle = await _native.getProperty('idle-active');
+        if (_disposed || _opening || _player.state.completed || idle != 'yes') {
+          return;
+        }
+        final issue = _backendIssue;
+        if (issue == null) return;
+        _error = issue.message;
+        diagnosticTrace?.event(
+          'playback_terminal_error',
+          code: issue.code,
+          status: issue.status,
+        );
+        publish(null);
+      } catch (error, stack) {
+        diagnosticTrace?.failure('failure_probe_failed', error, stack);
+      }
+    });
+  }
+
+  Future<VideoLoadSnapshot> _loadSnapshot() => readVideoLoadSnapshot(
+    property: _native.getProperty,
+    duration: () => _player.state.duration,
+    checkAlive: _checkAlive,
+  );
+
   @override
   double? get videoAspectRatio {
     final params = _player.state.videoParams;
@@ -90,6 +183,14 @@ class MediaKitVideoEngine
   final _trackChanges = StreamController<VideoTrackState>.broadcast();
   VideoTrackState _tracks = const VideoTrackState();
   NativePlayer get _native => _player.platform as NativePlayer;
+  late final _subtitleCommands = MpvSubtitleSettingsCommands(
+    command: _native.command,
+    read: _native.getProperty,
+  );
+  @override
+  VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
+  @override
+  VideoTimingSettings timing = const VideoTimingSettings();
   late final _timelineCommands = MpvTimelineCommands(
     command: (args) => _native.command(args),
     read: (name) => _native.getProperty(name),
@@ -98,6 +199,7 @@ class MediaKitVideoEngine
   List<VideoChapter> _chapters = const [];
   String? _chapterSnapshot;
   bool _observingChapters = false;
+  bool _observingIdle = false;
   @override
   List<VideoChapter> get chapters => _chapters;
   @override
@@ -133,7 +235,11 @@ class MediaKitVideoEngine
   Stream<VideoTrackState> get trackChanges => _trackChanges.stream;
   void _scheduleRefresh() {
     if (_disposed) return;
-    unawaited(refreshTracks().catchError((Object _) {}));
+    unawaited(
+      refreshTracks().catchError((Object error, StackTrace stack) {
+        diagnosticTrace?.failure('track_refresh_failed', error, stack);
+      }),
+    );
   }
 
   @override
@@ -241,8 +347,37 @@ class MediaKitVideoEngine
 
   @override
   Future<void> setSubtitleDelay(double seconds) async {
-    await _set('sub-delay', seconds.toString());
+    final value = VideoTimingSettings.syncDelay(seconds);
+    await _subtitleCommands.apply({'sub-delay': value});
+    timing = timing.copyWith(subtitleDelay: value);
     await refreshTracks();
+  }
+
+  @override
+  Future<void> setSubtitleStyle(VideoSubtitleStyle value) async {
+    await _subtitleCommands.applyStyle(value);
+    subtitleStyle = value.normalized;
+  }
+
+  @override
+  Future<void> setAudioDelay(double seconds) async {
+    final value = VideoTimingSettings.syncDelay(seconds);
+    await _subtitleCommands.apply({'audio-delay': value});
+    timing = timing.copyWith(audioDelay: value);
+  }
+
+  @override
+  Future<void> setSubtitleScale(double scale) async {
+    final value = VideoTimingSettings.scale(scale);
+    await _subtitleCommands.apply({'sub-scale': value});
+    timing = timing.copyWith(subtitleScale: value);
+  }
+
+  @override
+  Future<void> setSubtitlePosition(double position) async {
+    final value = VideoTimingSettings.position(position);
+    await _subtitleCommands.apply({'sub-pos': value});
+    timing = timing.copyWith(subtitlePosition: value);
   }
 
   @override
@@ -273,40 +408,110 @@ class MediaKitVideoEngine
     rate: _player.state.rate,
     error: _error,
     warning: _warning,
+    networkBytesPerSecond: _networkResource ? _networkBytesPerSecond : null,
   );
   @override
   Stream<VideoClock> get changes => _changes.stream;
   @override
+  Future<VideoPlaybackStats> readPlaybackStats() async {
+    if (_disposed || _opening || _error != null) {
+      return const VideoPlaybackStats();
+    }
+    final generation = _statsGeneration;
+    final snapshot = await readMpvPlaybackStats(_native);
+    return _disposed || _opening || generation != _statsGeneration
+        ? const VideoPlaybackStats()
+        : snapshot;
+  }
+
+  @override
   Future<void> open(String path, Duration start) async {
+    _checkAlive();
+    ++_statsGeneration;
     _error = null;
     _networkResource = ['http', 'https'].contains(Uri.tryParse(path)?.scheme);
-    await _set('sub-auto', 'fuzzy');
-    await _set('volume-max', '200');
-    await setVolume(80);
-    await _player.open(Media(path, start: start), play: false);
-    if (_player.state.duration <= Duration.zero) {
-      await _player.stream.duration
-          .firstWhere((duration) => duration > Duration.zero)
-          .timeout(const Duration(seconds: 20));
-    }
-    if (_error != null) throw StateError(_error!);
-    await refreshTracks();
+    _networkBytesPerSecond = null;
+    _backendIssue = null;
+    _opening = true;
+    final monitor = _loadMonitor = VideoLoadMonitor();
     try {
-      if (!_observingChapters) {
-        await _native.observeProperty('chapter-list', (_) async {
-          if (_disposed) return;
-          try {
-            await refreshChapters();
-          } catch (_) {
-            /* Explicit refresh remains retryable. */
+      diagnosticTrace?.stage('engine_configuration');
+      if (_networkResource && !_observingNetworkSpeed) {
+        try {
+          await _native.observeProperty('cache-speed', (raw) async {
+            if (_disposed || !_networkResource) return;
+            final rate = parseVideoNetworkSpeed(raw);
+            if (_networkBytesPerSecond == rate) return;
+            _networkBytesPerSecond = rate;
+            _changes.add(clock);
+          });
+          _observingNetworkSpeed = true;
+        } catch (error, stack) {
+          diagnosticTrace?.failure('network_speed_unavailable', error, stack);
+        }
+      }
+      _checkAlive();
+      if (!_observingIdle) {
+        await _native.observeProperty('idle-active', (_) async {
+          if (!_disposed && !_opening && _backendIssue != null) {
+            _scheduleFailureCheck(_publish);
           }
         });
-        _observingChapters = true;
+        _observingIdle = true;
       }
-      await refreshChapters();
-    } catch (_) {
-      // An auxiliary chapter read must not block an otherwise valid video.
-      // The session performs an explicit retry and exposes a control error.
+      _checkAlive();
+      await _set('sub-auto', 'fuzzy');
+      _checkAlive();
+      await _set('volume-max', '200');
+      _checkAlive();
+      await setVolume(80);
+      _checkAlive();
+      diagnosticTrace?.stage('engine_open');
+      await _player.open(Media(path, start: start), play: false);
+      _checkAlive();
+      diagnosticTrace?.stage('engine_ready');
+      await monitor.wait(
+        read: _loadSnapshot,
+        backendIssue: () => _backendIssue,
+      );
+      _checkAlive();
+      // Readiness after decoder fallback makes earlier log errors non-terminal.
+      if (_backendIssue != null) {
+        diagnosticTrace?.event('backend_recovered', code: _backendIssue!.code);
+      }
+      _backendIssue = null;
+      diagnosticTrace?.stage('engine_tracks');
+      await refreshTracks();
+      _checkAlive();
+      try {
+        if (!_observingChapters) {
+          await _native.observeProperty('chapter-list', (_) async {
+            if (_disposed) return;
+            try {
+              await refreshChapters();
+            } catch (error, stack) {
+              diagnosticTrace?.failure('chapter_refresh_failed', error, stack);
+              /* Explicit refresh remains retryable. */
+            }
+          });
+          _observingChapters = true;
+        }
+        await refreshChapters();
+      } catch (error, stack) {
+        diagnosticTrace?.failure('chapter_initialization_failed', error, stack);
+        // An auxiliary chapter read must not block an otherwise valid video.
+        // The session performs an explicit retry and exposes a control error.
+      }
+    } catch (error, stack) {
+      diagnosticTrace?.failure('engine_open_failed', error, stack);
+      rethrow;
+    } finally {
+      monitor.cancel();
+      if (_loadMonitor == monitor) _loadMonitor = null;
+      _opening = false;
+      if (!_disposed && _backendIssue != null) {
+        _scheduleFailureCheck(_publish);
+      }
     }
   }
 
@@ -338,6 +543,9 @@ class MediaKitVideoEngine
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    ++_statsGeneration;
+    _loadMonitor?.cancel();
+    _failureCheck?.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

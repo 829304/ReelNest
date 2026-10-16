@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <filesystem>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -16,6 +17,16 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // Per-process only: media_kit/mpv playlist files and other native temporary
+  // files must stay beside the executable. Never change the user's environment.
+  wchar_t executable[32768]{};
+  const DWORD length = GetModuleFileNameW(nullptr, executable, 32768);
+  if (length == 0 || length >= 32768) return EXIT_FAILURE;
+  const auto temporary = std::filesystem::path(executable).parent_path() / L"temp";
+  CreateDirectoryW(temporary.c_str(), nullptr);
+  SetEnvironmentVariableW(L"TEMP", temporary.c_str());
+  SetEnvironmentVariableW(L"TMP", temporary.c_str());
 
   flutter::DartProject project(L"data");
 

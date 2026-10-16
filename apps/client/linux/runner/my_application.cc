@@ -1,12 +1,39 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <pango/pangocairo.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
+
+static void subtitle_fonts_call(FlMethodChannel*, FlMethodCall* call, gpointer) {
+  if (g_strcmp0(fl_method_call_get_name(call), "families") != 0) {
+    fl_method_call_respond_not_implemented(call, nullptr); return;
+  }
+  PangoFontMap* map = pango_cairo_font_map_get_default();
+  if (!map) {
+    fl_method_call_respond_error(call, "font_enumeration_failed", "Cannot enumerate fonts", nullptr, nullptr); return;
+  }
+  PangoFontFamily** families = nullptr;
+  int count = 0;
+  pango_font_map_list_families(map, &families, &count);
+  g_autoptr(FlValue) values = fl_value_new_list();
+  for (int i = 0; i < count; ++i) {
+    fl_value_append_take(values, fl_value_new_string(pango_font_family_get_name(families[i])));
+  }
+  g_free(families);
+  fl_method_call_respond_success(call, values, nullptr);
+}
+static void register_subtitle_fonts(FlPluginRegistry* registry) {
+  g_autoptr(FlPluginRegistrar) registrar = fl_plugin_registry_get_registrar_for_plugin(registry, "ReelNestSubtitleFonts");
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  g_autoptr(FlMethodChannel) channel = fl_method_channel_new(
+      fl_plugin_registrar_get_messenger(registrar), "reelnest/subtitle_fonts", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(channel, subtitle_fonts_call, nullptr, nullptr);
+}
 
 struct PlaybackSleepState { GtkApplication* application; guint cookie; };
 static void playback_sleep_free(gpointer data) {
@@ -132,9 +159,11 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
   register_playback_sleep(FL_PLUGIN_REGISTRY(view));
+  register_subtitle_fonts(FL_PLUGIN_REGISTRY(view));
   desktop_multi_window_plugin_set_window_created_callback([](FlPluginRegistry* registry) {
     fl_register_plugins(registry);
     register_playback_sleep(registry);
+    register_subtitle_fonts(registry);
   });
 
   gtk_widget_grab_focus(GTK_WIDGET(view));

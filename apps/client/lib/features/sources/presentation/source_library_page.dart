@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../domain/media_source.dart';
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
+import 'marker_analysis_menu.dart';
 import 'emby_video_library_page.dart';
 import '../domain/emby_library.dart';
 
@@ -156,20 +157,23 @@ class _LibraryItemAtIndex extends ConsumerWidget {
               alignment: Alignment.topCenter,
               child: AspectRatio(
                 aspectRatio: item.type == 'music' ? 1 : 2 / 3,
-                child: LocalMediaCard(
-                  key: ValueKey(item.identity),
-                  source: source,
-                  item: item,
-                  onOpen: () => context.pushNamed(
-                    'local-media-detail',
-                    pathParameters: {
-                      'sourceId': source.id,
-                      // Opaque token keeps slash-containing and Unicode file keys out
-                      // of URL path parsing; source scope is still checked in SQL.
-                      'mediaKey': base64Url
-                          .encode(utf8.encode(item.identity.localId))
-                          .replaceAll('=', ''),
-                    },
+                child: MarkerAnalysisContextMenu(
+                  identity: item.identity,
+                  child: LocalMediaCard(
+                    key: ValueKey(item.identity),
+                    source: source,
+                    item: item,
+                    onOpen: () => context.pushNamed(
+                      'local-media-detail',
+                      pathParameters: {
+                        'sourceId': source.id,
+                        // Opaque token keeps slash-containing and Unicode file keys out
+                        // of URL path parsing; source scope is still checked in SQL.
+                        'mediaKey': base64Url
+                            .encode(utf8.encode(item.identity.localId))
+                            .replaceAll('=', ''),
+                      },
+                    ),
                   ),
                 ),
               ),

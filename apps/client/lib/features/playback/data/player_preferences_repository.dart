@@ -7,6 +7,7 @@ import '../../../storage/library_database.dart';
 import '../domain/video_queue.dart';
 import '../domain/playback_options.dart';
 import '../domain/playback_marker.dart';
+import '../domain/video_subtitle_settings.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -55,6 +56,31 @@ class PlayerPreferencesRepository {
 
   Future<void> rememberNumber(String key, double value) =>
       _write('global.$key', value.toString());
+  Future<VideoSubtitleStyle> get subtitleStyle async {
+    final raw = await _read('global.videoSubtitleStyle');
+    if (raw == null) return VideoSubtitleStyle.standard;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic>
+          ? VideoSubtitleStyle.fromJson(value)
+          : VideoSubtitleStyle.standard;
+    } on FormatException {
+      return VideoSubtitleStyle.standard;
+    } on TypeError {
+      return VideoSubtitleStyle.standard;
+    }
+  }
+
+  Future<void> rememberSubtitleStyle(VideoSubtitleStyle style) => _write(
+    'global.videoSubtitleStyle',
+    jsonEncode(style.normalized.toJson()),
+  );
+  Future<VideoTimingSettings> get timing async => VideoTimingSettings(
+    audioDelay: await number('videoDefaultAudioDelay', 0),
+    subtitleDelay: await number('videoDefaultSubtitleDelay', 0),
+    subtitleScale: await number('videoDefaultSubtitleScale', 1),
+    subtitlePosition: await number('videoDefaultSubtitlePosition', 100),
+  ).normalized;
   Future<String> get subtitleLanguage async =>
       (await _read('global.subtitleLanguage')) ?? 'zh-CN';
 
