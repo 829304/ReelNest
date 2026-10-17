@@ -5,6 +5,7 @@ import '../../../player/video_engine.dart';
 import '../../../player/video_playback_stats.dart';
 import '../../../player/video_tracks.dart';
 import '../application/playback_session.dart';
+import '../domain/video_display_settings.dart';
 import 'player_realtime_stats_panel.dart';
 import 'player_visuals.dart';
 
@@ -250,11 +251,7 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
                   Icons.subtitles_outlined,
                   _selectedTrack(tracks.subtitles, tracks.subtitleId, '关闭'),
                 ),
-                _row(
-                  '播放状态',
-                  Icons.tune_rounded,
-                  '${_formatRate(session.clock.rate)} · 音量 ${session.clock.volume.round()}%',
-                ),
+                _row('播放状态', Icons.tune_rounded, _playbackState(session)),
                 _row(
                   '循环',
                   Icons.repeat_rounded,
@@ -409,6 +406,27 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
       );
     }
     return values.isEmpty ? '关闭' : values.join(' · ');
+  }
+
+  String _playbackState(PlaybackSession session) {
+    final values = <String>[
+      _formatRate(session.clock.rate),
+      '音量 ${session.clock.volume.round()}%',
+    ];
+    final display = session.displaySettings;
+    if (display.aspectOverride != VideoAspectOverride.source) {
+      values.add(display.aspectOverride.displayName);
+    }
+    if (display.cropMode != VideoCropMode.none) {
+      values.add('裁切 ${display.cropMode.displayName}');
+    }
+    if (display.deinterlaceMode != VideoDeinterlaceMode.off) {
+      values.add(display.deinterlaceMode.displayName);
+    }
+    if (display.rotationMode != VideoRotationMode.source) {
+      values.add(display.rotationMode.displayName);
+    }
+    return values.join(' · ');
   }
 
   String _formatDuration(Duration value) {

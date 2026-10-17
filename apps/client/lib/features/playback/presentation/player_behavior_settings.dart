@@ -4,20 +4,23 @@ import 'package:flutter/services.dart';
 import '../application/playback_session.dart';
 import 'player_basic_settings.dart';
 import 'player_subtitle_sync_settings.dart';
+import 'player_video_display_settings.dart';
 import 'player_visuals.dart';
 
-enum PlayerAdvancedSettingsTab { playback, sync, subtitles }
+enum PlayerAdvancedSettingsTab { playback, sync, video, subtitles }
 
 extension on PlayerAdvancedSettingsTab {
   String get title => switch (this) {
     PlayerAdvancedSettingsTab.playback => '播放',
     PlayerAdvancedSettingsTab.sync => '音画同步',
+    PlayerAdvancedSettingsTab.video => '画面',
     PlayerAdvancedSettingsTab.subtitles => '字幕',
   };
 
   IconData get icon => switch (this) {
     PlayerAdvancedSettingsTab.playback => Icons.play_circle_outline_rounded,
     PlayerAdvancedSettingsTab.sync => Icons.graphic_eq_rounded,
+    PlayerAdvancedSettingsTab.video => Icons.aspect_ratio_rounded,
     PlayerAdvancedSettingsTab.subtitles => Icons.closed_caption_outlined,
   };
 }
@@ -33,8 +36,10 @@ Future<void> showPlayerBehaviorSettings(
   barrierLabel: '关闭播放器更多设置',
   barrierColor: Colors.black.withValues(alpha: .26),
   transitionDuration: Duration.zero,
-  pageBuilder: (context, _, _) =>
-      _PlayerBehaviorSettingsDialog(session: session, palette: palette),
+  pageBuilder: (context, _, _) => Theme(
+    data: playerOverlayThemeData(Theme.of(context)),
+    child: _PlayerBehaviorSettingsDialog(session: session, palette: palette),
+  ),
 );
 
 class _PlayerBehaviorSettingsDialog extends StatefulWidget {
@@ -124,6 +129,11 @@ class _PlayerBehaviorSettingsDialogState
                                     ),
                                   PlayerAdvancedSettingsTab.sync =>
                                     PlayerSyncSettings(
+                                      session: session,
+                                      palette: palette,
+                                    ),
+                                  PlayerAdvancedSettingsTab.video =>
+                                    PlayerVideoDisplaySettings(
                                       session: session,
                                       palette: palette,
                                     ),

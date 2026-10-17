@@ -8,6 +8,7 @@ import '../domain/video_queue.dart';
 import '../domain/playback_options.dart';
 import '../domain/playback_marker.dart';
 import '../domain/video_subtitle_settings.dart';
+import '../domain/video_display_settings.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -83,6 +84,55 @@ class PlayerPreferencesRepository {
   ).normalized;
   Future<String> get subtitleLanguage async =>
       (await _read('global.subtitleLanguage')) ?? 'zh-CN';
+
+  Future<VideoDisplaySettings> get displaySettings async {
+    Future<T> mode<T extends Enum>(
+      String key,
+      List<T> choices,
+      T fallback,
+    ) async {
+      final value = await _read('global.$key');
+      return choices.where((choice) => choice.name == value).firstOrNull ??
+          fallback;
+    }
+
+    return VideoDisplaySettings(
+      aspectOverride: await mode(
+        'videoAspectOverride',
+        VideoAspectOverride.values,
+        VideoAspectOverride.source,
+      ),
+      cropMode: await mode(
+        'videoCropMode',
+        VideoCropMode.values,
+        VideoCropMode.none,
+      ),
+      deinterlaceMode: await mode(
+        'videoDeinterlaceMode',
+        VideoDeinterlaceMode.values,
+        VideoDeinterlaceMode.off,
+      ),
+      rotationMode: await mode(
+        'videoRotationMode',
+        VideoRotationMode.values,
+        VideoRotationMode.source,
+      ),
+      flipMode: await mode(
+        'videoFlipMode',
+        VideoFlipMode.values,
+        VideoFlipMode.none,
+      ),
+    );
+  }
+
+  Future<void> rememberDisplaySettings(VideoDisplaySettings value) =>
+      database.transaction(() async {
+        await _write('global.videoAspectOverride', value.aspectOverride.name);
+        await _write('global.videoCropMode', value.cropMode.name);
+        await _write('global.videoDeinterlaceMode', value.deinterlaceMode.name);
+        await _write('global.videoRotationMode', value.rotationMode.name);
+        await _write('global.videoFlipMode', value.flipMode.name);
+      });
 
   Future<VideoEndAction> get endAction async {
     final value = await _read('global.videoPlaybackEndAction');

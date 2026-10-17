@@ -55,6 +55,13 @@ mpv 属性参照 [mpv 官方 properties 手册](https://mpv.io/manual/stable/#pr
 - 正式版 `flutter build windows --release --no-pub` 使用 production `lib/main.dart` 构建成功，用时 46.1 秒；新 Flutter 产物 `apps/client/build/windows/x64/runner/Release/data/app.so` 时间为 2026-10-16 16:41:09.4849365 +08:00，大小 11,846,536 bytes。runner 无需重链，因此 `reelnest.exe` 仍保留较早时间戳；这不影响新 `app.so` 已纳入此次 Release 的结论。`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 2026-10-16 16:41:35.4687675 +08:00 通过：`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。
 - 本轮未改动存储行为、配置导入或 schema；未提交、未推送。上述 Windows 构建与 smoke 不覆盖真实 Emby 服务、实际硬件解码启用状态、Emby 转码与切画质、macOS/Linux 原生、可见 UI/视觉和长时间性能验收；这些边界仍待后续实机验证。
 
+### 后续 Windows texture / 整合回归（2026-10-16）
+
+- 既有 `playback_stats_test` 在 Windows Profile 真实 texture 回归通过；报告中 `estimatedFps`、`decoderDrops`、`outputDrops`、`hardwareDecoder`、`forwardBytes`、`forwardSeconds`、`avSync` 与旧库结果一致；`renderPasses=false`，HTTP cache 读数可用。此结果不改变“当前 texture VO 不提供 `vo-passes`”的能力边界，不得切换 VO 强制采集。
+- 随播放器画面显示批次重跑全量 Flutter 测试：**768 passed / 7 skipped，52 秒**。该全量结果覆盖整合批次。
+- Windows Release `flutter build windows --release --no-pub --target lib/main.dart` 成功，用时 44.4 秒；2026-10-16 23:30:33.7136344 +08:00 五秒 smoke 为 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。随后 CMake pinned archive 下载重试逻辑更新，增量 Release 再次成功，用时 45.1 秒；2026-10-16 23:39:17.7412689 +08:00 五秒 smoke 同样为 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。手工预置固定 archive 的新缓存独立验证通过（archive/DLL hash、提取和保留其他 DLL）；冷缓存网络下载因连接中断未验证。profile texture stats 回归结果与旧库一致，`renderPasses=false`，HTTP cache 可用；不切换 VO 强采。
+- 七项显式 native DLL 专项、严格暂停 resize（`osd-dimensions=480x270`）及 analyze 均通过；304 个 Dart 文件格式检查 0 改动，diff-check 通过。真实 Emby、转码/切画质、macOS/Linux、可见 UI/视觉和长时间性能仍待验证。
+
 ## 当前建议顺序（非锁定排期）
 
 当前建议顺序曾为先推进字幕样式与音频延迟/同步，再实施实时统计，之后画面调优；该顺序从未是用户锁定的前置条件。用户最新指令已授权本轮开始六项统计实现，因此当前按本轮授权推进，不等待其他模块完成。

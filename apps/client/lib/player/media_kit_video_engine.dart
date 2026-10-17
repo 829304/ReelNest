@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' hide VideoTrack;
@@ -16,6 +17,9 @@ import 'video_network_speed.dart';
 import 'video_subtitle_settings_engine.dart';
 import 'video_playback_stats.dart';
 import 'mpv_playback_stats_reader.dart';
+import 'video_display_settings_engine.dart';
+import 'mpv_node_property.dart';
+import '../features/playback/domain/video_display_settings.dart';
 import '../features/playback/domain/video_subtitle_settings.dart';
 import '../platform/playback_sleep_guard.dart';
 
@@ -26,8 +30,13 @@ class MediaKitVideoEngine
         VideoAspectEngine,
         VideoSubtitleSettingsEngine,
         VideoStatsEngine,
+        VideoDisplayEngine,
         DiagnosableVideoEngine {
-  MediaKitVideoEngine({Player? player}) {
+  MediaKitVideoEngine({
+    Player? player,
+    VideoControllerConfiguration videoConfiguration =
+        const VideoControllerConfiguration(),
+  }) {
     MediaKit.ensureInitialized();
     _player =
         player ??
@@ -38,7 +47,7 @@ class MediaKitVideoEngine
             logLevel: MPVLogLevel.warn,
           ),
         );
-    _video = VideoController(_player);
+    _video = VideoController(_player, configuration: videoConfiguration);
     _sleep = PlaybackSleepGuard((warning) {
       if (!_disposed) {
         _warning = warning;
@@ -63,6 +72,13 @@ class MediaKitVideoEngine
       _player.stream.completed.listen(publish),
       _player.stream.volume.listen(publish),
       _player.stream.rate.listen(publish),
+      _player.stream.videoParams.listen((_) {
+        // media_kit_video 2.0.1 resets its native output to source dimensions
+        // on parameter changes. Reassert the viewport after that update.
+        _viewportReset = true;
+        _scheduleViewport();
+        publish(null);
+      }),
       _player.stream.tracks.listen((_) => _scheduleRefresh()),
       _player.stream.track.listen((_) => _scheduleRefresh()),
       _player.stream.audioDevices.listen((_) => _scheduleRefresh()),
@@ -130,6 +146,71 @@ class MediaKitVideoEngine
   bool _networkResource = false;
   bool _observingNetworkSpeed = false;
   int? _networkBytesPerSecond;
+  Timer? _viewportTimer;
+  Future<void> _viewportUpdates = Future.value();
+  (int, int)? _viewportTarget, _viewportSubmitted;
+  bool _viewportReset = false;
+
+  void _requestViewport(Size logicalSize, double pixelRatio) {
+    if (_disposed ||
+        !logicalSize.isFinite ||
+        logicalSize.isEmpty ||
+        !pixelRatio.isFinite ||
+        pixelRatio <= 0) {
+      return;
+    }
+    final width = logicalSize.width * pixelRatio;
+    final height = logicalSize.height * pixelRatio;
+    final scale = math.min(1.0, 8192 / math.max(width, height));
+    final target = (
+      math.max(1, (width * scale).round()),
+      math.max(1, (height * scale).round()),
+    );
+    if (_viewportTarget == target) return;
+    _viewportTarget = target;
+    _scheduleViewport();
+  }
+
+  void _scheduleViewport() {
+    if (_disposed || _viewportTarget == null) return;
+    _viewportTimer?.cancel();
+    // Coalesce drag-resizes instead of reallocating a GPU texture per event.
+    _viewportTimer = Timer(const Duration(milliseconds: 80), () {
+      _viewportTimer = null;
+      _viewportUpdates = _viewportUpdates
+          .then((_) async {
+            final target = _viewportTarget;
+            if (_disposed ||
+                target == null ||
+                (!_viewportReset && target == _viewportSubmitted)) {
+              return;
+            }
+            final reset = _viewportReset;
+            _viewportReset = false;
+            if (reset) {
+              // Public reset invalidates the plugin's cached requested size after
+              // its videoParams listener has independently resized the renderer.
+              await _video.setSize();
+              if (_disposed) return;
+            }
+            await _video.setSize(width: target.$1, height: target.$2);
+            // The platform queues resize + redraw. This deduplicates submitted
+            // requests, not an acknowledgement of a rendered Flutter frame.
+            _viewportSubmitted = target;
+          })
+          .catchError((Object error, StackTrace stack) {
+            diagnosticTrace?.failure(
+              'video_viewport_resize_failed',
+              error,
+              stack,
+            );
+            if (!_disposed) {
+              _warning = '画面显示区域更新失败，请调整窗口大小或重新打开视频。';
+              _changes.add(clock);
+            }
+          });
+    });
+  }
 
   void _checkAlive() {
     if (_disposed) throw const PlaybackIssue('cancelled');
@@ -168,13 +249,15 @@ class MediaKitVideoEngine
   double? get videoAspectRatio {
     final params = _player.state.videoParams;
     final aspect = params.aspect;
-    if (aspect != null && aspect.isFinite && aspect > 0) return aspect;
+    if (aspect != null && aspect.isFinite && aspect > 0) {
+      return (params.rotate ?? 0) % 180 == 90 ? 1 / aspect : aspect;
+    }
     final width = params.dw ?? _player.state.width;
     final height = params.dh ?? _player.state.height;
     if (width == null || height == null || width <= 0 || height <= 0) {
       return null;
     }
-    return width / height;
+    return (params.rotate ?? 0) % 180 == 90 ? height / width : width / height;
   }
 
   double _boost = 1;
@@ -187,6 +270,27 @@ class MediaKitVideoEngine
     command: _native.command,
     read: _native.getProperty,
   );
+  late final _displayCommands = MpvDisplaySettingsCommands(
+    command: _native.command,
+    read: (name) async {
+      if (name != 'vf') return _native.getProperty(name);
+      await _native.waitForPlayerInitialization;
+      await _native.waitForVideoControllerInitializationIfAttached;
+      final node = readMpvNodeProperty(_native, 'vf');
+      if (node is! List) throw StateError('Video filters unavailable');
+      return jsonEncode(node);
+    },
+  );
+  @override
+  VideoDisplaySettings displaySettings = const VideoDisplaySettings();
+  @override
+  Future<void> setDisplaySettings(VideoDisplaySettings value) async {
+    _checkAlive();
+    await _displayCommands.apply(value);
+    _checkAlive();
+    displaySettings = value;
+  }
+
   @override
   VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
   @override
@@ -537,8 +641,17 @@ class MediaKitVideoEngine
   }
 
   @override
-  Widget surface() =>
-      Video(controller: _video, controls: NoVideoControls, wakelock: false);
+  Widget surface() => LayoutBuilder(
+    builder: (context, constraints) {
+      _requestViewport(constraints.biggest, View.of(context).devicePixelRatio);
+      return Video(
+        controller: _video,
+        controls: NoVideoControls,
+        wakelock: false,
+        fit: BoxFit.fill,
+      );
+    },
+  );
   @override
   Future<void> dispose() async {
     if (_disposed) return;
@@ -546,11 +659,13 @@ class MediaKitVideoEngine
     ++_statsGeneration;
     _loadMonitor?.cancel();
     _failureCheck?.cancel();
+    _viewportTimer?.cancel();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
     await _sleep.dispose();
     await _refreshing;
+    await _viewportUpdates;
     await _player.dispose();
     await _changes.close();
     await _trackChanges.close();

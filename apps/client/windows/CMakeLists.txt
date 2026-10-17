@@ -58,6 +58,8 @@ add_subdirectory("runner")
 include(flutter/generated_plugins.cmake)
 include(multi_window_thread_policy.cmake)
 include(media_kit_window_dispatch.cmake)
+include(media_kit_viewport.cmake)
+include(mpv_runtime.cmake)
 
 
 # === Installation ===
@@ -73,6 +75,9 @@ endif()
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/mpv"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/third_party" COMPONENT Runtime)
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

@@ -16,6 +16,8 @@ import '../../../player/video_tracks.dart';
 import '../../../player/video_timeline.dart';
 import '../../../player/playback_diagnostics.dart';
 import '../../../player/video_subtitle_settings_engine.dart';
+import '../../../player/video_display_settings_engine.dart';
+import '../domain/video_display_settings.dart';
 import '../../../platform/subtitle_font_catalog.dart';
 import '../../../storage/runtime_storage_paths.dart';
 import '../../../player/mpv_video_frame_preview.dart';
@@ -76,6 +78,7 @@ class PlaybackSession extends ChangeNotifier {
 
   VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
   VideoTimingSettings timing = const VideoTimingSettings();
+  VideoDisplaySettings displaySettings = const VideoDisplaySettings();
   final PlaybackRepository records;
   final VideoPreviewGenerator _previewGenerator;
   VideoPreviewResource? _previewResource;
@@ -275,7 +278,9 @@ class PlaybackSession extends ChangeNotifier {
       final nextOptions = await preferences.options;
       final nextStyle = await preferences.subtitleStyle;
       final nextTiming = await preferences.timing;
+      final nextDisplay = await preferences.displaySettings;
       String? nextSubtitleWarning;
+      String? nextDisplayWarning;
       final loopCurrentItem = await preferences.loopCurrentItem;
       final markerSkipBehavior = await preferences.markerSkipBehavior;
       final resume =
@@ -416,6 +421,16 @@ class PlaybackSession extends ChangeNotifier {
       final precisionEngine = current is VideoTimelineEngine
           ? current as VideoTimelineEngine
           : null;
+      try {
+        if (current is VideoDisplayEngine) {
+          await (current as VideoDisplayEngine).setDisplaySettings(nextDisplay);
+        } else if (nextDisplay != const VideoDisplaySettings()) {
+          nextDisplayWarning = '此播放后端暂不支持已保存的画面显示设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure('display_settings_initialization_failed', error, stack);
+        nextDisplayWarning = '部分画面显示设置未能应用，视频仍可播放，请重新调整。';
+      }
       if (precisionEngine != null) {
         await precisionEngine.setLoopCurrentItem(loopCurrentItem);
         await precisionEngine.setABLoop(previousLoop.start, previousLoop.end);
@@ -461,7 +476,12 @@ class PlaybackSession extends ChangeNotifier {
       options = nextOptions;
       error = null;
       saveError = null;
-      controlError = nextSubtitleWarning;
+      final settingsWarning = [
+        nextSubtitleWarning,
+        nextDisplayWarning,
+      ].whereType<String>().join(' ');
+      controlError = settingsWarning.isEmpty ? null : settingsWarning;
+      _readDisplaySettings(current);
       _readSubtitleSettings(current);
       _hasClock = false;
       _completedSaved = false;
@@ -1248,6 +1268,8 @@ class PlaybackSession extends ChangeNotifier {
       _trace?.failure('control_failed', exception, stack);
       controlError = exception is SubtitleSettingsRollbackFailure
           ? '设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoDisplayRollbackFailure
+          ? '画面设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : failureMessage;
     }
     if (!_closed) notifyListeners();
@@ -1416,6 +1438,44 @@ class PlaybackSession extends ChangeNotifier {
 
   Future<void> setSubtitleStyle(VideoSubtitleStyle style) =>
       updateSubtitleStyle((_) => style);
+
+  void _readDisplaySettings(VideoEngine current) {
+    displaySettings = current is VideoDisplayEngine
+        ? (current as VideoDisplayEngine).displaySettings
+        : const VideoDisplaySettings();
+  }
+
+  Future<void> updateDisplaySettings(
+    VideoDisplaySettings Function(VideoDisplaySettings current) update,
+  ) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoDisplayEngine) {
+      throw UnsupportedError('Video display settings are unavailable');
+    }
+    final display = current as VideoDisplayEngine;
+    final before = display.displaySettings;
+    final next = update(before);
+    try {
+      await display.setDisplaySettings(next);
+      try {
+        await preferences.rememberDisplaySettings(next);
+      } catch (error, stack) {
+        try {
+          await display.setDisplaySettings(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'display_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoDisplayRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readDisplaySettings(current);
+    }
+  }, failureMessage: '画面设置未能应用或保存，视频仍可播放，请重试。');
 
   /// Evaluate a user's field edit only when its serialized operation runs.
   /// Earlier edits may still be applying or rolling back when this is queued.
