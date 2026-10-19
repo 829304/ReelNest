@@ -5,14 +5,17 @@ import 'package:flutter/material.dart';
 import '../application/playback_session.dart';
 import '../domain/video_color_adjustments.dart';
 import '../domain/video_display_settings.dart';
+import '../domain/video_performance_settings.dart';
+import '../domain/video_render_settings.dart';
 import '../domain/video_sharpen_mode.dart';
 import 'player_visuals.dart';
 
 /// PlayerView.swift's "画面显示" and "画面调整" settings groups.
 ///
 /// These controls expose the original aspect, crop, deinterlace, rotation,
-/// mirror, five color adjustments and sharpening. Denoising and performance
-/// settings are intentionally outside the current migration scope.
+/// mirror, five color adjustments, sharpening, buffering, hardware decode,
+/// debanding and HDR tone mapping. Denoising remains outside the current
+/// migration scope.
 class PlayerVideoDisplaySettings extends StatelessWidget {
   const PlayerVideoDisplaySettings({
     required this.session,
@@ -176,6 +179,68 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
               keyFor: (item) => ValueKey('video-sharpen-${item.name}'),
             ),
           ),
+          const SizedBox(height: 7),
+          Text(
+            '播放性能',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: palette.subdued,
+            ),
+          ),
+          _row(
+            '弱网内存缓冲',
+            Icons.memory_rounded,
+            _SettingsToggle(
+              toggleKey: const ValueKey('video-memory-buffering-toggle'),
+              value: session.performanceSettings.memoryBufferingEnabled,
+              palette: palette,
+              onChanged: (enabled) => unawaited(
+                session.updatePerformanceSettings(
+                  memoryBufferingEnabled: enabled,
+                ),
+              ),
+            ),
+          ),
+          _row(
+            '硬件解码',
+            Icons.developer_board_rounded,
+            _choices<VideoHardwareDecodingMode>(
+              VideoHardwareDecodingMode.values,
+              session.performanceSettings.hardwareDecodingMode,
+              (item) => item.displayName,
+              (item) => unawaited(
+                session.updatePerformanceSettings(hardwareDecodingMode: item),
+              ),
+              keyFor: (item) =>
+                  ValueKey('video-hardware-decoding-${item.name}'),
+            ),
+          ),
+          _row(
+            '去色带',
+            Icons.auto_awesome_rounded,
+            _choices<VideoDebandMode>(
+              VideoDebandMode.values,
+              session.renderSettings.debandMode,
+              (item) => item.displayName,
+              (item) =>
+                  unawaited(session.updateRenderSettings(debandMode: item)),
+              keyFor: (item) => ValueKey('video-deband-${item.name}'),
+            ),
+          ),
+          _row(
+            'HDR 映射',
+            Icons.hdr_on_rounded,
+            _choices<VideoToneMappingMode>(
+              VideoToneMappingMode.values,
+              session.renderSettings.toneMappingMode,
+              (item) => item.displayName,
+              (item) => unawaited(
+                session.updateRenderSettings(toneMappingMode: item),
+              ),
+              keyFor: (item) => ValueKey('video-tone-mapping-${item.name}'),
+            ),
+          ),
           if (session.controlError != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -318,6 +383,57 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
     final rounded = value.round();
     return rounded == 0 ? '0' : '${rounded > 0 ? '+' : ''}$rounded';
   }
+}
+
+class _SettingsToggle extends StatelessWidget {
+  const _SettingsToggle({
+    required this.toggleKey,
+    required this.value,
+    required this.palette,
+    required this.onChanged,
+  });
+
+  final Key toggleKey;
+  final bool value;
+  final PlayerPalette palette;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerRight,
+    child: Semantics(
+      toggled: value,
+      label: value ? '开启' : '关闭',
+      child: InkWell(
+        key: toggleKey,
+        onTap: () => onChanged(!value),
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          width: 40,
+          height: 22,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: value ? palette.selectedFill : palette.choiceFill,
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: palette.rowStroke, width: .8),
+          ),
+          child: AnimatedAlign(
+            duration: const Duration(milliseconds: 140),
+            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _ColorAdjustmentControls extends StatelessWidget {

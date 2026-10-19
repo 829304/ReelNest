@@ -22,6 +22,10 @@ import '../../../player/video_color_adjustments_engine.dart';
 import '../domain/video_color_adjustments.dart';
 import '../domain/video_sharpen_mode.dart';
 import '../../../player/video_sharpen_engine.dart';
+import '../domain/video_performance_settings.dart';
+import '../../../player/video_performance_settings_engine.dart';
+import '../domain/video_render_settings.dart';
+import '../../../player/video_render_settings_engine.dart';
 import '../../../platform/subtitle_font_catalog.dart';
 import '../../../storage/runtime_storage_paths.dart';
 import '../../../player/mpv_video_frame_preview.dart';
@@ -85,6 +89,9 @@ class PlaybackSession extends ChangeNotifier {
   VideoDisplaySettings displaySettings = const VideoDisplaySettings();
   VideoColorAdjustments colorAdjustments = VideoColorAdjustments.neutral;
   VideoSharpenMode sharpenMode = VideoSharpenMode.off;
+  VideoPerformanceSettings performanceSettings =
+      const VideoPerformanceSettings();
+  VideoRenderSettings renderSettings = const VideoRenderSettings();
   final PlaybackRepository records;
   final VideoPreviewGenerator _previewGenerator;
   VideoPreviewResource? _previewResource;
@@ -291,6 +298,22 @@ class PlaybackSession extends ChangeNotifier {
       String? nextColorWarning;
       var nextSharpen = VideoSharpenMode.off;
       String? nextSharpenWarning;
+      var nextPerformance = const VideoPerformanceSettings();
+      String? nextPerformanceWarning;
+      var nextRender = const VideoRenderSettings();
+      String? nextRenderWarning;
+      try {
+        nextRender = await preferences.renderSettings;
+      } catch (error, stack) {
+        trace?.failure('render_settings_read_failed', error, stack);
+        nextRenderWarning = '未能读取去色带和 HDR 映射设置，已使用默认值，视频仍可播放。';
+      }
+      try {
+        nextPerformance = await preferences.performanceSettings;
+      } catch (error, stack) {
+        trace?.failure('performance_settings_read_failed', error, stack);
+        nextPerformanceWarning = '未能读取播放性能设置，已使用默认值，视频仍可播放。';
+      }
       try {
         nextSharpen = await preferences.sharpenMode;
       } catch (error, stack) {
@@ -402,6 +425,23 @@ class PlaybackSession extends ChangeNotifier {
       if (current is DiagnosableVideoEngine) {
         (current as DiagnosableVideoEngine).diagnosticTrace = trace;
       }
+      trace?.stage('performance_configuration');
+      try {
+        if (current is VideoPerformanceEngine) {
+          await (current as VideoPerformanceEngine).setPerformanceSettings(
+            nextPerformance,
+          );
+        } else if (nextPerformance != const VideoPerformanceSettings()) {
+          nextPerformanceWarning = '此播放后端暂不支持已保存的播放性能设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure(
+          'performance_settings_initialization_failed',
+          error,
+          stack,
+        );
+        nextPerformanceWarning = '播放性能设置未能应用，视频仍可播放，请重新调整。';
+      }
       trace?.stage('decoder_load');
       await current
           .open(resource, streamOffset > Duration.zero ? Duration.zero : resume)
@@ -464,6 +504,29 @@ class PlaybackSession extends ChangeNotifier {
         nextSharpenWarning = '锐化设置未能应用，视频仍可播放，请重新调整。';
       }
       try {
+        if (current is VideoRenderEngine) {
+          await (current as VideoRenderEngine).setRenderSettings(nextRender);
+        } else if (nextRender != const VideoRenderSettings()) {
+          nextRenderWarning = '此播放后端暂不支持已保存的去色带或 HDR 映射设置。';
+        }
+      } catch (error, stack) {
+        if (error is VideoRenderUnavailable) {
+          // Inactive defaults need no warning. User actions still fail,
+          // including default-valued field edits, so an unsupported renderer
+          // cannot overwrite other saved preferences.
+          if (nextRender != const VideoRenderSettings()) {
+            trace?.event(
+              'render_settings_unavailable',
+              code: 'software_renderer',
+            );
+            nextRenderWarning = '当前纯软件渲染不支持已保存的去色带或 HDR 映射；偏好已保留，视频仍可播放。';
+          }
+        } else {
+          trace?.failure('render_settings_initialization_failed', error, stack);
+          nextRenderWarning = '去色带或 HDR 映射设置未能应用，视频仍可播放，请重新调整。';
+        }
+      }
+      try {
         if (current is VideoColorEngine) {
           await (current as VideoColorEngine).setColorAdjustments(nextColors);
         } else if (!nextColors.isNeutral) {
@@ -523,11 +586,15 @@ class PlaybackSession extends ChangeNotifier {
         nextDisplayWarning,
         nextColorWarning,
         nextSharpenWarning,
+        nextPerformanceWarning,
+        nextRenderWarning,
       ].whereType<String>().join(' ');
       controlError = settingsWarning.isEmpty ? null : settingsWarning;
       _readDisplaySettings(current);
       _readColorAdjustments(current);
       _readSharpenMode(current);
+      _readPerformanceSettings(current);
+      _readRenderSettings(current);
       _readSubtitleSettings(current);
       _hasClock = false;
       _completedSaved = false;
@@ -1320,6 +1387,12 @@ class PlaybackSession extends ChangeNotifier {
           ? '色彩设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : exception is VideoSharpenRollbackFailure
           ? '锐化设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoPerformanceRollbackFailure
+          ? '播放性能设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoRenderRollbackFailure
+          ? '去色带或 HDR 映射设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoRenderUnavailable
+          ? VideoRenderUnavailable.message
           : failureMessage;
     }
     if (!_closed) notifyListeners();
@@ -1506,6 +1579,92 @@ class PlaybackSession extends ChangeNotifier {
         ? (current as VideoSharpenEngine).sharpenMode
         : VideoSharpenMode.off;
   }
+
+  void _readPerformanceSettings(VideoEngine current) {
+    performanceSettings = current is VideoPerformanceEngine
+        ? (current as VideoPerformanceEngine).performanceSettings
+        : const VideoPerformanceSettings();
+  }
+
+  void _readRenderSettings(VideoEngine current) {
+    renderSettings = current is VideoRenderEngine
+        ? (current as VideoRenderEngine).renderSettings
+        : const VideoRenderSettings();
+  }
+
+  Future<void> updateRenderSettings({
+    VideoDebandMode? debandMode,
+    VideoToneMappingMode? toneMappingMode,
+  }) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoRenderEngine) {
+      throw UnsupportedError('Render settings unavailable');
+    }
+    final render = current as VideoRenderEngine;
+    final before = render.renderSettings;
+    final next = before.copyWith(
+      debandMode: debandMode,
+      toneMappingMode: toneMappingMode,
+    );
+    try {
+      await render.setRenderSettings(next);
+      try {
+        await preferences.rememberRenderSettings(next);
+      } catch (error, stack) {
+        try {
+          await render.setRenderSettings(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'render_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoRenderRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readRenderSettings(current);
+    }
+  }, failureMessage: '去色带或 HDR 映射设置未能应用或保存，视频仍可播放，请重试。');
+
+  Future<void> updatePerformanceSettings({
+    VideoHardwareDecodingMode? hardwareDecodingMode,
+    bool? memoryBufferingEnabled,
+  }) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoPerformanceEngine) {
+      throw UnsupportedError('Playback performance settings are unavailable');
+    }
+    final performance = current as VideoPerformanceEngine;
+    // Merge only when this queued operation runs, after preceding edits/save
+    // rollbacks, so a buffer toggle cannot overwrite a just-selected hwdec.
+    final before = performance.performanceSettings;
+    final next = before.copyWith(
+      hardwareDecodingMode: hardwareDecodingMode,
+      memoryBufferingEnabled: memoryBufferingEnabled,
+    );
+    try {
+      await performance.setPerformanceSettings(next);
+      try {
+        await preferences.rememberPerformanceSettings(next);
+      } catch (error, stack) {
+        try {
+          await performance.setPerformanceSettings(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'performance_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoPerformanceRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readPerformanceSettings(current);
+    }
+  }, failureMessage: '播放性能设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> setSharpenMode(VideoSharpenMode mode) => _controls(() async {
     final current = engine!;

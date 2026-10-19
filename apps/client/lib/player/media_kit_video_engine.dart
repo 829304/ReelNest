@@ -21,6 +21,10 @@ import 'video_display_settings_engine.dart';
 import 'video_color_adjustments_engine.dart';
 import 'software_video_colors.dart';
 import 'video_sharpen_engine.dart';
+import 'video_performance_settings_engine.dart';
+import 'video_render_settings_engine.dart';
+import '../features/playback/domain/video_render_settings.dart';
+import '../features/playback/domain/video_performance_settings.dart';
 import 'mpv_owned_video_filters.dart';
 import '../features/playback/domain/video_sharpen_mode.dart';
 import 'mpv_node_property.dart';
@@ -39,6 +43,8 @@ class MediaKitVideoEngine
         VideoDisplayEngine,
         VideoColorEngine,
         VideoSharpenEngine,
+        VideoPerformanceEngine,
+        VideoRenderEngine,
         DiagnosableVideoEngine {
   MediaKitVideoEngine({
     Player? player,
@@ -274,6 +280,72 @@ class MediaKitVideoEngine
   final _trackChanges = StreamController<VideoTrackState>.broadcast();
   VideoTrackState _tracks = const VideoTrackState();
   NativePlayer get _native => _player.platform as NativePlayer;
+
+  @override
+  VideoRenderSettings renderSettings = const VideoRenderSettings();
+  late final _renderCommands = MpvRenderSettingsCommands(
+    command: _native.command,
+    read: _native.getProperty,
+  );
+  @override
+  Future<void> setRenderSettings(VideoRenderSettings value) async {
+    _checkAlive();
+    await _native.waitForPlayerInitialization;
+    await _native.waitForVideoControllerInitializationIfAttached;
+    _checkAlive();
+    final renderer = readMpvNodeProperty(
+      _native,
+      'user-data/reelnest/render-api',
+    );
+    if (renderer == 'sw') {
+      throw const VideoRenderUnavailable();
+    }
+    if (renderer != 'opengl') {
+      throw StateError('Video renderer is not initialized');
+    }
+    try {
+      await _renderCommands.apply(value);
+    } catch (_) {
+      try {
+        renderSettings = await _renderCommands.current();
+      } catch (_) {}
+      rethrow;
+    }
+    _checkAlive();
+    renderSettings = value;
+  }
+
+  @override
+  VideoPerformanceSettings performanceSettings =
+      const VideoPerformanceSettings();
+  late final _performanceCommands = MpvPerformanceCommands(
+    command: _native.command,
+    read: _native.getProperty,
+  );
+
+  @override
+  Future<void> setPerformanceSettings(VideoPerformanceSettings value) async {
+    _checkAlive();
+    // The controller sets its own initial hwdec. Wait for it before applying
+    // saved settings, otherwise it can overwrite the user's mode before open.
+    await _native.waitForPlayerInitialization;
+    await _native.waitForVideoControllerInitializationIfAttached;
+    _checkAlive();
+    try {
+      await _performanceCommands.apply(value);
+    } catch (_) {
+      try {
+        performanceSettings = await _performanceCommands.current();
+      } catch (_) {
+        // A partially restored profile has no valid boolean representation;
+        // the rollback-specific warning requires the user to reapply it.
+      }
+      rethrow;
+    }
+    _checkAlive();
+    performanceSettings = value;
+  }
+
   late final _subtitleCommands = MpvSubtitleSettingsCommands(
     command: _native.command,
     read: _native.getProperty,

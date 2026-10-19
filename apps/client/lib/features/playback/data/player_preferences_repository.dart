@@ -11,6 +11,8 @@ import '../domain/video_subtitle_settings.dart';
 import '../domain/video_display_settings.dart';
 import '../domain/video_color_adjustments.dart';
 import '../domain/video_sharpen_mode.dart';
+import '../domain/video_performance_settings.dart';
+import '../domain/video_render_settings.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -164,6 +166,38 @@ class PlayerPreferencesRepository {
 
   Future<void> rememberSharpenMode(VideoSharpenMode mode) =>
       _write('global.videoSharpenMode', mode.name);
+
+  Future<VideoPerformanceSettings> get performanceSettings async {
+    final raw = await _read('global.videoPerformanceSettings');
+    if (raw == null) return const VideoPerformanceSettings();
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic>
+          ? VideoPerformanceSettings.fromJson(value)
+          : const VideoPerformanceSettings();
+    } on FormatException {
+      return const VideoPerformanceSettings();
+    }
+  }
+
+  Future<void> rememberPerformanceSettings(VideoPerformanceSettings value) =>
+      _write('global.videoPerformanceSettings', jsonEncode(value.toJson()));
+
+  Future<VideoRenderSettings> get renderSettings async {
+    final raw = await _read('global.videoRenderSettings');
+    if (raw == null) return const VideoRenderSettings();
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic>
+          ? VideoRenderSettings.fromJson(value)
+          : const VideoRenderSettings();
+    } on FormatException {
+      return const VideoRenderSettings();
+    }
+  }
+
+  Future<void> rememberRenderSettings(VideoRenderSettings value) =>
+      _write('global.videoRenderSettings', jsonEncode(value.toJson()));
 
   Future<VideoEndAction> get endAction async {
     final value = await _read('global.videoPlaybackEndAction');

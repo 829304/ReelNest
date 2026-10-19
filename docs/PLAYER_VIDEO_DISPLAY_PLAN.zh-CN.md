@@ -9,7 +9,7 @@
 
 本轮按用户确认接入原版画面显示五项：画面比例、黑边裁切、去隔行、旋转、镜像。模型、偏好、session、engine 和前端设置页已接通；Windows Flutter texture 阶段已核验实际渲染与属性读回，并继续补齐三桌面端暂停 resize 行为。本文记录原版基线与验收边界，不把尚未实测或读回异常的能力当成已支持。
 
-明确不在画面显示五项本轮范围：锐化、降噪、硬解选择以及服务器端转码扩展。锐化现由用户另行批准为独立阶段，按[锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)跟踪；降噪仍仅做依赖核查和方案。亮度、对比度、饱和度、伽马、色相已由用户另行批准为独立批次，按[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)跟踪，不纳入本文的原五项验收。不得因本轮未实现而删除或改变原版已有行为。无数据库 schema/迁移变更；Windows 绿色便携存储约束不变。
+锐化、降噪、硬解选择以及服务器端转码扩展不属于本文的原画面显示五项。锐化已另行批准并按[锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)跟踪；降噪仍仅做依赖核查和方案。硬件解码选择与弱网内存缓冲已由独立阶段实现，其状态与证据见[当前阶段记录](NEXT_STAGE.zh-CN.md#video-performance-settings)；MPV 自带 `hwdec`、cache 等能力或内部默认值，不等同于实际硬件解码已经启用。去色带与 HDR 色调映射现已另行实现 GPU 路径：GPU renderer 受支持，纯 SW renderer 的用户设置编辑全部明确不支持（包括 `off`/`auto`），且限制来自渲染路径而非硬件解码；因此软件解码 + GPU renderer 仍可用。其验证及平台边界见[当前阶段记录](NEXT_STAGE.zh-CN.md#video-deband-tone-mapping)，并非本文原五项。亮度、对比度、饱和度、伽马、色相已另行批准为独立批次，按[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)跟踪，不纳入本文的原五项验收。不得因某个批次未实现而删除或改变原版已有行为。无数据库 schema/迁移变更；Windows 绿色便携存储约束不变。
 
 ## 前端接入边界（已完成；统一验收待完成）
 
@@ -126,7 +126,7 @@
 | 旋转 | `video-rotate`：`source=0`、顺时针 90=`90`、180=`180`、逆时针 90=`270` | 原版明确 `0` 保留文件旋转元数据并不追加角度；`no` 会忽略源旋转元数据，不能互换 |
 | 镜像 | `vf` 中追加：`none=[]`、水平=`hflip`、垂直=`vflip`、双向=`hflip,vflip` | 在既有 filter chain 中按原顺序组合；原版策略先保留非空 base quality filter，再加 flip，再加 sharpen/denoise。此轮只负责 mirror，不能覆盖或破坏既有 filter；不借此引入锐化/降噪 UI |
 
-原版 `playbackProperties` 还会在同一数组包含 `hwdec`，顺序为比例、panscan、去隔行、旋转、硬解；硬解选择明确不属于本轮，不能由该组合接口的存在推导为已授权实现。
+原版 `playbackProperties` 还会在同一数组包含 `hwdec`，顺序为比例、panscan、去隔行、旋转、硬解。硬件解码用户控制已在独立阶段实现，但不属于本文五项设置；属性在 MPV 中存在或配置成功，不能推导出实际硬解已经启用。阶段验证范围见[当前阶段记录](NEXT_STAGE.zh-CN.md#video-performance-settings)。
 
 ## 有界验收
 
@@ -137,4 +137,4 @@
 5. 原生画面几何：在实际 Windows、macOS、Linux Flutter texture/renderer 上逐项验证 aspect、panscan、deinterlace、rotation、mirror 的画面结果，包含源旋转元数据、非 16:9 画面、黑边、横/竖镜像及组合操作；验证布局尺寸、裁切框和控制层命中区域与视频实际几何一致。
 6. 支持性声明：特别验证 Flutter texture 对 `panscan`、`video-rotate` 与 `vf` 变换的实际支持。未完成具体平台 native 证据前，不宣称三端等效；若不能等效，记录平台、渲染路径、重现条件和证据后向用户说明，不私自降级。
 
-上述验收清单属于原画面显示五项批次，不涵盖色彩调整；亮度、对比度、饱和度、伽马、色相现另列于[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。锐化/降噪、硬解选择、服务器转码扩展仍不属于本轮色彩调整。无 schema 迁移；Windows 便携存储路径/凭据规则不变。
+上述验收清单属于原画面显示五项批次，不涵盖色彩调整或播放器性能控制；亮度、对比度、饱和度、伽马、色相另列于[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)，硬件解码与弱网内存缓冲按[播放器性能控制阶段](NEXT_STAGE.zh-CN.md#video-performance-settings)跟踪。锐化/降噪、服务器转码扩展仍不属于本轮色彩调整。无 schema 迁移；Windows 便携存储路径/凭据规则不变。

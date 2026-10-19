@@ -4,7 +4,85 @@
 
 2026-10-19 Linux 视口补充：已在项目生成源码中加入软件 renderer 共用等比例 fit helper，使用上游实际 1920×1080 caps，覆盖 `SetSize` 与自动尺寸 getter（含旋转），保留零尺寸 reset、缓冲上限、暂停重绘和 GPU 路径。Windows 主机运行 `python tool/check_linux_viewport_patch.py --cmake` 并指定 MSVC 自带 CMake，exit 0；实际生成 C++ 代码在有/无 SW 宏下编译，并由 test doubles 覆盖尺寸、自动/旋转/guard 场景和上游漂移故障注入。该检查不是 Linux GTK/EGL 编译或实机画面验收；Linux 大窗口、高 DPI、暂停窗口实测仍待。本轮没有 Dart/Windows 行为变化，不重跑 Flutter 套件或 Windows 构建，不声称新 Windows EXE。详见[画面显示计划](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md#linux-软件-renderer-视口比例适配源码级验证通过平台验收待完成2026-10-19)。
 
-## 当前阶段
+<a id="video-performance-settings"></a>
+
+## 播放器性能控制：硬件解码选择与弱网内存缓冲（实现及 Windows 自动化验证完成；平台/来源验收待）
+
+已按原版实现两个独立的播放性能用户控制。MPV 内部支持硬件解码/缓存或存在默认行为，不等同于 ReelNest 用户设置；硬解选择也独立于 Flutter/MPV 使用 GL 或 SW 的渲染方式，切换解码模式不隐式切换 renderer。
+
+### 原版选项与行为
+
+| ReelNest 用户选项 | 原版值 / MPV `hwdec` 映射 | 默认 |
+|---|---|---|
+| 硬件解码：兼容 | `VideoHardwareDecodingMode.safe` → `auto-safe` | `safe` |
+| 硬件解码：自动 | `VideoHardwareDecodingMode.automatic` → `auto` | — |
+| 硬件解码：关闭 | `VideoHardwareDecodingMode.off` → `no` | — |
+| 弱网内存缓冲 | `videoMemoryBufferingEnabled` | `true`（开启） |
+
+弱网内存缓冲开启时原版设置：`cache=yes`、`cache-secs=90`、`demuxer-readahead-secs=90`、`demuxer-max-bytes=256MiB`、`demuxer-max-back-bytes=96MiB`、`cache-pause=yes`。关闭时为：`cache=auto`、`cache-secs=20`、`demuxer-readahead-secs=20`、`demuxer-max-bytes=96MiB`、`demuxer-max-back-bytes=24MiB`、`cache-pause=no`。该功能是客户端内存/解复用器缓冲策略，不是网络测速、磁盘缓存、离线下载或服务端转码。
+
+### 移植契约与 UI 范围
+
+- 本地与 Emby 视频共用两项全局设置；不更改服务器转码行为、预览图使用的独立解码器或 GL/SW 渲染选择。
+- Domain 为 `VideoPerformanceSettings` 与 enum `VideoHardwareDecodingMode`；`session.updatePerformanceSettings` 串行更新，按执行时最新状态合并。等待 controller 初始化后再应用设置，以免 controller 初始 `hwdec` 覆盖用户选择；在 session 打开媒体前应用，并保留换片、播放重试及画质切换流程。
+- 使用原生 MPV 七个 owned properties。所有变更先读回校验；numeric byte 属性接受原单位别名。部分写入失败时按逆序恢复并读回，`VideoPerformanceRollbackFailure` 单独分流告警。DB 保存失败回滚；partial rollback 有警告并可重试。偏好读取/初始化异常非致命，不阻断播放器。
+- 使用既有 `player_preferences` 单 JSON 键 `global.videoPerformanceSettings`，字段为 `hardwareDecodingMode`（enum raw name：`safe` / `automatic` / `off`）及 `memoryBufferingEnabled`（bool）；无 schema 变化。各非法字段独立回落默认，JSON 格式损坏使用整体默认值。键结构已由实现确认，详见[数据字典](DATA_DICTIONARY.zh-CN.md#player_preferences)。
+- 前端已按原版 `PlayerView.swift` 在现有“画面”页追加“播放性能”组，仅包含硬件解码模式和弱网内存缓冲两个控件；遵循原版顺序、默认值和交互，不新增其它可见设置。
+
+### 明确排除与验收边界
+
+本硬件解码/缓冲批次不包含去色带、HDR/色调映射、降噪、截图、均衡器或在线字幕；去色带和 HDR 色调映射现已由用户另行批准为后续独立阶段，范围见下节。不得扩展硬件选择到预览解码器、GL/SW 渲染模式或服务器转码。已阅读原 Swift/SwiftUI 依据并按原版接入设置，但尚未完成三桌面逐项视觉验收。MPV 默认能力、属性可写或配置读回均不能单独证明实际硬件解码或弱网播放收益。
+
+### 验证状态（Windows）
+
+- 新增 backend 13 项与显式 DLL native 1 项定向通过；启用 `REELNEST_MPV_PATH` 的全量测试 **817 passed / 0 skipped（38 秒）**，全部 9 项 native 实际执行（其中本批新增 1 项）；两项 UI 测试也包含在全量内。SDK `dart analyze lib test integration_test` 无问题；323 个 Dart 文件格式检查 0 changed；`git diff --check` 无错误。
+- Windows Profile `video_performance_test` 构建 28.9 秒，2 个功能用例运行 8 秒通过（摘要 3 passed 含 tearDown）。覆盖 GPU/SW 真实 texture、六种参数组合读回、验证设置先于媒体 open 且不被 controller 初值覆盖、暂停时位置偏差 ≤0.02 秒/画面平均差 <2、音轨/字幕/owned filters/实际 render-api 保持。循环 Range loopback HTTP 资源播放中与暂停状态下切换缓冲均通过；这是受控 loopback 样本，不代表真实 Emby 或真实弱网收益。
+- Profile fixture 不含可硬件解码的视频，`hwdec-current=no`。本轮未证明压缩媒体上实际启用 GPU 硬件解码；设置值/property 被接受不等于硬解实际生效。
+- Windows production `lib/main.dart` Release 构建 40.2 秒成功；2026-10-19 14:54:16.9228157 +08:00 五秒 smoke：`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。EXE：`apps/client/build/windows/x64/runner/Release/reelnest.exe`；报告：`apps/client/build/smoke/release-startup.json`。
+- 真实压缩媒体硬解启用、真实 Emby、真实弱网播放收益、macOS/Linux 原生构建/实机与原版 UI 人工逐项验收仍待。本轮未更改 renderer、preview decoder、Emby 资源或转码；未替换 runtime、清理用户数据、commit 或 push。既有 `fc7dadc` 已推送不属于本轮操作。
+
+<a id="video-deband-tone-mapping"></a>
+
+## 已批准：去色带与 HDR 色调映射（Windows 自动化验证完成；真实设备/跨平台验收待）
+
+用户已批准按原版新增去色带与 HDR 色调映射两项视频渲染设置，并明确决定本轮只交付 GPU 路径；实际使用纯软件 renderer 时，对用户发出的任何渲染设置编辑都明确拒绝（包括 `off`/`auto`），不保存修改。该 SW 行为是用户认可的范围边界，不属于静默降级；不得切换 renderer 规避限制，也不得把 GPU 行为描述成跨 renderer 等效。限制依据实际渲染路径 `user-data/reelnest/render-api=sw`，与硬件解码开关无关；软件解码 + GPU renderer 仍可用。MPV 属性写入/读回不等于最终图像效果验收。
+
+### 原版选项与映射
+
+| 用户设置 | 原版值 | MPV 映射 | 默认 |
+|---|---|---|---|
+| 去色带 | `VideoDebandMode.off` / `light` / `strong`（显示“关闭”/“轻微”/“明显”） | 按顺序写入 `deband`、`deband-threshold`、`deband-range`、`deband-grain` | `off`；关闭仍写原版默认参数 |
+| HDR 色调映射 | `auto` / `bt.2390` / `hable` / `mobius` / `reinhard` / `clip` | `tone-mapping` 属性对应同名 MPV 值 | `auto` |
+
+去色带参数严格沿用原版：
+
+| 模式 | `deband` | `deband-threshold` | `deband-range` | `deband-grain` |
+|---|---:|---:|---:|---:|
+| `off` | `no` | 64 | 16 | 48 |
+| `light` | `yes` | 32 | 12 | 24 |
+| `strong` | `yes` | 48 | 18 | 36 |
+
+原版依据为 `MediaLibCore/Models/AppSettings.swift` 中的 `VideoDebandMode`、`VideoToneMappingMode` 和默认值，`MediaLib/App/VideoDebandPolicy.swift`、`VideoToneMappingPolicy.swift` 的属性和值映射，以及 `MediaLib/Views/PlayerView.swift` 的画面设置。固定参考源码为 mpv `a2cd83c56d` 与 FFmpeg `5cb9fcd`；实际 GL/SW 能力按固定代码分别判断，不用其它滤镜或 FFmpeg 版本的支持情况替代本项目证据。
+
+### 实施契约与边界
+
+- 本地与 Emby 视频共用设置；通过播放 session 串行更新并按执行时最新状态合并，原生应用后读回并保存；应用/保存失败恢复旧值并告警，初始化读取/应用失败非致命。换片和重新打开媒体须保持所选值。
+- 使用既有 `player_preferences` 的全局单 JSON 键 `global.videoRenderSettings`，字段 `{debandMode, toneMappingMode}`，enum raw name 分别为 `off/light/strong` 与 `auto/bt2390/hable/mobius/reinhard/clip`，无 schema 变化。字段、默认和回退见[数据字典](DATA_DICTIONARY.zh-CN.md#player_preferences)。
+- 原版在现有“画面”页“播放性能”组中，把“去色带”和“HDR 映射”两行追加在“硬件解码”之后。前端按原版标签、选项顺序、布局和交互对照；前端实现和 UI 验证仍由对应负责人完成，本次授权只包含这两项。
+- 去色带 GPU 属性顺序为 `deband` → `deband-threshold` → `deband-range` → `deband-grain`。HDR 映射使用固定 mpv 的 `tone-mapping`；固定 FFmpeg `vf_tonemap.c` 不含 BT.2390，不能以 FFmpeg 滤镜替代原生 mpv 曲线策略。
+- 已验证行为：GL/GPU 路径是本轮唯一支持交付路径；如果实际 `reelnest/render-api=sw`，所有用户发起的渲染设置编辑明确失败并返回 `VideoRenderUnavailable`，包括重复写入默认 `off`/`auto`，且失败不保存。初始化遇到已存默认值 `off`/`auto` 时静默，不记 warning/failure 日志；非默认值保持数据库原偏好、提示用户并允许播放；后续新 GPU 会话恢复原选择。硬件解码关闭与 SW renderer 无直接关系，软件解码 + GPU renderer 可用；不切 renderer。不能把 SW 属性直接探测的可写误称为图像效果有效。
+- 不引入降噪、截图、均衡器、在线字幕、服务器转码或其他新画面效果；不以色调映射设置替换服务端 HDR 转码策略。GPU 和 SW 的有效图像结果必须分别辨认；按用户决定，SW 已明确不支持而非追求等效实现。
+
+### Windows 自动化验证结果与边界
+
+- Windows Profile 最新两功能场景运行 15 秒通过（摘要 3 passed 含 tearDown；Profile 构建 23.5 秒）。除最初 PQ/去色带像素对比外，补充覆盖：同一 PQ 样本 auto 与 BT.2390 差异 <0.5；HLG Hable 与 clip 有实际像素效果，平均差 `34.6839`；HDR 设置和亮度/伽马 + 锐化 + 镜像组合不改变 `vf`、hwdec 和 gamma 状态；暂停位置偏差 ≤0.02 秒，暂停 resize 400×240 → 320×180 画面差 <1；HLG Hable/BT.2390 下 ASS 白字幕保持白色且字幕选择不变；移除 HDR 元数据后 SDR 选择 Hable/clip 的画面差 <0.5；播放中 reset 后继续播放。
+- 最初 PQ 10-bit 标签样本数据保留为指定 fixture 证据：去色带 `light`/`strong` 相对 `off` 平均差分别 `0.3143`/`0.4557`；曲线相对 clip 的差异为 auto/BT.2390 `1.8839`、Hable `21.7032`、Mobius `4.5161`、Reinhard `7.9226`。这些是自动化样本像素差，不代表真实 HDR 显示器/片源的主观画质验收。
+- SW 直接属性探测的图像像素差仍全为 0。固定 mpv `video/out/libmpv_sw.c` 用 `mp_sws_scale`，GPU 路径在 `video_shaders.c` 执行 shader；生产入口因此按实际 renderer 对 SW 全部用户编辑明确拒绝。该限制来自 renderer，不是解码器；软件解码配 GPU renderer 仍可用。
+- 新后端 12 项、UI 2 项真实滚动/点击用例通过。启用 `REELNEST_MPV_PATH` 的完整 `flutter test` **829 passed / 0 skipped（38 秒）**；全部 9 项既有 native 测试执行，本批新增 12 项 Dart 后端测试、没有新增 headless native。SDK `dart analyze lib test integration_test` clean；328 个 Dart 文件 format 0 changed，diff-check 无错误。
+- Windows production `lib/main.dart` Release 构建 40.4 秒成功；2026-10-19 17:01:51.3221687 +08:00 五秒 smoke `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。EXE：`apps/client/build/windows/x64/runner/Release/reelnest.exe`；报告：`apps/client/build/smoke/release-startup.json`。AOT `app.so` 已包含两项 JSON 偏好键；测试包中没有集成测试 case 字符串是预期，配置由正式入口加载。
+- 最终仍待真实 HDR 片源/显示器、真实 Emby、macOS/Linux 原生构建与实际 renderer、人工 UI/视觉验收。此批未增加非 HDR 媒体效果、服务器转码或 SW 等效处理；未升级 runtime、清用户数据、提交或推送。
+
+当前状态为“Windows GPU 路径、SW 明确拒绝边界与自动化验证完成；真实 HDR 设备/Emby、macOS/Linux 原生与人工 UI 验收待完成”，不代表三个桌面平台和真实内容已验收。
 
 当前播放器故障诊断与加载健壮性批次已完成本轮代码及 Windows 验证：最终定向 native 1 项、analyze、265 文件格式检查和 diff-check 通过；Windows Release 40.8 秒成功，01:12:55 +08:00 五秒 smoke 通过。全量 **701 passed / 4 skipped** 是最后三行 `finally` 修正前的基线，未重复全量。真实 Emby 间歇故障尚无历史日志，根因未确定，需用新版实际复现；macOS/Linux 原生未验收。详见[高级播放与当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md)。
 

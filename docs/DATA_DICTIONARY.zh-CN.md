@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-18
+- 最后更新：2026-10-19
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -231,6 +231,22 @@ library/reelnest.sqlite
 | `global.videoColorAdjustments` | JSON 字符串 | `{brightness, contrast, saturation, gamma, hue}`；五项默认均为 `0`，各项归一化为整数 `[-100, 100]` |
 
 每次调整以一个完整对象写入该单一偏好键，不拆分成五个键；此偏好使用既有 `player_preferences` 键值结构，不增加数据库表、列或 schema 版本。读写、归一化与应用契约见[播放器画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
+
+播放器性能设置已接入下列全局偏好键；Windows 自动化验证完成，其他平台/来源验收见[当前阶段记录](NEXT_STAGE.zh-CN.md#video-performance-settings)：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoPerformanceSettings` | JSON 字符串 | `{hardwareDecodingMode, memoryBufferingEnabled}`；分别默认 `safe` 与 `true` |
+
+`hardwareDecodingMode` 使用 enum raw name：`safe` → MPV `hwdec=auto-safe`，`automatic` → `auto`，`off` → `no`；`memoryBufferingEnabled` 为布尔值。非法字段独立回落到对应默认，整个 JSON 格式损坏时回落完整默认对象。此键存于既有 `player_preferences`，不新增表、列、schema 版本或迁移。
+
+去色带与 HDR 色调映射设置已接入既有 `player_preferences` 的全局 JSON 键；Windows GPU 自动化验证通过。限制取决于实际 renderer：纯 SW 的任何用户渲染编辑（包括写默认值）都明确拒绝且不保存；读取持久化默认值时无多余告警，读取非默认值时保留 DB 并提示。软件解码 + GPU renderer 仍受支持。跨平台/真实内容边界见[当前阶段记录](NEXT_STAGE.zh-CN.md#video-deband-tone-mapping)：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoRenderSettings` | JSON 字符串 | `{debandMode, toneMappingMode}`；默认分别为 `off`、`auto` |
+
+`debandMode` 为 enum raw name `off`、`light`、`strong`；`toneMappingMode` 为 enum raw name `auto`、`bt2390`、`hable`、`mobius`、`reinhard`、`clip`（其中 `bt2390` 对应 MPV 值 `bt.2390`）。该键使用既有 `player_preferences`，无 schema 变化。Windows GPU Profile、全量与 Release/smoke 验证通过，但数据键存在不代表真实 HDR 设备、Emby 或 macOS/Linux 平台已验收。SW 不支持系 renderer 边界，与硬件解码模式无关。
 
 锐化批次使用下列全局偏好键；该键只保存锐化档位，不含降噪状态。代码已接入该键和 shared owned-filter helper；锐化 Dart 定向 12 项、显式 DLL native 1 项均包含于启用 `REELNEST_MPV_PATH` 的全量 **803 passed / 0 skipped（39 秒）**，全部 8 项 native 实际执行并通过。Windows Profile GPU/SW 用例通过，medium 锐化时字幕/黑画面/暂停 resize 正常，且同一 19 秒运行验证了关闭锐化后的 RGB 语义恢复。headless native 的 Temp namespace 通过 `IOOverrides` 隔离至自身 sandbox；PID 复用解释未由崩溃栈独立确诊。318 个 Dart 文件格式检查 0 改动、analyze clean、diff-check 无错误。Windows production Release 构建 42.5 秒成功；2026-10-18 20:01:52.2262702 +08:00 五秒 smoke 通过（窗口响应、正常关闭、退出码 0）。产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`，报告 `apps/client/build/smoke/release-startup.json`；macOS/Linux 原生验收待，详见[锐化计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)：
 

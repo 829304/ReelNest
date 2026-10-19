@@ -5,6 +5,8 @@ import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/playback/domain/video_color_adjustments.dart';
 import 'package:reelnest/features/playback/domain/video_display_settings.dart';
+import 'package:reelnest/features/playback/domain/video_performance_settings.dart';
+import 'package:reelnest/features/playback/domain/video_render_settings.dart';
 import 'package:reelnest/features/playback/domain/video_sharpen_mode.dart';
 import 'package:reelnest/features/playback/presentation/player_behavior_settings.dart';
 import 'package:reelnest/features/playback/presentation/player_video_display_settings.dart';
@@ -25,7 +27,11 @@ class _DisplaySettingsSession extends PlaybackSession {
   Future<void> _operations = Future.value();
   Future<void> _colorOperations = Future.value();
   Future<void> _sharpenOperations = Future.value();
+  Future<void> _performanceOperations = Future.value();
+  Future<void> _renderOperations = Future.value();
   bool rejectSharpen = false;
+  bool rejectPerformance = false;
+  bool rejectRender = false;
 
   @override
   Future<void> updateDisplaySettings(
@@ -38,6 +44,50 @@ class _DisplaySettingsSession extends PlaybackSession {
       notifyListeners();
     });
     _operations = operation;
+    return operation;
+  }
+
+  @override
+  Future<void> updateRenderSettings({
+    VideoDebandMode? debandMode,
+    VideoToneMappingMode? toneMappingMode,
+  }) {
+    final operation = _renderOperations.then((_) async {
+      await Future<void>.delayed(Duration.zero);
+      if (rejectRender) {
+        controlError = '视频渲染设置应用失败，请重试。';
+      } else {
+        renderSettings = renderSettings.copyWith(
+          debandMode: debandMode,
+          toneMappingMode: toneMappingMode,
+        );
+        controlError = null;
+      }
+      notifyListeners();
+    });
+    _renderOperations = operation;
+    return operation;
+  }
+
+  @override
+  Future<void> updatePerformanceSettings({
+    bool? memoryBufferingEnabled,
+    VideoHardwareDecodingMode? hardwareDecodingMode,
+  }) {
+    final operation = _performanceOperations.then((_) async {
+      await Future<void>.delayed(Duration.zero);
+      if (rejectPerformance) {
+        controlError = '播放性能设置应用失败，请重试。';
+      } else {
+        performanceSettings = performanceSettings.copyWith(
+          memoryBufferingEnabled: memoryBufferingEnabled,
+          hardwareDecodingMode: hardwareDecodingMode,
+        );
+        controlError = null;
+      }
+      notifyListeners();
+    });
+    _performanceOperations = operation;
     return operation;
   }
 
@@ -82,6 +132,12 @@ void main() {
     );
     final session = _DisplaySettingsSession(sources);
     try {
+      Future<void> reveal(Finder target) async {
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target.hitTestable(), findsOneWidget);
+      }
+
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -138,16 +194,57 @@ void main() {
           findsOneWidget,
         );
       }
+      expect(find.text('播放性能'), findsOneWidget);
+      expect(find.text('弱网内存缓冲'), findsOneWidget);
+      expect(find.text('硬件解码'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('video-memory-buffering-toggle')),
+        findsOneWidget,
+      );
+      for (final mode in VideoHardwareDecodingMode.values) {
+        expect(
+          find.byKey(ValueKey('video-hardware-decoding-${mode.name}')),
+          findsOneWidget,
+        );
+      }
+      expect(find.text('去色带'), findsOneWidget);
+      expect(find.text('HDR 映射'), findsOneWidget);
+      for (final mode in VideoDebandMode.values) {
+        expect(
+          find.byKey(ValueKey('video-deband-${mode.name}')),
+          findsOneWidget,
+        );
+      }
+      for (final mode in VideoToneMappingMode.values) {
+        expect(
+          find.byKey(ValueKey('video-tone-mapping-${mode.name}')),
+          findsOneWidget,
+        );
+      }
 
-      await tester.tap(
-        find.byKey(const ValueKey('video-aspect-sixteenByNine')),
+      final aspectSixteenByNine = find.byKey(
+        const ValueKey('video-aspect-sixteenByNine'),
       );
-      await tester.tap(find.byKey(const ValueKey('video-crop-fill')));
-      await tester.tap(find.byKey(const ValueKey('video-deinterlace-auto')));
-      await tester.tap(
-        find.byKey(const ValueKey('video-rotation-clockwise90')),
+      await reveal(aspectSixteenByNine);
+      await tester.tap(aspectSixteenByNine);
+      final cropFill = find.byKey(const ValueKey('video-crop-fill'));
+      await reveal(cropFill);
+      await tester.tap(cropFill);
+      final deinterlaceAuto = find.byKey(
+        const ValueKey('video-deinterlace-auto'),
       );
-      await tester.tap(find.byKey(const ValueKey('video-flip-horizontal')));
+      await reveal(deinterlaceAuto);
+      await tester.tap(deinterlaceAuto);
+      final rotationClockwise = find.byKey(
+        const ValueKey('video-rotation-clockwise90'),
+      );
+      await reveal(rotationClockwise);
+      await tester.tap(rotationClockwise);
+      final flipHorizontal = find.byKey(
+        const ValueKey('video-flip-horizontal'),
+      );
+      await reveal(flipHorizontal);
+      await tester.tap(flipHorizontal);
       await tester.pumpAndSettle();
 
       expect(
@@ -171,11 +268,11 @@ void main() {
       final contrastDecrease = find.byKey(
         const ValueKey('video-color-contrast-decrease'),
       );
-      await tester.ensureVisible(contrastDecrease);
-      await tester.pumpAndSettle();
+      await reveal(brightnessIncrease);
       for (var index = 0; index < 3; index++) {
         await tester.tap(brightnessIncrease);
       }
+      await reveal(contrastDecrease);
       for (var index = 0; index < 2; index++) {
         await tester.tap(contrastDecrease);
       }
@@ -190,19 +287,23 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const ValueKey('video-color-brightness-reset')),
+      final brightnessReset = find.byKey(
+        const ValueKey('video-color-brightness-reset'),
       );
+      await reveal(brightnessReset);
+      await tester.tap(brightnessReset);
       final hueDecrease = find.byKey(
         const ValueKey('video-color-hue-decrease'),
       );
       final saturationIncrease = find.byKey(
         const ValueKey('video-color-saturation-increase'),
       );
-      await tester.ensureVisible(hueDecrease);
-      await tester.pumpAndSettle();
+      await reveal(hueDecrease);
       for (var index = 0; index < 22; index++) {
         await tester.tap(hueDecrease);
+      }
+      await reveal(saturationIncrease);
+      for (var index = 0; index < 22; index++) {
         await tester.tap(saturationIncrease);
       }
       await tester.pumpAndSettle();
@@ -223,16 +324,74 @@ void main() {
       );
 
       final sharpenStrong = find.byKey(const ValueKey('video-sharpen-strong'));
-      await tester.ensureVisible(sharpenStrong);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('video-sharpen-light')));
-      await tester.tap(find.byKey(const ValueKey('video-sharpen-medium')));
+      final sharpenLight = find.byKey(const ValueKey('video-sharpen-light'));
+      final sharpenMedium = find.byKey(const ValueKey('video-sharpen-medium'));
+      await reveal(sharpenLight);
+      expect(sharpenMedium.hitTestable(), findsOneWidget);
+      expect(sharpenStrong.hitTestable(), findsOneWidget);
+      await tester.tap(sharpenLight);
+      await tester.tap(sharpenMedium);
       await tester.tap(sharpenStrong);
       await tester.pumpAndSettle();
       expect(session.sharpenMode, VideoSharpenMode.strong);
 
+      final memoryBufferingToggle = find.byKey(
+        const ValueKey('video-memory-buffering-toggle'),
+      );
+      final hardwareAutomatic = find.byKey(
+        const ValueKey('video-hardware-decoding-automatic'),
+      );
+      await reveal(memoryBufferingToggle);
+      expect(hardwareAutomatic.hitTestable(), findsOneWidget);
+      await tester.tap(memoryBufferingToggle);
+      await tester.tap(hardwareAutomatic);
+      await tester.pumpAndSettle();
+      expect(session.performanceSettings.memoryBufferingEnabled, isFalse);
+      expect(
+        session.performanceSettings.hardwareDecodingMode,
+        VideoHardwareDecodingMode.automatic,
+      );
+
+      final toneMappingHable = find.byKey(
+        const ValueKey('video-tone-mapping-hable'),
+      );
+      final debandLight = find.byKey(const ValueKey('video-deband-light'));
+      await reveal(toneMappingHable);
+      expect(debandLight.hitTestable(), findsOneWidget);
+      await tester.tap(debandLight);
+      await tester.tap(toneMappingHable);
+      await tester.pumpAndSettle();
+      expect(session.renderSettings.debandMode, VideoDebandMode.light);
+      expect(
+        session.renderSettings.toneMappingMode,
+        VideoToneMappingMode.hable,
+      );
+
+      session.rejectRender = true;
+      final debandStrong = find.byKey(const ValueKey('video-deband-strong'));
+      await reveal(debandStrong);
+      await tester.tap(debandStrong);
+      await tester.pumpAndSettle();
+      expect(session.renderSettings.debandMode, VideoDebandMode.light);
+      expect(find.text('视频渲染设置应用失败，请重试。'), findsOneWidget);
+
+      session.rejectPerformance = true;
+      final hardwareOff = find.byKey(
+        const ValueKey('video-hardware-decoding-off'),
+      );
+      await reveal(hardwareOff);
+      await tester.tap(hardwareOff);
+      await tester.pumpAndSettle();
+      expect(
+        session.performanceSettings.hardwareDecodingMode,
+        VideoHardwareDecodingMode.automatic,
+      );
+      expect(find.text('播放性能设置应用失败，请重试。'), findsOneWidget);
+
       session.rejectSharpen = true;
-      await tester.tap(find.byKey(const ValueKey('video-sharpen-off')));
+      final sharpenOff = find.byKey(const ValueKey('video-sharpen-off'));
+      await reveal(sharpenOff);
+      await tester.tap(sharpenOff);
       await tester.pumpAndSettle();
       expect(session.sharpenMode, VideoSharpenMode.strong);
       expect(find.text('锐化设置应用失败，请重试。'), findsOneWidget);
@@ -258,6 +417,12 @@ void main() {
     );
     final session = _DisplaySettingsSession(sources);
     try {
+      Future<void> reveal(Finder target) async {
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(target.hitTestable(), findsOneWidget);
+      }
+
       await tester.pumpWidget(
         MaterialApp(
           home: Builder(
@@ -287,8 +452,7 @@ void main() {
       final hueIncrease = find.byKey(
         const ValueKey('video-color-hue-increase'),
       );
-      await tester.ensureVisible(hueIncrease);
-      await tester.pumpAndSettle();
+      await reveal(hueIncrease);
       await tester.tap(hueIncrease);
       await tester.pumpAndSettle();
       expect(session.colorAdjustments.hue, 5);
@@ -301,11 +465,39 @@ void main() {
       );
 
       final sharpenStrong = find.byKey(const ValueKey('video-sharpen-strong'));
-      await tester.ensureVisible(sharpenStrong);
-      await tester.pumpAndSettle();
+      await reveal(sharpenStrong);
       await tester.tap(sharpenStrong);
       await tester.pumpAndSettle();
       expect(session.sharpenMode, VideoSharpenMode.strong);
+
+      final memoryBufferingToggle = find.byKey(
+        const ValueKey('video-memory-buffering-toggle'),
+      );
+      final hardwareOff = find.byKey(
+        const ValueKey('video-hardware-decoding-off'),
+      );
+      await reveal(memoryBufferingToggle);
+      await tester.tap(memoryBufferingToggle);
+      await reveal(hardwareOff);
+      await tester.tap(hardwareOff);
+      await tester.pumpAndSettle();
+      expect(session.performanceSettings.memoryBufferingEnabled, isFalse);
+      expect(
+        session.performanceSettings.hardwareDecodingMode,
+        VideoHardwareDecodingMode.off,
+      );
+
+      final toneMappingClip = find.byKey(
+        const ValueKey('video-tone-mapping-clip'),
+      );
+      final debandStrong = find.byKey(const ValueKey('video-deband-strong'));
+      await reveal(toneMappingClip);
+      expect(debandStrong.hitTestable(), findsOneWidget);
+      await tester.tap(debandStrong);
+      await tester.tap(toneMappingClip);
+      await tester.pumpAndSettle();
+      expect(session.renderSettings.debandMode, VideoDebandMode.strong);
+      expect(session.renderSettings.toneMappingMode, VideoToneMappingMode.clip);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
