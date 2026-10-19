@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import '../features/playback/domain/video_display_settings.dart';
+import 'mpv_owned_video_filters.dart';
 
 abstract interface class VideoDisplayEngine {
   VideoDisplaySettings get displaySettings;
@@ -19,6 +18,7 @@ class MpvDisplaySettingsCommands {
   final Future<String> Function(String) read;
   static const _horizontal = 'reelnest-hflip';
   static const _vertical = 'reelnest-vflip';
+  late final _filters = MpvOwnedVideoFilters(command: command, read: read);
 
   static Map<String, Object> properties(VideoDisplaySettings value) => {
     'video-aspect-override': value.aspectOverride.mpvValue,
@@ -27,47 +27,14 @@ class MpvDisplaySettingsCommands {
     'video-rotate': value.rotationMode.degrees,
   };
 
-  Map<String, String> _ownedFilters(String raw) {
-    final list = raw.isEmpty ? const [] : jsonDecode(raw);
-    if (list is! List) throw const FormatException('Invalid video filters');
-    final result = <String, String>{};
-    for (final entry in list.whereType<Map>()) {
-      final label = entry['label'];
-      if (label == _horizontal || label == _vertical) {
-        final name = entry['name'];
-        if (name != 'hflip' && name != 'vflip') {
-          throw const FormatException('Unexpected owned video filter');
-        }
-        result[label as String] = name as String;
-      }
-    }
-    return result;
-  }
-
-  Map<String, String> _flipFilters(VideoFlipMode mode) => {
-    if (mode == VideoFlipMode.horizontal || mode == VideoFlipMode.both)
-      _horizontal: 'hflip',
-    if (mode == VideoFlipMode.vertical || mode == VideoFlipMode.both)
-      _vertical: 'vflip',
+  Map<String, MpvVideoFilter?> _flipFilters(VideoFlipMode mode) => {
+    _horizontal: mode == VideoFlipMode.horizontal || mode == VideoFlipMode.both
+        ? const MpvVideoFilter(_horizontal, 'hflip')
+        : null,
+    _vertical: mode == VideoFlipMode.vertical || mode == VideoFlipMode.both
+        ? const MpvVideoFilter(_vertical, 'vflip')
+        : null,
   };
-
-  bool _sameFilters(Map<String, String> a, Map<String, String> b) =>
-      a.length == b.length &&
-      a.entries.every((entry) => b[entry.key] == entry.value);
-
-  Future<void> _replaceFilters(Map<String, String> target) async {
-    final current = _ownedFilters(await read('vf'));
-    if (_sameFilters(current, target)) return;
-    for (final label in current.keys) {
-      await command(['vf', 'remove', '@$label']);
-    }
-    for (final entry in target.entries) {
-      await command(['vf', 'add', '@${entry.key}:${entry.value}']);
-    }
-    if (!_sameFilters(_ownedFilters(await read('vf')), target)) {
-      throw StateError('Video filter rejected');
-    }
-  }
 
   Future<void> apply(VideoDisplaySettings value) async {
     final values = properties(value);
@@ -75,7 +42,7 @@ class MpvDisplaySettingsCommands {
     for (final name in values.keys) {
       before[name] = await read(name);
     }
-    final filtersBefore = _ownedFilters(await read('vf'));
+    final filtersBefore = await _filters.snapshot();
     final touched = <String>[];
     var touchedFilters = false;
     try {
@@ -89,12 +56,12 @@ class MpvDisplaySettingsCommands {
         }
       }
       touchedFilters = true;
-      await _replaceFilters(_flipFilters(value.flipMode));
+      await _filters.update(_flipFilters(value.flipMode));
     } catch (error, stack) {
       var failed = false;
       if (touchedFilters) {
         try {
-          await _replaceFilters(filtersBefore);
+          await _filters.restore(filtersBefore);
         } catch (_) {
           failed = true;
         }
@@ -112,7 +79,9 @@ class MpvDisplaySettingsCommands {
           failed = true;
         }
       }
-      if (failed) throw const VideoDisplayRollbackFailure();
+      if (failed || error is VideoFilterRollbackFailure) {
+        throw const VideoDisplayRollbackFailure();
+      }
       Error.throwWithStackTrace(error, stack);
     }
   }

@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,10 +30,10 @@ STUB = r'''
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 using gint64 = int64_t;
 using gint32 = int32_t;
 using gboolean = bool;
-constexpr int SW_RENDERING_MAX_WIDTH=1280, SW_RENDERING_MAX_HEIGHT=720;
 constexpr bool FALSE=false;
 #define CLAMP(x,a,b) std::clamp<int64_t>(x,a,b)
 #define FL_TEXTURE(x) (x)
@@ -40,6 +41,26 @@ enum { MPV_RENDER_PARAM_SW_SIZE, MPV_RENDER_PARAM_SW_FORMAT,
        MPV_RENDER_PARAM_SW_STRIDE, MPV_RENDER_PARAM_SW_POINTER,
        MPV_RENDER_PARAM_INVALID };
 struct mpv_render_param { int type; void* data; };
+enum { MPV_FORMAT_NODE_MAP=10, MPV_FORMAT_NODE=6, MPV_FORMAT_INT64=4 };
+struct mpv_node_list;
+struct mpv_node {
+  int format=0;
+  union { int64_t int64; mpv_node_list* list; } u{};
+};
+struct mpv_node_list { int num; char** keys; mpv_node* values; };
+struct FakeHandle { gint64 width=0, height=0, rotate=0; };
+static void mpv_get_property(FakeHandle* handle, const char*, int, mpv_node* result) {
+  static char dw[]="dw", dh[]="dh", rotate[]="rotate";
+  static char* keys[]{dw,dh,rotate};
+  static mpv_node values[3];
+  static mpv_node_list list{3,keys,values};
+  for (auto& value : values) value.format=MPV_FORMAT_INT64;
+  values[0].u.int64=handle->width;
+  values[1].u.int64=handle->height;
+  values[2].u.int64=handle->rotate;
+  result->format=MPV_FORMAT_NODE_MAP; result->u.list=&list;
+}
+static void mpv_free_node_contents(mpv_node*) {}
 struct VideoOutput {
   bool destroyed=false;
   int mutex=0;
@@ -49,12 +70,12 @@ struct VideoOutput {
   void* texture_registrar=this;
   uint8_t pixel_buffer[4]{};
   gint64 width=0, height=0;
+  FakeHandle source;
+  FakeHandle* handle=&source;
 };
 static int renders=0, notifications=0, rendered_width=0, rendered_height=0;
 static void g_mutex_lock(int* m) { assert(*m==0); ++*m; }
 static void g_mutex_unlock(int* m) { assert(*m==1); --*m; }
-static gint64 video_output_get_width(VideoOutput* o) { return o->width; }
-static gint64 video_output_get_height(VideoOutput* o) { return o->height; }
 static void mpv_render_context_render(void*, mpv_render_param* p) {
   ++renders;
   auto* size=static_cast<int32_t*>(p[0].data);
@@ -63,20 +84,68 @@ static void mpv_render_context_render(void*, mpv_render_param* p) {
 static void fl_texture_registrar_mark_texture_frame_available(void*, void*) { ++notifications; }
 '''
 CHECKS = r'''
+static void expect_dimensions(VideoOutput* output, gint64 width, gint64 height) {
+  assert(video_output_get_width(output)==width);
+  assert(video_output_get_height(output)==height);
+}
+#ifdef MPV_RENDER_API_TYPE_SW
+static void expect_resize(VideoOutput* output, gint64 width, gint64 height,
+                          gint64 expected_width, gint64 expected_height) {
+  const int before_renders=renders, before_notifications=notifications;
+  video_output_set_size(output,width,height);
+  expect_dimensions(output,expected_width,expected_height);
+  assert(renders==before_renders+1 && notifications==before_notifications+1);
+  assert(rendered_width==expected_width && rendered_height==expected_height);
+  assert(rendered_width>0 && rendered_width<=SW_RENDERING_MAX_WIDTH);
+  assert(rendered_height>0 && rendered_height<=SW_RENDERING_MAX_HEIGHT);
+}
+#endif
 int main() {
+  // These are the pinned dependency's limits, read from its actual header.
+  static_assert(SW_RENDERING_MAX_WIDTH==1920 && SW_RENDERING_MAX_HEIGHT==1080);
   VideoOutput gl;
   gl.texture_gl=&gl;
   video_output_set_size(&gl,480,270);
   assert(gl.width==480 && gl.height==270 && renders==0 && notifications==1);
+  video_output_set_size(&gl,5000,5000);
+  expect_dimensions(&gl,5000,5000);
+  assert(renders==0 && notifications==2);
+  video_output_set_size(&gl,0,0);
+  gl.source={3840,2160,90};
+  expect_dimensions(&gl,2160,3840);
 #ifdef MPV_RENDER_API_TYPE_SW
   VideoOutput sw;
   sw.texture_sw=&sw;
-  video_output_set_size(&sw,480,270);
-  assert(renders==1 && notifications==2 && rendered_width==480 && rendered_height==270);
-  video_output_set_size(&sw,5000,5000);
-  assert(renders==2 && notifications==3 && rendered_width==1280 && rendered_height==720);
+  expect_resize(&sw,480,270,480,270);
+  expect_resize(&sw,1440,1440,1080,1080);
+  expect_resize(&sw,5000,5000,1080,1080);
+  expect_resize(&sw,2880,2880,1080,1080);
+  expect_resize(&sw,7680,4320,1920,1080);
+  expect_resize(&sw,4000,3000,1440,1080);
+  expect_resize(&sw,1080,1920,608,1080);
+  expect_resize(&sw,1440,900,1440,900);
+  expect_resize(&sw,8192,1,1920,1);
+  expect_resize(&sw,1,8192,1,1080);
+  const int before_reset=renders, before_reset_notifications=notifications;
   video_output_set_size(&sw,0,0);
-  assert(renders==2 && notifications==3 && sw.mutex==0);
+  assert(renders==before_reset && notifications==before_reset_notifications && sw.mutex==0);
+  // Automatic source dimensions, including rotation and the old integer divide
+  // path, must use exactly the same fit as explicit viewport requests.
+  sw.source={3840,2160,0}; expect_dimensions(&sw,1920,1080);
+  sw.source.rotate=90; expect_dimensions(&sw,608,1080);
+  sw.source.rotate=270; expect_dimensions(&sw,608,1080);
+  sw.source={5000,5000,0}; expect_dimensions(&sw,1080,1080);
+  sw.source={1600,1440,0}; expect_dimensions(&sw,1200,1080);
+  sw.source={4000,3000,180}; expect_dimensions(&sw,1440,1080);
+  sw.source={480,960,0}; expect_dimensions(&sw,480,960);
+  // Constructor-supplied fixed dimensions bypass SetSize initially.
+  sw.width=5000; sw.height=5000; expect_dimensions(&sw,1080,1080);
+  sw.destroyed=true;
+  video_output_set_size(&sw,300,450);
+  assert(renders==before_reset && notifications==before_reset_notifications);
+  sw.destroyed=false; sw.render_context=nullptr;
+  video_output_set_size(&sw,400,400);
+  assert(renders==before_reset && notifications==before_reset_notifications);
 #endif
   int before=notifications;
   gl.destroyed=true;
@@ -102,6 +171,10 @@ def main():
         path = path[1:]
     dependency = Path(path) if uri.scheme == 'file' else config.parent / path
     original = (dependency / 'linux/video_output.cc').read_text(encoding='utf-8')
+    header = (dependency / 'linux/include/media_kit_video/texture_sw.h').read_text(encoding='utf-8')
+    limits = '\n'.join(re.findall(
+        r'^#define SW_RENDERING_MAX_(?:WIDTH|HEIGHT)\s+\d+\s*$', header, re.MULTILINE))
+    assert len(limits.splitlines()) == 2, 'Review software pixel-buffer limits'
     build = client / 'build'
     build.mkdir(exist_ok=True)
     sandbox = Path(tempfile.mkdtemp(prefix='reelnest-viewport-patch-', dir=build))
@@ -116,6 +189,8 @@ def main():
             'cmake_minimum_required(VERSION 3.13)\nproject(viewport_probe LANGUAGES CXX)\n'
             'set(CMAKE_CXX_STANDARD 17)\nadd_subdirectory(upstream)\n'
             f'include("{(client / "linux/media_kit_viewport.cmake").as_posix()}")\n'
+            f'include("{(client / "native/media_kit_color.cmake").as_posix()}")\n'
+            'reelnest_patch_media_kit_colors(linux)\n'
             'get_target_property(inputs media_kit_video_plugin SOURCES)\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/inputs.txt" "${inputs}")\n'
             'add_executable(viewport_probe probe.cc)\n'
@@ -132,13 +207,19 @@ def main():
 
         run(args.cmake, '-S', str(sandbox), '-B', str(output))
         generated = (output / 'reelnest_media_kit/video_output.cc').read_text(encoding='utf-8')
+        assert generated.count('"user-data/reelnest/render-api", "opengl"') == 1
+        assert generated.count('"user-data/reelnest/render-api", "sw"') == 1
         assert (upstream / 'video_output.cc').read_text(encoding='utf-8') == original
         inputs = (output / 'inputs.txt').read_text()
         assert 'reelnest_media_kit/video_output.cc' in inputs and '/upstream/other.cc' in inputs
         helper = function(generated, 'static void reelnest_render_software(')
+        fit = function(generated, 'static gint64 reelnest_software_dimension(')
+        getters = '\n'.join(function(generated, f'gint64 video_output_get_{axis}(')
+                            for axis in ['width', 'height'])
         setter = function(generated, 'void video_output_set_size(')
         (sandbox / 'probe.cc').write_text(
-            STUB + '\n#ifdef MPV_RENDER_API_TYPE_SW\n' + helper + '\n#endif\n' + setter + CHECKS)
+            limits + '\n' + STUB + fit + getters + '\n#ifdef MPV_RENDER_API_TYPE_SW\n'
+            + helper + '\n#endif\n' + setter + CHECKS)
         run(args.cmake, '--build', str(output), '--config', 'Release', '--target', 'viewport_probe', 'viewport_gl_probe')
         for target in ['viewport_probe', 'viewport_gl_probe']:
             executable = output / 'Release' / f'{target}.exe' if os.name == 'nt' else output / target
@@ -146,8 +227,15 @@ def main():
         (upstream / 'video_output.cc').write_text(
             original.replace('g_mutex_unlock(&self->mutex);', '/* fixture: upstream callback changed */'), encoding='utf-8')
         drift = subprocess.run([args.cmake, '-S', str(sandbox), '-B', str(output)], capture_output=True)
-        assert drift.returncode != 0 and b'review the Linux viewport patch' in drift.stderr
-        print('Linux generated patch: GPU notification, software render/clamp and close guards passed (test doubles).')
+        assert drift.returncode != 0 and b'review the Linux viewport patch' in b' '.join(drift.stderr.split()), drift.stderr
+        # The sizing patch must also fail closed if a dependency getter changes.
+        (upstream / 'video_output.cc').write_text(
+            original.replace('return width / height * SW_RENDERING_MAX_HEIGHT;',
+                             'return /* fixture: sizing changed */ 0;'), encoding='utf-8')
+        drift = subprocess.run([args.cmake, '-S', str(sandbox), '-B', str(output)], capture_output=True)
+        assert drift.returncode != 0 and b'review the Linux viewport patch' in b' '.join(drift.stderr.split()), drift.stderr
+        print('Linux generated patch: proportional software sizing (requested/automatic/rotated), '
+              'GPU notification, paused redraw and close guards passed (test doubles).')
     finally:
         resolved = sandbox.resolve()
         if not resolved.is_relative_to(build.resolve()) or not resolved.name.startswith('reelnest-viewport-patch-'):

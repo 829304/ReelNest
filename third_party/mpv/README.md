@@ -77,6 +77,12 @@ The upstream [LGPL build patch at the workflow revision](https://github.com/zhon
 
 Isolated headless testing of this pinned DLL reports `hflip`, `vflip` and the combined mirror chain working. The subsequent Windows Profile texture test passed the five display controls; changing the deinterlace property to `auto` was checked, then changing it to `on` produced `deinterlace-active=yes`. This does not establish that mpv selected the software `bwdif` filter rather than VO deinterlacing, nor prove every playback/render path.
 
+### Unsharp and hqdn3d runtime probe (2026-10-18)
+
+An isolated native probe against the current pinned Windows LGPL runtime successfully set and read back the four `unsharp` mode structures used by ReelNest (`off`, `light`, `medium`, `strong`). This establishes option acceptance and structure readback only, not rendered sharpening behavior. See the [sharpen and filter-chain plan](../../docs/PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md) for implementation and validation status.
+
+The same runtime rejected `hqdn3d` with `Option vf-add: 'hqdn3d' isn't supported`; no denoise filter was applied and no denoised output was produced. This records runtime behavior only and does not change the pinned runtime identification, hashes, configuration evidence, bundled license materials, or project license conclusions. The captured FFmpeg configuration is still `null`, so this probe is not evidence that the full FFmpeg configure/link closure has been reviewed.
+
 ## License and redistribution boundary
 
 The upstream README declares `mpv-dev-lgpl` as libmpv under LGPL-2.1-or-later and says it statically links FFmpeg under LGPLv3. It also says the maintainer is not a lawyer and cannot guarantee that every LGPL-incompatible package has been disabled. The upstream repository's own MIT license covers that build repository, not the binary's complete license set.

@@ -1,12 +1,15 @@
 # ReelNest 文档
 
-更新时间：2026-10-16。
+更新时间：2026-10-19。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
 - 当前两项 P2 修复定向、全量和 Windows Release/smoke 验证完成：28 项定向、全量 753 passed / 6 skipped，analyze、296 文件格式检查及 diff-check 通过；Release 45.7 秒，五秒 smoke 正常响应并关闭。无 schema 变更、无用户数据删除、未提交推送。详见[字幕说明](PLAYER_TRACKS.zh-CN.md#p2-修正快速连续样式更新合并windows-验证完成)与[项目边界](PROJECT_SCOPE.zh-CN.md#p2-修正数据库目录边界校验windows-验证完成)。
+- 画面显示五项已接通，后端 13 + UI 2 项定向通过。Windows Profile texture 比例/裁切/镜像像素比较及旋转 getter/属性检查通过；768/7 全量、七项 native DLL 专项、Windows 严格暂停 resize 为上一轮结果，本轮未重跑全量。2026-10-17 macOS/Linux 暂停 resize P2 定向 15/15、Windows Profile GPU/SW 及 CMake 下载重试后的 Windows Release/smoke 均通过。2026-10-19 Linux 新增软件 renderer 等比例视口适配：使用上游 `texture_sw.h` 真实 1920×1080 caps，对项目生成 C++ helper/setter/getter 在 Windows 主机编译并以 test doubles 验证（10 组尺寸及自动/旋转/guard 场景、有/无 SW 宏均通过；上游 callback/getter 漂移故障注入均被拒绝）。这不是 Linux GTK/EGL 构建或实机视觉验收；Linux 大窗口/高 DPI/暂停 resize 以及 macOS 原生构建/实机验收仍待。真实 Emby、人工视觉验收、发行前依赖材料归档与通知清点仍待。详见[画面显示 P2 记录](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md#p2-macoslinux-暂停时视口-resize-不主动重绘实现落地平台验收待完成2026-10-17)中的 2026-10-19 Linux 补充。
+- 用户已批准播放器画面色彩调整五项：亮度、对比度、饱和度、伽马、色相（-100…100，默认 0，步进 5，单项重置）；全局 JSON 偏好 `global.videoColorAdjustments`，完整对象单条写入既有 `player_preferences`，无 schema 变更，本地/Emby 共用。Windows Profile GPU YUV420 五项及 GPU/SW 宽色度 YUV 四组组合/边界像素对比通过；ASS 矢量白字幕在黑画面上显示正常，无字幕时保持全黑；平滑 RGB 梯度确认 hue/saturation 保持原版无效语义而 brightness 生效。当前两条 GPU/SW texture 用例通过，后端 15 + UI 2 共 17 项通过，偏好读取失败不阻断播放回归通过，静态分析 `lib`/`test`/`integration_test` 无问题。暂停尺寸往返 400×240→320×180 已通过：恢复后画面/色彩与白色 ASS 平均像素差 <2、暂停仍为 `yes`、`time-pos` 偏差 <0.02 秒。全量 783 passed / 7 skipped（57 秒）通过；Windows Release 构建 55.0 秒成功，五秒 smoke 于 2026-10-18 18:51:54 +08:00 通过（隐藏窗口响应、正常关闭、退出码 0）。macOS Ruby/Swift、Linux 原生构建、真实 Emby、高分辨率 CPU 长测、非 seekable 流未验收；历史 768/7 不计本轮。详见[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
+- 用户已批准迁移原版锐化四档与滤镜链组合；降噪仅依赖核查并形成实施方案，不在本轮实现。`global.videoSharpenMode` 默认 `off`、持久化原版 enum 名称。共享 owned-filter helper 已接入；锐化 Dart 12 项、显式 DLL native 1 项均包含于启用 `REELNEST_MPV_PATH` 的最终全量 **803 passed / 0 skipped（39 秒）**，全部 8 项 native 实际执行并通过。Windows Profile GPU/SW 锐化用例（17 秒）和 `video_color_test.dart` 两 renderer 用例（19 秒）通过，medium 锐化 ASS/黑画面/暂停 resize 正常，且 19 秒运行已验证关闭锐化后恢复 RGB 原语义。headless native 用例 Temp namespace 通过 `IOOverrides` 隔离至自身 sandbox；PID 复用仅为候选解释，未由崩溃栈独立确诊，未改生产 runtime。318 个 Dart 文件格式 0 改动、analyze clean、diff-check 无错误。代码/UI 已冻结，Windows production Release 42.5 秒和五秒 smoke 均通过；详见[锐化计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)。
 - 画面显示五项已接通，后端 13 + UI 2 项定向通过。Windows Profile texture 比例/裁切/镜像像素比较及旋转 getter/属性检查通过；768/7 全量、七项 native DLL 专项、Windows 严格暂停 resize 为上一轮结果，本轮未重跑全量。下载重试逻辑更新后的 Windows Release 45.1 秒和 2026-10-16 23:39 smoke 通过。2026-10-17 macOS/Linux 暂停 resize P2 最新 Dart 定向 15/15、analyze 0、305 文件 format 0 改动、diff-check 通过；Windows Profile GPU/SW 两场景及 Linux 生成补丁两种宏配置 MSVC/test doubles 检查通过。Windows Release 41.0 秒和 00:17:46 smoke 通过。Mac Ruby/Pods/Swift、Linux GTK/EGL 原生构建、CI 与两端实机 resize 未验收，不代表两平台原生验收完成。固定 archive 新缓存校验通过，冷缓存网络下载仍未验证。真实 Emby 与人工视觉验收待；发行前仍需长期归档依赖源码/许可证材料并清点通知。详见[画面显示 P2 记录](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md#p2-macoslinux-暂停时视口-resize-不主动重绘实现落地平台验收待完成2026-10-17)。
 - Windows 绿色便携存储本轮验证完成：全量 731 passed / 6 skipped、analyze clean、289 Dart format 0 改动、Profile 原生 portable_runtime 1 项通过；Release 39.2 秒、不同 cwd 单次 WM_CLOSE smoke 两次、空白 userdata 和 ZIP 白名单均通过。ZIP 含 exe/`data/app.so`，不含用户数据目录或 PDB。Roaming 仍有 518 字节旧凭据 `.dat`，删除受限，需用户手动删除；新版不读取或改写。旧 DB/log、Local 缓存和 Release 副本已清，便携运行需使用空白配置重新添加 Emby；验证范围仅限 Windows，不代表 macOS/Linux 便携。详见[项目边界](PROJECT_SCOPE.zh-CN.md#用户确认的-windows-便携存储约束本轮-windows-验证完成)与[数据字典](DATA_DICTIONARY.zh-CN.md)。
 - 播放故障诊断批次最终定向 native、analyze、格式/diff 检查通过，Windows Release 40.8 秒和五秒 smoke 通过；701/4 全量为最后三行兜底修正前结果。真实 Emby 根因仍待新版复现，macOS/Linux 原生未验收；详见[高级播放与当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md)。
@@ -95,6 +98,8 @@
 | [高级播放首批接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md) | 章节/书签、单片循环、A–B、逐帧、用户授权的输入速率提示及验证边界 |
 | [播放器实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md) | 六项统计语义、状态与隐私边界；Windows Profile texture 回归通过（`renderPasses` 当前不可用），跨平台及真实场景验收待完成 |
 | [播放器画面显示计划](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md) | 五项显示设置的原版偏好、默认值、UI 与引擎映射、平台 native 验收边界；接线及 Windows Profile texture 阶段验证通过，Release/跨平台/真实来源验收待完成 |
+| [播放器画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md) | 五项色彩调整实现及 Windows 验证完成（含 Release/smoke）；macOS/Linux 原生、真实来源与边界验收待完成 |
+| [播放器画面锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md) | 锐化四档与原版滤镜链迁移；降噪只做 pinned FFmpeg/运行时/分发依赖核查并提出方案，不在本轮实现 |
 
 ## Emby 视频
 

@@ -25,7 +25,26 @@ if(TARGET media_kit_video_plugin)
   # Remove the callback's cast: the helper receives a typed pointer.
   string(REPLACE "                    VideoOutput* self = (VideoOutput*)data;\n" "" viewport_sw_helper "${viewport_sw_body}")
   string(REPLACE "return FALSE;" "return;" viewport_sw_helper "${viewport_sw_helper}")
-  set(viewport_helper "#ifdef MPV_RENDER_API_TYPE_SW\nstatic void reelnest_render_software(VideoOutput* self) {\n${viewport_sw_helper}\n}\n#endif\n\n")
+  # The software pixel buffer has fixed bounds. Fit both axes with one scale;
+  # independent clamping stretches square/portrait/high-DPI viewports. Apply
+  # the same policy to explicit requests and automatic video dimensions.
+  set(viewport_fit_helper [=[static gint64 reelnest_software_dimension(gint64 width, gint64 height,
+                                            bool horizontal) {
+  double scale = 1.0;
+  if (width > SW_RENDERING_MAX_WIDTH) {
+    scale = (double)SW_RENDERING_MAX_WIDTH / (double)width;
+  }
+  if (height > 0 && (double)height * scale > SW_RENDERING_MAX_HEIGHT) {
+    scale = (double)SW_RENDERING_MAX_HEIGHT / (double)height;
+  }
+  const gint64 value = horizontal ? width : height;
+  if (value <= 0) return 0;
+  const gint64 limit = horizontal ? SW_RENDERING_MAX_WIDTH : SW_RENDERING_MAX_HEIGHT;
+  return CLAMP((gint64)((double)value * scale + 0.5), 1, limit);
+}
+
+]=])
+  set(viewport_helper "${viewport_fit_helper}#ifdef MPV_RENDER_API_TYPE_SW\nstatic void reelnest_render_software(VideoOutput* self) {\n${viewport_sw_helper}\n}\n#endif\n\n")
   string(REPLACE "${viewport_sw_body}" "                    reelnest_render_software((VideoOutput*)data);\n                    return FALSE;" viewport_code "${viewport_code}")
 
   set(viewport_init "VideoOutput* video_output_new(")
@@ -34,12 +53,54 @@ if(TARGET media_kit_video_plugin)
     message(FATAL_ERROR "media_kit_video constructor changed; review the Linux viewport patch")
   endif()
   string(REPLACE "${viewport_init}" "${viewport_helper}${viewport_init}" viewport_code "${viewport_code}")
-  set(viewport_end [=[    self->height = CLAMP(height, 0, SW_RENDERING_MAX_HEIGHT);
+  set(viewport_fixed_width [=[  if (self->width) {
+    return self->width;
+  }]=])
+  set(viewport_fixed_width_fit [=[  if (self->width) {
+    return self->texture_sw
+        ? reelnest_software_dimension(self->width, self->height, true)
+        : self->width;
+  }]=])
+  set(viewport_fixed_height [=[  if (self->width) {
+    return self->height;
+  }]=])
+  set(viewport_fixed_height_fit [=[  if (self->width) {
+    return self->texture_sw
+        ? reelnest_software_dimension(self->width, self->height, false)
+        : self->height;
+  }]=])
+  set(viewport_auto_width [=[    if (width >= SW_RENDERING_MAX_WIDTH) {
+      return SW_RENDERING_MAX_WIDTH;
+    }
+    if (height >= SW_RENDERING_MAX_HEIGHT) {
+      return width / height * SW_RENDERING_MAX_HEIGHT;
+    }]=])
+  set(viewport_auto_width_fit "    return reelnest_software_dimension(width, height, true);")
+  set(viewport_auto_height [=[    if (height >= SW_RENDERING_MAX_HEIGHT) {
+      return SW_RENDERING_MAX_HEIGHT;
+    }
+    if (width >= SW_RENDERING_MAX_WIDTH) {
+      return height / width * SW_RENDERING_MAX_WIDTH;
+    }]=])
+  set(viewport_auto_height_fit "    return reelnest_software_dimension(width, height, false);")
+  set(viewport_fixed_size [=[    self->width = CLAMP(width, 0, SW_RENDERING_MAX_WIDTH);
+    self->height = CLAMP(height, 0, SW_RENDERING_MAX_HEIGHT);]=])
+  set(viewport_fixed_size_fit [=[    self->width = reelnest_software_dimension(width, height, true);
+    self->height = reelnest_software_dimension(width, height, false);]=])
+  # Fail on dependency drift rather than silently retaining a partial fix.
+  foreach(viewport_fit_part fixed_width fixed_height auto_width auto_height fixed_size)
+    string(FIND "${viewport_code}" "${viewport_${viewport_fit_part}}" viewport_fit_offset)
+    if(viewport_fit_offset EQUAL -1)
+      message(FATAL_ERROR "media_kit_video software dimensions changed; review the Linux viewport patch")
+    endif()
+    string(REPLACE "${viewport_${viewport_fit_part}}" "${viewport_${viewport_fit_part}_fit}" viewport_code "${viewport_code}")
+  endforeach()
+  set(viewport_end [=[    self->height = reelnest_software_dimension(width, height, false);
   }
 }
 
 mpv_render_context* video_output_get_render_context]=])
-  set(viewport_end_fixed [=[    self->height = CLAMP(height, 0, SW_RENDERING_MAX_HEIGHT);
+  set(viewport_end_fixed [=[    self->height = reelnest_software_dimension(width, height, false);
   }
   // Method-channel SetSize runs on the GTK platform thread. Do not leave a
   // queued raw self pointer that could outlive VideoOutput on player close.

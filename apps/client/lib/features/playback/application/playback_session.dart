@@ -18,6 +18,10 @@ import '../../../player/playback_diagnostics.dart';
 import '../../../player/video_subtitle_settings_engine.dart';
 import '../../../player/video_display_settings_engine.dart';
 import '../domain/video_display_settings.dart';
+import '../../../player/video_color_adjustments_engine.dart';
+import '../domain/video_color_adjustments.dart';
+import '../domain/video_sharpen_mode.dart';
+import '../../../player/video_sharpen_engine.dart';
 import '../../../platform/subtitle_font_catalog.dart';
 import '../../../storage/runtime_storage_paths.dart';
 import '../../../player/mpv_video_frame_preview.dart';
@@ -79,6 +83,8 @@ class PlaybackSession extends ChangeNotifier {
   VideoSubtitleStyle subtitleStyle = VideoSubtitleStyle.standard;
   VideoTimingSettings timing = const VideoTimingSettings();
   VideoDisplaySettings displaySettings = const VideoDisplaySettings();
+  VideoColorAdjustments colorAdjustments = VideoColorAdjustments.neutral;
+  VideoSharpenMode sharpenMode = VideoSharpenMode.off;
   final PlaybackRepository records;
   final VideoPreviewGenerator _previewGenerator;
   VideoPreviewResource? _previewResource;
@@ -279,8 +285,24 @@ class PlaybackSession extends ChangeNotifier {
       final nextStyle = await preferences.subtitleStyle;
       final nextTiming = await preferences.timing;
       final nextDisplay = await preferences.displaySettings;
+      var nextColors = VideoColorAdjustments.neutral;
       String? nextSubtitleWarning;
       String? nextDisplayWarning;
+      String? nextColorWarning;
+      var nextSharpen = VideoSharpenMode.off;
+      String? nextSharpenWarning;
+      try {
+        nextSharpen = await preferences.sharpenMode;
+      } catch (error, stack) {
+        trace?.failure('sharpen_settings_read_failed', error, stack);
+        nextSharpenWarning = '未能读取锐化设置，已使用默认值，视频仍可播放。';
+      }
+      try {
+        nextColors = await preferences.colorAdjustments;
+      } catch (error, stack) {
+        trace?.failure('color_settings_read_failed', error, stack);
+        nextColorWarning = '未能读取画面色彩设置，已使用默认值，视频仍可播放。';
+      }
       final loopCurrentItem = await preferences.loopCurrentItem;
       final markerSkipBehavior = await preferences.markerSkipBehavior;
       final resume =
@@ -431,6 +453,26 @@ class PlaybackSession extends ChangeNotifier {
         trace?.failure('display_settings_initialization_failed', error, stack);
         nextDisplayWarning = '部分画面显示设置未能应用，视频仍可播放，请重新调整。';
       }
+      try {
+        if (current is VideoSharpenEngine) {
+          await (current as VideoSharpenEngine).setSharpenMode(nextSharpen);
+        } else if (nextSharpen != VideoSharpenMode.off) {
+          nextSharpenWarning = '此播放后端暂不支持已保存的锐化设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure('sharpen_settings_initialization_failed', error, stack);
+        nextSharpenWarning = '锐化设置未能应用，视频仍可播放，请重新调整。';
+      }
+      try {
+        if (current is VideoColorEngine) {
+          await (current as VideoColorEngine).setColorAdjustments(nextColors);
+        } else if (!nextColors.isNeutral) {
+          nextColorWarning = '此播放后端暂不支持已保存的画面色彩设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure('color_settings_initialization_failed', error, stack);
+        nextColorWarning = '画面色彩设置未能应用，视频仍可播放，请重新调整。';
+      }
       if (precisionEngine != null) {
         await precisionEngine.setLoopCurrentItem(loopCurrentItem);
         await precisionEngine.setABLoop(previousLoop.start, previousLoop.end);
@@ -479,9 +521,13 @@ class PlaybackSession extends ChangeNotifier {
       final settingsWarning = [
         nextSubtitleWarning,
         nextDisplayWarning,
+        nextColorWarning,
+        nextSharpenWarning,
       ].whereType<String>().join(' ');
       controlError = settingsWarning.isEmpty ? null : settingsWarning;
       _readDisplaySettings(current);
+      _readColorAdjustments(current);
+      _readSharpenMode(current);
       _readSubtitleSettings(current);
       _hasClock = false;
       _completedSaved = false;
@@ -1270,6 +1316,10 @@ class PlaybackSession extends ChangeNotifier {
           ? '设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : exception is VideoDisplayRollbackFailure
           ? '画面设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoColorRollbackFailure
+          ? '色彩设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoSharpenRollbackFailure
+          ? '锐化设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : failureMessage;
     }
     if (!_closed) notifyListeners();
@@ -1444,6 +1494,79 @@ class PlaybackSession extends ChangeNotifier {
         ? (current as VideoDisplayEngine).displaySettings
         : const VideoDisplaySettings();
   }
+
+  void _readColorAdjustments(VideoEngine current) {
+    colorAdjustments = current is VideoColorEngine
+        ? (current as VideoColorEngine).colorAdjustments
+        : VideoColorAdjustments.neutral;
+  }
+
+  void _readSharpenMode(VideoEngine current) {
+    sharpenMode = current is VideoSharpenEngine
+        ? (current as VideoSharpenEngine).sharpenMode
+        : VideoSharpenMode.off;
+  }
+
+  Future<void> setSharpenMode(VideoSharpenMode mode) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoSharpenEngine) {
+      throw UnsupportedError('Sharpen is unavailable');
+    }
+    final sharpen = current as VideoSharpenEngine;
+    final before = sharpen.sharpenMode;
+    try {
+      await sharpen.setSharpenMode(mode);
+      try {
+        await preferences.rememberSharpenMode(mode);
+      } catch (error, stack) {
+        try {
+          await sharpen.setSharpenMode(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'sharpen_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoSharpenRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readSharpenMode(current);
+    }
+  }, failureMessage: '锐化设置未能应用或保存，视频仍可播放，请重试。');
+
+  Future<void> updateColorAdjustments(
+    VideoColorAdjustments Function(VideoColorAdjustments current) update,
+  ) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoColorEngine) {
+      throw UnsupportedError('Video color adjustments are unavailable');
+    }
+    final colors = current as VideoColorEngine;
+    final before = colors.colorAdjustments;
+    final next = update(before).normalized;
+    try {
+      await colors.setColorAdjustments(next);
+      try {
+        await preferences.rememberColorAdjustments(next);
+      } catch (error, stack) {
+        try {
+          await colors.setColorAdjustments(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'color_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoColorRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readColorAdjustments(current);
+    }
+  }, failureMessage: '色彩设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> updateDisplaySettings(
     VideoDisplaySettings Function(VideoDisplaySettings current) update,

@@ -59,6 +59,8 @@ include(flutter/generated_plugins.cmake)
 include(multi_window_thread_policy.cmake)
 include(media_kit_window_dispatch.cmake)
 include(media_kit_viewport.cmake)
+include(../native/media_kit_color.cmake)
+reelnest_patch_media_kit_colors(windows)
 include(mpv_runtime.cmake)
 
 

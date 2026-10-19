@@ -3,14 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../application/playback_session.dart';
+import '../domain/video_color_adjustments.dart';
 import '../domain/video_display_settings.dart';
+import '../domain/video_sharpen_mode.dart';
 import 'player_visuals.dart';
 
-/// PlayerView.swift's "画面显示" settings group.
+/// PlayerView.swift's "画面显示" and "画面调整" settings groups.
 ///
-/// These controls only expose the original aspect, crop, deinterlace,
-/// rotation and mirror options. Picture adjustment and performance settings
-/// are intentionally outside the current migration scope.
+/// These controls expose the original aspect, crop, deinterlace, rotation,
+/// mirror, five color adjustments and sharpening. Denoising and performance
+/// settings are intentionally outside the current migration scope.
 class PlayerVideoDisplaySettings extends StatelessWidget {
   const PlayerVideoDisplaySettings({
     required this.session,
@@ -112,6 +114,66 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
                 ),
               ),
               keyFor: (item) => ValueKey('video-flip-${item.name}'),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '画面调整',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: palette.subdued,
+            ),
+          ),
+          _colorRow(
+            '亮度',
+            Icons.wb_sunny_outlined,
+            'brightness',
+            value: session.colorAdjustments.brightness,
+            read: (current) => current.brightness,
+            update: (current, next) => current.copyWith(brightness: next),
+          ),
+          _colorRow(
+            '对比度',
+            Icons.contrast_rounded,
+            'contrast',
+            value: session.colorAdjustments.contrast,
+            read: (current) => current.contrast,
+            update: (current, next) => current.copyWith(contrast: next),
+          ),
+          _colorRow(
+            '饱和度',
+            Icons.water_drop_outlined,
+            'saturation',
+            value: session.colorAdjustments.saturation,
+            read: (current) => current.saturation,
+            update: (current, next) => current.copyWith(saturation: next),
+          ),
+          _colorRow(
+            '伽马',
+            Icons.auto_fix_high_rounded,
+            'gamma',
+            value: session.colorAdjustments.gamma,
+            read: (current) => current.gamma,
+            update: (current, next) => current.copyWith(gamma: next),
+          ),
+          _colorRow(
+            '色相',
+            Icons.palette_outlined,
+            'hue',
+            value: session.colorAdjustments.hue,
+            read: (current) => current.hue,
+            update: (current, next) => current.copyWith(hue: next),
+          ),
+          _row(
+            '锐化',
+            Icons.change_history_rounded,
+            _choices<VideoSharpenMode>(
+              VideoSharpenMode.values,
+              session.sharpenMode,
+              (item) => item.displayName,
+              (item) => unawaited(session.setSharpenMode(item)),
+              keyFor: (item) => ValueKey('video-sharpen-${item.name}'),
             ),
           ),
           if (session.controlError != null)
@@ -216,5 +278,146 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
           ),
         ),
     ],
+  );
+
+  Widget _colorRow(
+    String title,
+    IconData icon,
+    String keyPrefix, {
+    required double value,
+    required double Function(VideoColorAdjustments current) read,
+    required VideoColorAdjustments Function(
+      VideoColorAdjustments current,
+      double next,
+    )
+    update,
+  }) => _row(
+    title,
+    icon,
+    _ColorAdjustmentControls(
+      value: _colorValueText(value),
+      keyPrefix: 'video-color-$keyPrefix',
+      palette: palette,
+      onDecrease: () => unawaited(
+        session.updateColorAdjustments(
+          (current) => update(current, read(current) - 5),
+        ),
+      ),
+      onReset: () => unawaited(
+        session.updateColorAdjustments((current) => update(current, 0)),
+      ),
+      onIncrease: () => unawaited(
+        session.updateColorAdjustments(
+          (current) => update(current, read(current) + 5),
+        ),
+      ),
+    ),
+  );
+
+  String _colorValueText(double value) {
+    final rounded = value.round();
+    return rounded == 0 ? '0' : '${rounded > 0 ? '+' : ''}$rounded';
+  }
+}
+
+class _ColorAdjustmentControls extends StatelessWidget {
+  const _ColorAdjustmentControls({
+    required this.value,
+    required this.keyPrefix,
+    required this.palette,
+    required this.onDecrease,
+    required this.onReset,
+    required this.onIncrease,
+  });
+
+  final String value;
+  final String keyPrefix;
+  final PlayerPalette palette;
+  final VoidCallback onDecrease;
+  final VoidCallback onReset;
+  final VoidCallback onIncrease;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    spacing: 6,
+    children: [
+      _ColorAdjustmentButton(
+        key: ValueKey('$keyPrefix-decrease'),
+        tooltip: '减少',
+        icon: Icons.remove_rounded,
+        palette: palette,
+        onPressed: onDecrease,
+      ),
+      Container(
+        key: ValueKey('$keyPrefix-value'),
+        width: 76,
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: palette.choiceFill,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: palette.rowStroke, width: .8),
+        ),
+        child: Text(
+          value,
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            fontFeatures: const [FontFeature.tabularFigures()],
+            color: palette.primary,
+          ),
+        ),
+      ),
+      _ColorAdjustmentButton(
+        key: ValueKey('$keyPrefix-reset'),
+        tooltip: '恢复默认',
+        icon: Icons.refresh_rounded,
+        palette: palette,
+        onPressed: onReset,
+      ),
+      _ColorAdjustmentButton(
+        key: ValueKey('$keyPrefix-increase'),
+        tooltip: '增加',
+        icon: Icons.add_rounded,
+        palette: palette,
+        onPressed: onIncrease,
+      ),
+    ],
+  );
+}
+
+class _ColorAdjustmentButton extends StatelessWidget {
+  const _ColorAdjustmentButton({
+    required this.tooltip,
+    required this.icon,
+    required this.palette,
+    required this.onPressed,
+    super.key,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final PlayerPalette palette;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: SizedBox(
+      width: 28,
+      height: 26,
+      child: PlayerMenuRowSurface(
+        palette: palette,
+        radius: 8,
+        minHeight: 26,
+        padding: EdgeInsets.zero,
+        fill: palette.choiceFill,
+        stroke: palette.rowStroke,
+        onTap: onPressed,
+        child: Center(child: Icon(icon, size: 13, color: palette.secondary)),
+      ),
+    ),
   );
 }

@@ -9,6 +9,8 @@ import '../domain/playback_options.dart';
 import '../domain/playback_marker.dart';
 import '../domain/video_subtitle_settings.dart';
 import '../domain/video_display_settings.dart';
+import '../domain/video_color_adjustments.dart';
+import '../domain/video_sharpen_mode.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -133,6 +135,35 @@ class PlayerPreferencesRepository {
         await _write('global.videoRotationMode', value.rotationMode.name);
         await _write('global.videoFlipMode', value.flipMode.name);
       });
+
+  Future<VideoColorAdjustments> get colorAdjustments async {
+    final raw = await _read('global.videoColorAdjustments');
+    if (raw == null) return VideoColorAdjustments.neutral;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic>
+          ? VideoColorAdjustments.fromJson(value)
+          : VideoColorAdjustments.neutral;
+    } on FormatException {
+      return VideoColorAdjustments.neutral;
+    } on TypeError {
+      return VideoColorAdjustments.neutral;
+    }
+  }
+
+  Future<void> rememberColorAdjustments(VideoColorAdjustments value) =>
+      _write('global.videoColorAdjustments', jsonEncode(value.toJson()));
+
+  Future<VideoSharpenMode> get sharpenMode async {
+    final value = await _read('global.videoSharpenMode');
+    return VideoSharpenMode.values
+            .where((mode) => mode.name == value)
+            .firstOrNull ??
+        VideoSharpenMode.off;
+  }
+
+  Future<void> rememberSharpenMode(VideoSharpenMode mode) =>
+      _write('global.videoSharpenMode', mode.name);
 
   Future<VideoEndAction> get endAction async {
     final value = await _read('global.videoPlaybackEndAction');

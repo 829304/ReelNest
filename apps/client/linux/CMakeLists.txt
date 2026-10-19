@@ -74,6 +74,8 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 include(media_kit_viewport.cmake)
+include(../native/media_kit_color.cmake)
+reelnest_patch_media_kit_colors(linux)
 
 
 # === Installation ===

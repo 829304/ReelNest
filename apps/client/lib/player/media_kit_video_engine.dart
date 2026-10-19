@@ -18,8 +18,14 @@ import 'video_subtitle_settings_engine.dart';
 import 'video_playback_stats.dart';
 import 'mpv_playback_stats_reader.dart';
 import 'video_display_settings_engine.dart';
+import 'video_color_adjustments_engine.dart';
+import 'software_video_colors.dart';
+import 'video_sharpen_engine.dart';
+import 'mpv_owned_video_filters.dart';
+import '../features/playback/domain/video_sharpen_mode.dart';
 import 'mpv_node_property.dart';
 import '../features/playback/domain/video_display_settings.dart';
+import '../features/playback/domain/video_color_adjustments.dart';
 import '../features/playback/domain/video_subtitle_settings.dart';
 import '../platform/playback_sleep_guard.dart';
 
@@ -31,6 +37,8 @@ class MediaKitVideoEngine
         VideoSubtitleSettingsEngine,
         VideoStatsEngine,
         VideoDisplayEngine,
+        VideoColorEngine,
+        VideoSharpenEngine,
         DiagnosableVideoEngine {
   MediaKitVideoEngine({
     Player? player,
@@ -289,6 +297,85 @@ class MediaKitVideoEngine
     await _displayCommands.apply(value);
     _checkAlive();
     displaySettings = value;
+  }
+
+  @override
+  VideoColorAdjustments colorAdjustments = VideoColorAdjustments.neutral;
+  @override
+  VideoSharpenMode sharpenMode = VideoSharpenMode.off;
+  late final _ownedFilters = MpvOwnedVideoFilters(
+    command: _native.command,
+    read: (name) async => jsonEncode(readMpvNodeProperty(_native, name)),
+  );
+  late final _sharpenCommands = MpvSharpenCommands(filters: _ownedFilters);
+  @override
+  Future<void> setSharpenMode(VideoSharpenMode mode) async {
+    _checkAlive();
+    final before = await _ownedFilters.snapshot();
+    try {
+      await _sharpenCommands.apply(mode);
+      if (!colorAdjustments.isNeutral &&
+          readMpvNodeProperty(_native, 'user-data/reelnest/render-api') ==
+              'sw') {
+        // Enabling/disabling unsharp may convert RGB <-> YUV upstream of the
+        // CPU color stage. Rebuild that stage using the new effective matrix.
+        await _softwareColors.apply(colorAdjustments);
+      }
+    } catch (error, stack) {
+      var rollbackFailed = false;
+      try {
+        await _ownedFilters.restore(before);
+      } catch (_) {
+        rollbackFailed = true;
+      }
+      try {
+        sharpenMode = await _sharpenCommands.current();
+      } catch (_) {}
+      if (rollbackFailed || error is VideoSharpenRollbackFailure) {
+        throw const VideoSharpenRollbackFailure();
+      }
+      Error.throwWithStackTrace(error, stack);
+    }
+    _checkAlive();
+    sharpenMode = mode;
+  }
+
+  late final _colorCommands = MpvColorAdjustmentCommands(
+    command: _native.command,
+    read: _native.getProperty,
+  );
+  late final _softwareColors = MpvSoftwareColorCommands(
+    command: _native.command,
+    read: (name) async => name == 'vf'
+        ? jsonEncode(readMpvNodeProperty(_native, name))
+        : _native.getProperty(name),
+  );
+  @override
+  Future<void> setColorAdjustments(VideoColorAdjustments value) async {
+    _checkAlive();
+    final next = value.normalized;
+    try {
+      final renderer = readMpvNodeProperty(
+        _native,
+        'user-data/reelnest/render-api',
+      );
+      if (renderer == 'sw') {
+        await _softwareColors.apply(next);
+      } else if (renderer == 'opengl' || next.isNeutral) {
+        await _colorCommands.apply(next);
+      } else {
+        throw StateError('Video renderer is not initialized');
+      }
+    } catch (_) {
+      // A failed rollback can leave only some native properties changed.
+      // Reflect the readable state rather than asserting the old UI values.
+      try {
+        colorAdjustments = await _colorCommands.current();
+      } catch (_) {}
+      rethrow;
+    }
+    _checkAlive();
+    colorAdjustments = next;
   }
 
   @override

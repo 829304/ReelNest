@@ -1,15 +1,15 @@
 # 播放器画面显示调整计划
 
-- 状态：模型/偏好/session/engine/前端已接通；Windows Profile texture 五项阶段测试及上一轮全量测试通过；macOS/Linux 暂停 resize 等效修复已实现，最新定向验证与 Windows Release/smoke 通过，但两端原生平台验收未完成；真实 Emby 及人工视觉验收未完成
-- 最后更新：2026-10-17
+- 状态：模型/偏好/session/engine/前端已接通；Windows Profile texture 五项阶段测试及上一轮全量测试通过；Linux 软件 renderer 比例适配已实现，Windows 主机对生成 C++ 源码的 test doubles 验证通过；Linux GTK/EGL 原生编译及实机视觉验收仍未完成。macOS/Linux 暂停 resize 等效实现已落地，原生平台验收、真实 Emby 及人工视觉验收仍待
+- 最后更新：2026-10-19
 - 适用范围：本地与 Emby 共用视频播放器；第一阶段 Windows、macOS、Linux
-- 权威范围：画面显示五项的原版默认值、持久化键、mpv/filter 映射及有界验收
+- 权威范围：画面显示五项的原版默认值、持久化键、mpv/filter 映射及有界验收；色彩调整五项见[独立计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)
 
 ## 本轮范围
 
 本轮按用户确认接入原版画面显示五项：画面比例、黑边裁切、去隔行、旋转、镜像。模型、偏好、session、engine 和前端设置页已接通；Windows Flutter texture 阶段已核验实际渲染与属性读回，并继续补齐三桌面端暂停 resize 行为。本文记录原版基线与验收边界，不把尚未实测或读回异常的能力当成已支持。
 
-明确不在本轮范围：亮度、对比度、Gamma、锐化、降噪、硬解选择以及服务器端转码扩展。不得因本轮未实现而删除或改变原版已有行为。无数据库 schema/迁移变更；Windows 绿色便携存储约束不变。
+明确不在画面显示五项本轮范围：锐化、降噪、硬解选择以及服务器端转码扩展。锐化现由用户另行批准为独立阶段，按[锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)跟踪；降噪仍仅做依赖核查和方案。亮度、对比度、饱和度、伽马、色相已由用户另行批准为独立批次，按[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)跟踪，不纳入本文的原五项验收。不得因本轮未实现而删除或改变原版已有行为。无数据库 schema/迁移变更；Windows 绿色便携存储约束不变。
 
 ## 前端接入边界（已完成；统一验收待完成）
 
@@ -17,7 +17,7 @@
 - 播放器信息面板的“播放状态”按原版只追加非默认的画面比例、裁切、去隔行、旋转摘要；不显示镜像摘要。
 - 高级设置及其嵌套二级菜单统一使用深色播放器主题。
 - 前端独立测试覆盖快速连续修改、错误显示和 **680×382** 最小窗口；目前后端定向 **13 项**、UI 定向 **2 项**，共 **15 项通过**（全量 768/7 已包含后端第 13 项）。
-- 初始接线批次的全量 Flutter 测试、Windows Release 已通过；最新 macOS/Linux resize 集成的最终 target 测试、analyze、Release 仍待。定向通过不证明所有参数读回、engine/session、几何、Flutter texture 或本机解码路径已完整等效。
+- 初始接线批次的全量 Flutter 测试、Windows Release 已通过；2026-10-17 macOS/Linux 暂停 resize P2 的最终 target 测试、analyze、Windows Release/smoke 均已通过。本轮新增的是 Linux 生成 C++ 视口比例检查；macOS/Linux GTK/EGL/原生构建与实机验收仍待。定向或生成源码替身通过不证明所有参数读回、engine/session、几何、Flutter texture 或本机解码路径已完整等效。
 
 ## 当前接线与 Windows texture 阶段证据（2026-10-16）
 
@@ -38,6 +38,13 @@
 - Windows Profile `integration_test/video_viewport_test.dart` 新增 GPU/SW 两种渲染配置回归，暂停时 400×400 → 480×270 → 300×450 → 400×400；mpv `osd-dimensions`、`pause`、`time-pos` 均保持预期，排队 resize 后立即 dispose 无崩溃。该测试构建 25.3 秒、测试 3 秒，共 2 场景通过。它验证 Dart 调用/跨平台接口及 Windows 原生路径，不代替 Linux 或 macOS 原生验证；`VideoControllerConfiguration` 注入仅用于 GPU/SW 回归，不是新增硬解设置。
 - 最新定向回归：Dart backend 13 + UI 2 共 **15/15** 通过，analyze 0 问题，305 个 Dart 文件格式检查 0 改动，diff-check 通过；本轮未重跑全量 Flutter，**768 passed / 7 skipped** 仅为上一轮历史结果。Windows Profile viewport GPU/SW 两个真实 texture 场景通过（构建 25.3 秒、测试 3 秒）。Linux 生成补丁在两种宏配置下，将实际生成的 C++ helper/set_size 用 MSVC 编译并运行 test doubles（Release 显式启用 assert）；GL 通知、SW 新尺寸/clamp、无 context 或已销毁时不 render、保留其他编译文件及上游 callback 漂移 fail-fast 均通过，源文件未改。Windows 正式 `lib/main.dart` Release 41.0 秒成功；2026-10-17 00:17:46.2654301 +08:00 五秒 smoke 的窗口响应、正常关闭、ExitCode 0 均通过。
 - `.github/workflows/build.yml` 已为 macOS/Linux 平台构建加入补丁检查，但尚未触发 CI。macOS 本机无 Ruby/Swift/CocoaPods，Ruby 用例、Pod post-install、Pods/Swift 编译未验证；Linux GTK/EGL 原生构建和真实窗口 resize 未验证。Windows Profile 与 Linux 生成补丁 test doubles 结果均不能替代 macOS/Linux 平台验收。
+
+### Linux 软件 renderer 视口比例适配（源码级验证通过，平台验收待完成；2026-10-19）
+
+- 上游 `media_kit_video` 2.0.1 的 `linux/include/media_kit_video/texture_sw.h` 声明软件纹理缓冲区上限为 **1920×1080**。原有 `SetSize` 分别 clamp 宽高会把 1440×1440 变成 1440×1080；自动尺寸 getter 也分别处理维度，并有整数除法导致比例失真的路径。
+- `apps/client/linux/media_kit_viewport.cmake` 已在项目生成的 Linux 原生源码中加入公共 `reelnest_software_dimension` 等比例 fit helper，并用于 `SetSize`、固定配置初始尺寸 getter 和自动 `video-out-params` 尺寸（含旋转）。计算使用上游实际缓冲区 caps，四舍五入并保证正尺寸至少 1 像素；0 仍保留 reset 行为。例：1440×1440 → 1080×1080、7680×4320 → 1920×1080、1080×1920 → 608×1080。保留既有缓冲上限、暂停重绘与 GPU 路径；不调整 Dart 通用 8192 上限、不依赖异步渲染类型检测，也不修改 Pub 缓存。
+- `apps/client/tool/check_linux_viewport_patch.py` 扩展为从上游实际 `texture_sw.h` 读取 caps，生成并编译实际 fit/helper/setter/getter C++ 代码，再由测试替身执行。Windows 主机运行 `python tool/check_linux_viewport_patch.py --cmake` 并指定 MSVC 自带 CMake，退出码 0；有/无 SW 宏两个 C++ 可执行检查通过。覆盖 10 组显式尺寸、自动源尺寸、旋转、整数除法旧问题、固定配置构造尺寸、零尺寸、GPU 不缩小、销毁及空上下文保护；上游 callback 或 getter 变化的两个故障注入均由 CMake 拒绝。该结果是 Windows 主机上的 C++/生成源码测试替身验证，不是 Linux GTK/EGL 构建或实际画面验收。
+- Linux GTK/EGL 完整构建、真实窗口中的大窗口/高 DPI/暂停 resize 实机验收仍待完成；本轮没有 Dart/Windows 行为变化，不重跑 Flutter 套件或 Windows 构建，也不据此宣称生成了新 Windows EXE。
 
 ## Windows LGPL libmpv / FFmpeg filters 候选核验（2026-10-16）
 
@@ -130,4 +137,4 @@
 5. 原生画面几何：在实际 Windows、macOS、Linux Flutter texture/renderer 上逐项验证 aspect、panscan、deinterlace、rotation、mirror 的画面结果，包含源旋转元数据、非 16:9 画面、黑边、横/竖镜像及组合操作；验证布局尺寸、裁切框和控制层命中区域与视频实际几何一致。
 6. 支持性声明：特别验证 Flutter texture 对 `panscan`、`video-rotate` 与 `vf` 变换的实际支持。未完成具体平台 native 证据前，不宣称三端等效；若不能等效，记录平台、渲染路径、重现条件和证据后向用户说明，不私自降级。
 
-亮度/对比度/Gamma、锐化/降噪、硬解选择、服务器转码扩展不作为本轮验收项。无 schema 迁移；Windows 便携存储路径/凭据规则不变。
+上述验收清单属于原画面显示五项批次，不涵盖色彩调整；亮度、对比度、饱和度、伽马、色相现另列于[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。锐化/降噪、硬解选择、服务器转码扩展仍不属于本轮色彩调整。无 schema 迁移；Windows 便携存储路径/凭据规则不变。

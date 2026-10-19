@@ -31,7 +31,17 @@ SWIFT
     unless source.scan(ORIGINAL).length == 1
       raise 'media_kit_video SetSize changed; review the macOS paused viewport patch'
     end
-    source.sub(ORIGINAL, REPLACEMENT)
+    source = source.sub(ORIGINAL, REPLACEMENT)
+    marker = "    DispatchQueue.main.sync { [weak self]() in\n"
+    unless source.scan(marker).length == 1
+      raise 'media_kit_video renderer changed; review the color capability patch'
+    end
+    source.sub(marker, <<'SWIFT' + marker)
+    // The actual texture type, not the decoder's hwdec setting.
+    _ = mpv_set_property_string(handle, "user-data/reelnest/render-api",
+                            enableHardwareAcceleration ? "opengl" : "sw")
+
+SWIFT
   end
 
   def self.apply(installer, macos_root:)

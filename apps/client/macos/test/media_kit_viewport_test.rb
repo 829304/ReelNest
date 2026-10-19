@@ -58,6 +58,8 @@ class MediaKitViewportTest < Minitest::Test
       assert_includes generated, "self.height = height\n      // ReelNest:"
       assert_includes generated, "      self._updateCallback()\n"
       assert_equal 1, generated.scan('ReelNest: a paused decoder').length
+      assert_equal 1, generated.scan('"user-data/reelnest/render-api"').length
+      assert_includes generated, 'enableHardwareAcceleration ? "opengl" : "sw"'
       assert_equal 1, target.shell_script_build_phases.length
       phase = target.build_phases.first
       assert_equal [reference.path], phase.output_paths

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 Future<File> createTrackVideoFixture(
   String path, {
   bool withChapters = false,
+  bool smoothColors = false,
 }) async {
   List<int> number(int value) {
     final bytes = <int>[];
@@ -108,9 +109,10 @@ Future<File> createTrackVideoFixture(
     for (var frame = 0; frame < 4; frame++) {
       final pixels = Uint8List(frameSize);
       for (var at = 0; at < pixels.length; at += 3) {
-        pixels[at] = (second * 10) % 256;
-        pixels[at + 1] = (at ~/ 3) % 256;
-        pixels[at + 2] = frame * 60;
+        final x = (at ~/ 3) % width, y = (at ~/ 3) ~/ width;
+        pixels[at] = smoothColors ? 40 + x * 100 ~/ width : (second * 10) % 256;
+        pixels[at + 1] = smoothColors ? 70 + y * 80 ~/ height : (at ~/ 3) % 256;
+        pixels[at + 2] = smoothColors ? 100 + x * 50 ~/ width : frame * 60;
       }
       body.add(element(0xA3, block(1, frame * 250, pixels)));
       for (final id in [2, 3]) {

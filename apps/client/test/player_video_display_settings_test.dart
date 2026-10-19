@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/domain/video_color_adjustments.dart';
 import 'package:reelnest/features/playback/domain/video_display_settings.dart';
+import 'package:reelnest/features/playback/domain/video_sharpen_mode.dart';
 import 'package:reelnest/features/playback/presentation/player_behavior_settings.dart';
 import 'package:reelnest/features/playback/presentation/player_video_display_settings.dart';
 import 'package:reelnest/features/playback/presentation/player_visuals.dart';
@@ -21,6 +23,9 @@ class _DisplaySettingsSession extends PlaybackSession {
       );
 
   Future<void> _operations = Future.value();
+  Future<void> _colorOperations = Future.value();
+  Future<void> _sharpenOperations = Future.value();
+  bool rejectSharpen = false;
 
   @override
   Future<void> updateDisplaySettings(
@@ -36,9 +41,34 @@ class _DisplaySettingsSession extends PlaybackSession {
     return operation;
   }
 
-  void showError(String message) {
-    controlError = message;
-    notifyListeners();
+  @override
+  Future<void> updateColorAdjustments(
+    VideoColorAdjustments Function(VideoColorAdjustments current) update,
+  ) {
+    final operation = _colorOperations.then((_) async {
+      await Future<void>.delayed(Duration.zero);
+      colorAdjustments = update(colorAdjustments).normalized;
+      controlError = null;
+      notifyListeners();
+    });
+    _colorOperations = operation;
+    return operation;
+  }
+
+  @override
+  Future<void> setSharpenMode(VideoSharpenMode mode) {
+    final operation = _sharpenOperations.then((_) async {
+      await Future<void>.delayed(Duration.zero);
+      if (rejectSharpen) {
+        controlError = '锐化设置应用失败，请重试。';
+      } else {
+        sharpenMode = mode;
+        controlError = null;
+      }
+      notifyListeners();
+    });
+    _sharpenOperations = operation;
+    return operation;
   }
 }
 
@@ -88,6 +118,26 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('video-flip-both')), findsOneWidget);
+      expect(find.text('画面调整'), findsOneWidget);
+      expect(find.text('亮度'), findsOneWidget);
+      expect(find.text('对比度'), findsOneWidget);
+      expect(find.text('饱和度'), findsOneWidget);
+      expect(find.text('伽马'), findsOneWidget);
+      expect(find.text('色相'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('video-color-brightness-increase')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('video-color-hue-reset')),
+        findsOneWidget,
+      );
+      for (final mode in VideoSharpenMode.values) {
+        expect(
+          find.byKey(ValueKey('video-sharpen-${mode.name}')),
+          findsOneWidget,
+        );
+      }
 
       await tester.tap(
         find.byKey(const ValueKey('video-aspect-sixteenByNine')),
@@ -115,9 +165,77 @@ void main() {
       );
       expect(session.displaySettings.flipMode, VideoFlipMode.horizontal);
 
-      session.showError('画面设置应用失败，请重试。');
-      await tester.pump();
-      expect(find.text('画面设置应用失败，请重试。'), findsOneWidget);
+      final brightnessIncrease = find.byKey(
+        const ValueKey('video-color-brightness-increase'),
+      );
+      final contrastDecrease = find.byKey(
+        const ValueKey('video-color-contrast-decrease'),
+      );
+      await tester.ensureVisible(contrastDecrease);
+      await tester.pumpAndSettle();
+      for (var index = 0; index < 3; index++) {
+        await tester.tap(brightnessIncrease);
+      }
+      for (var index = 0; index < 2; index++) {
+        await tester.tap(contrastDecrease);
+      }
+      await tester.pumpAndSettle();
+      expect(session.colorAdjustments.brightness, 15);
+      expect(session.colorAdjustments.contrast, -10);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('video-color-brightness-value')),
+          matching: find.text('+15'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('video-color-brightness-reset')),
+      );
+      final hueDecrease = find.byKey(
+        const ValueKey('video-color-hue-decrease'),
+      );
+      final saturationIncrease = find.byKey(
+        const ValueKey('video-color-saturation-increase'),
+      );
+      await tester.ensureVisible(hueDecrease);
+      await tester.pumpAndSettle();
+      for (var index = 0; index < 22; index++) {
+        await tester.tap(hueDecrease);
+        await tester.tap(saturationIncrease);
+      }
+      await tester.pumpAndSettle();
+      expect(session.colorAdjustments.brightness, 0);
+      expect(
+        session.colorAdjustments.contrast,
+        -10,
+        reason: '恢复亮度默认值不应改动其他分量。',
+      );
+      expect(session.colorAdjustments.hue, -100);
+      expect(session.colorAdjustments.saturation, 100);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('video-color-hue-value')),
+          matching: find.text('-100'),
+        ),
+        findsOneWidget,
+      );
+
+      final sharpenStrong = find.byKey(const ValueKey('video-sharpen-strong'));
+      await tester.ensureVisible(sharpenStrong);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('video-sharpen-light')));
+      await tester.tap(find.byKey(const ValueKey('video-sharpen-medium')));
+      await tester.tap(sharpenStrong);
+      await tester.pumpAndSettle();
+      expect(session.sharpenMode, VideoSharpenMode.strong);
+
+      session.rejectSharpen = true;
+      await tester.tap(find.byKey(const ValueKey('video-sharpen-off')));
+      await tester.pumpAndSettle();
+      expect(session.sharpenMode, VideoSharpenMode.strong);
+      expect(find.text('锐化设置应用失败，请重试。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -164,6 +282,30 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('画面显示'), findsOneWidget);
+      expect(find.text('画面调整'), findsOneWidget);
+
+      final hueIncrease = find.byKey(
+        const ValueKey('video-color-hue-increase'),
+      );
+      await tester.ensureVisible(hueIncrease);
+      await tester.pumpAndSettle();
+      await tester.tap(hueIncrease);
+      await tester.pumpAndSettle();
+      expect(session.colorAdjustments.hue, 5);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('video-color-hue-value')),
+          matching: find.text('+5'),
+        ),
+        findsOneWidget,
+      );
+
+      final sharpenStrong = find.byKey(const ValueKey('video-sharpen-strong'));
+      await tester.ensureVisible(sharpenStrong);
+      await tester.pumpAndSettle();
+      await tester.tap(sharpenStrong);
+      await tester.pumpAndSettle();
+      expect(session.sharpenMode, VideoSharpenMode.strong);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

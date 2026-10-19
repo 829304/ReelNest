@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-16
+- 最后更新：2026-10-18
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -223,6 +223,22 @@ library/reelnest.sqlite
 通用键值表，`value` 由拥有该键的模块解释。当前用于播放器全局/媒体偏好、清理代次、来源连接非敏感配置、库视图状态、侧栏折叠、缓存目录和容量设置等。
 
 `global.markerAnalysisTasks` 保存片头片尾检测的有界 JSON 任务快照：任务/root 身份、状态、计数、时间和安全错误。最多持久化/恢复 60 条，新插入保留 40 条且保护运行中请求；退出中断的 queued/running 恢复为 failed，不自动重跑。清除记录只删除非活跃快照，不删除 `playback_markers`。私密标题统一为“片头片尾检测”；不存凭据、播放 URL、章节正文或原始异常。此键与持久候选分开提交，记录保存失败会提示但不抹去已提交候选。
+
+播放器画面色彩调整使用下列全局偏好键（本轮实现已完成；Windows Profile、Release 构建及 5 秒 smoke 通过；平台/来源验收边界见[色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)）：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoColorAdjustments` | JSON 字符串 | `{brightness, contrast, saturation, gamma, hue}`；五项默认均为 `0`，各项归一化为整数 `[-100, 100]` |
+
+每次调整以一个完整对象写入该单一偏好键，不拆分成五个键；此偏好使用既有 `player_preferences` 键值结构，不增加数据库表、列或 schema 版本。读写、归一化与应用契约见[播放器画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
+
+锐化批次使用下列全局偏好键；该键只保存锐化档位，不含降噪状态。代码已接入该键和 shared owned-filter helper；锐化 Dart 定向 12 项、显式 DLL native 1 项均包含于启用 `REELNEST_MPV_PATH` 的全量 **803 passed / 0 skipped（39 秒）**，全部 8 项 native 实际执行并通过。Windows Profile GPU/SW 用例通过，medium 锐化时字幕/黑画面/暂停 resize 正常，且同一 19 秒运行验证了关闭锐化后的 RGB 语义恢复。headless native 的 Temp namespace 通过 `IOOverrides` 隔离至自身 sandbox；PID 复用解释未由崩溃栈独立确诊。318 个 Dart 文件格式检查 0 改动、analyze clean、diff-check 无错误。Windows production Release 构建 42.5 秒成功；2026-10-18 20:01:52.2262702 +08:00 五秒 smoke 通过（窗口响应、正常关闭、退出码 0）。产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`，报告 `apps/client/build/smoke/release-startup.json`；macOS/Linux 原生验收待，详见[锐化计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoSharpenMode` | enum raw name 字符串 | `off`、`light`、`medium`、`strong`；默认 `off` |
+
+此值作为单个字符串写入既有 `player_preferences` 键值结构，不新增 schema。当前实现和验收状态见[播放器画面锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)；降噪目前仅核查依赖和方案，不持久化、不实现。
 
 键空间必须带模块或范围前缀；新代码不能使用含义不明的通用键。JSON、数值和布尔值均以 TEXT 保存，读取端负责校验与默认值。敏感凭据禁止写入该表。
 
