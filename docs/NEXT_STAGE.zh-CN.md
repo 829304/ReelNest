@@ -2,6 +2,14 @@
 本轮按原版 `VideoColorAdjustments.swift`、`VideoColorAdjustmentPolicy.swift`、`PlayerView.swift` 迁移亮度、对比度、饱和度、伽马、色相；范围 -100…100、默认 0、半值远离 0 取整、每步 ±5、单项重置。全局 JSON 偏好 `global.videoColorAdjustments`，无 schema，本地/Emby 共用；串行最新值合并、原生应用与保存、失败回滚告警及初始化非致命作为验收契约。实现细节及边界见[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
 更新：2026-10-21。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 
+## 2026-10-21 Emby 媒体库排序性能优化
+
+`filterVideoLibrary` 现在在单次排序中惰性缓存标题分段和数字解析结果，同一标题只解析一次；主排序值相同的条目按原规则以标题及 ID 决胜，标题主排序不重复比较。保留自然数字、大小写、前导零、超长数字、反序及 ID 决胜规则。缓存仅在本次查询内存活，不改变数据库或产品行为。
+
+相关功能回归分两组 **64 + 19 = 83 项通过**；初次批量命令因写错离线订阅测试文件名而失败，正确的 `emby_offline_test.dart` 随后单独通过 19 项，不能把首次批量命令表述为全绿。排序基准前后版本各另运行 2 项通过。最终 analyze、Windows Release **47.5 秒**及五秒窗口响应/正常关闭 smoke 通过；产物为 Windows Release EXE，未制作发行包。受控基准不代表整页或真实服务器性能，详见[2026-10-21 性能检查](PERFORMANCE_REVIEW_2026-10-21.zh-CN.md)。
+
+后续已完成首轮审查中的演员作品 N+1 与想看/评分触发整来源 Emby 快照重读两项优化：缓存未命中时批量读取作品/父项；成功的偏好事务按来源更新版本，Emby 使用内容基础快照加偏好覆盖。相关 80 项回归通过，全量 838 passed / 10 按配置跳过，analyze、Windows Release 和五秒 smoke 通过；边界见[增量读取记录](LIBRARY_INCREMENTAL_READS_2026-10-21.zh-CN.md)。短生命周期 isolate 的拼音缓存仍不能跨 isolate 复用，未实现持久搜索 isolate。真实大库可见 UI 和 macOS/Linux 原生性能仍待验收；首页轮播已有活动条件，本轮未改。
+
 ## 2026-10-21 前端 P1-G：全局弹层与反馈表面统一
 
 新增 `apps/client/lib/ui/widgets/app_feedback.dart`，提供 `AppFeedbackKind`、`showAppToast`、`AppInlineNotice`，统一普通页面的信息/成功/警告/错误反馈，浮动提示采用单层阴影。新增 `app_confirmation_dialog.dart`，统一普通页面确认弹窗的标题、副标题、正文，以及普通/危险确认语义；`app_theme.dart` 补齐 `DialogTheme`。

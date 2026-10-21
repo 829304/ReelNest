@@ -18,10 +18,25 @@ final embySidebarSectionsProvider = FutureProvider.autoDispose
       ref.watch(sourceChangesProvider);
       return ref.watch(embyLibraryRepositoryProvider).sidebarSections(id);
     });
-final embyVideoSnapshotProvider = FutureProvider.autoDispose
+// Playback-window notifications and explicit retries invalidate this base.
+final embyVideoContentProvider = FutureProvider.autoDispose
     .family<EmbyVideoSnapshot, String>((ref, id) {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
       return ref.watch(embyLibraryRepositoryProvider).snapshot(id);
+    });
+final embyVideoSnapshotProvider = FutureProvider.autoDispose
+    .family<EmbyVideoSnapshot, String>((ref, id) async {
+      final sources = ref.watch(sourceRepositoryProvider);
+      final repository = ref.watch(embyLibraryRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select(
+          (_) => sources.libraryPreferenceRevision(id),
+        ),
+      );
+      final base = await ref.watch(embyVideoContentProvider(id).future);
+      if (!ref.mounted) throw const ScanCancelled();
+      return repository.refreshPreferences(base);
     });
 final videoLibrarySettingsProvider = FutureProvider.autoDispose
     .family<VideoLibrarySettings, EmbyVideoDestination>(

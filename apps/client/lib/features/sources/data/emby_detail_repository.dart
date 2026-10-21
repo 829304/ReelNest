@@ -206,18 +206,26 @@ class EmbyDetailRepository {
         )
         .get();
     final selected = source.options.selectedEmbyLibraryIDs;
+    final items = await sources.indexedSelection(
+      sourceId,
+      rows.map((row) => row.read<String>('local_id')),
+    );
+    final byId = {for (final item in items) item.identity.localId: item};
+    final parents = await sources.indexedSelection(
+      sourceId,
+      items.map((item) => item.parentId).whereType<String>(),
+    );
+    final parentsById = {
+      for (final item in parents) item.identity.localId: item,
+    };
     final result = <IndexedMedia>[];
     final seen = <String>{};
     for (final row in rows) {
-      var item = await sources.media((
-        sourceId: sourceId,
-        localId: row.read<String>('local_id'),
-      ));
+      var item = byId[row.read<String>('local_id')];
+      if (item == null) throw const SourceFailure('该媒体已移除或尚未入库。');
       if (item.parentId != null) {
-        item = await sources.media((
-          sourceId: sourceId,
-          localId: item.parentId!,
-        ));
+        item = parentsById[item.parentId];
+        if (item == null) throw const SourceFailure('该媒体已移除或尚未入库。');
       }
       if (item.type != 'music' &&
           (selected.isEmpty || selected.contains(item.remote?.libraryId)) &&

@@ -205,14 +205,27 @@ class LibrarySearchMatcher {
 /// Numeric title segments follow localizedStandardCompare. Locale-specific
 /// collation is a platform parity check, not a server sort request.
 int libraryTitleCompare(String a, String b) {
-  final parts = RegExp(r'\d+|\D+');
-  final left = parts.allMatches(a.toLowerCase()).map((m) => m[0]!).toList();
-  final right = parts.allMatches(b.toLowerCase()).map((m) => m[0]!).toList();
+  if (a == b) return 0;
+  return _compareTitleParts(_titleParts(a), _titleParts(b));
+}
+
+typedef _TitlePart = ({String text, BigInt? number});
+final _titleSegments = RegExp(r'(\d+)|\D+');
+
+List<_TitlePart> _titleParts(String title) => [
+  for (final match in _titleSegments.allMatches(title.toLowerCase()))
+    (
+      text: match[0]!,
+      number: match[1] == null ? null : BigInt.parse(match[1]!),
+    ),
+];
+
+int _compareTitleParts(List<_TitlePart> left, List<_TitlePart> right) {
   for (var i = 0; i < left.length && i < right.length; i++) {
-    final x = BigInt.tryParse(left[i]), y = BigInt.tryParse(right[i]);
+    final x = left[i].number, y = right[i].number;
     final result = x != null && y != null
         ? x.compareTo(y)
-        : left[i].compareTo(right[i]);
+        : left[i].text.compareTo(right[i].text);
     if (result != 0) return result;
   }
   return left.length.compareTo(right.length);
@@ -237,9 +250,21 @@ List<VideoLibraryEntry> filterVideoLibrary(
             (e.item.remote?.genres.contains(settings.genre) ?? false)) &&
         LibrarySearchMatcher.matches(settings.search, e.searchTerms);
   }).toList();
+  // Parse each participating title at most once per sort, including primary
+  // numeric ties. This cache dies with the query: no persistent library copy
+  // or cross-isolate cache whose size grows as users browse different sources.
+  final titleParts = <String, List<_TitlePart>>{};
+  int compareTitles(String a, String b) {
+    if (a == b) return 0;
+    return _compareTitleParts(
+      titleParts.putIfAbsent(a, () => _titleParts(a)),
+      titleParts.putIfAbsent(b, () => _titleParts(b)),
+    );
+  }
+
   result.sort((a, b) {
     final primary = switch (settings.sort) {
-      VideoLibrarySort.title => libraryTitleCompare(a.item.title, b.item.title),
+      VideoLibrarySort.title => compareTitles(a.item.title, b.item.title),
       VideoLibrarySort.recentlyUpdated =>
         (b.item.updatedAt ?? b.item.modified).compareTo(
           a.item.updatedAt ?? a.item.modified,
@@ -258,7 +283,9 @@ List<VideoLibraryEntry> filterVideoLibrary(
       ),
     };
     if (primary != 0) return settings.reverse ? -primary : primary;
-    final title = libraryTitleCompare(a.item.title, b.item.title);
+    final title = settings.sort == VideoLibrarySort.title
+        ? 0
+        : compareTitles(a.item.title, b.item.title);
     return title != 0
         ? title
         : a.item.identity.localId.compareTo(b.item.identity.localId);

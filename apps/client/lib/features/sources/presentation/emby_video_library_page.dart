@@ -550,7 +550,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                         message: '无法读取这个 Emby 媒体库，请检查连接后重试。',
                         actionLabel: '重试',
                         onAction: () => ref.invalidate(
-                          embyVideoSnapshotProvider(destination.sourceId),
+                          embyVideoContentProvider(destination.sourceId),
                         ),
                       ),
                     )

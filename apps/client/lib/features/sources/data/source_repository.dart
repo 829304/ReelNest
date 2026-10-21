@@ -61,6 +61,11 @@ class SourceRepository {
   bool _indexMaintenance = false;
   Completer<void>? _maintenanceDone;
   final _changes = StreamController<void>.broadcast();
+  int _contentRevision = 0;
+  final _libraryPreferenceRevisions = <String, int>{};
+  int get contentRevision => _contentRevision;
+  int libraryPreferenceRevision(String sourceId) =>
+      _libraryPreferenceRevisions[sourceId] ?? 0;
   final _scans = <String, ScanCancellation>{};
   final _pendingScans = <Future<SourceScanSummary>>{};
   bool _closed = false;
@@ -74,7 +79,19 @@ class SourceRepository {
       Platform.isWindows ? location.toLowerCase() : location;
 
   void _changed() {
-    if (!_closed) _changes.add(null);
+    if (_closed) return;
+    _contentRevision++;
+    _changes.add(null);
+  }
+
+  /// Keep legacy listeners (home, detail, sidebar) up to date, while allowing
+  /// library snapshots to reuse metadata for preference-only transactions.
+  void libraryPreferencesChanged(Iterable<String> sourceIds) {
+    if (_closed) return;
+    for (final id in sourceIds.toSet()) {
+      _libraryPreferenceRevisions[id] = libraryPreferenceRevision(id) + 1;
+    }
+    _changes.add(null);
   }
 
   /// Publish connector-owned trace mutations through the same browse refresh.

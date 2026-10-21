@@ -77,7 +77,7 @@ void refreshPlaybackViews(
   container.read(homePlaybackRevisionsProvider.notifier).refresh(sourceIds);
   container.read(embyOfflineProvider).request();
   for (final id in sourceIds.toSet()) {
-    container.invalidate(embyVideoSnapshotProvider(id));
+    container.invalidate(embyVideoContentProvider(id));
   }
 }
 

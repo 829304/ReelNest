@@ -6,6 +6,7 @@
 
 ## 当前快照
 
+- Emby 媒体库性能优化（2026-10-21）：排序内复用标题解析；后续演员作品批量读取和想看/评分偏好增量覆盖也已实现。排序功能回归分批 64+19 项，增量读取相关回归 80 项通过；增量批次全量为 838 passed / 10 按配置跳过。两个批次均有独立 Windows Release/smoke 证据。Flutter test 排序基准仅反映函数耗时，不代表整页或真实 Emby 性能。持久搜索 isolate、真实大库可见 UI 和 macOS/Linux 原生性能仍待。详见[排序性能检查](PERFORMANCE_REVIEW_2026-10-21.zh-CN.md)、[增量读取记录](LIBRARY_INCREMENTAL_READS_2026-10-21.zh-CN.md)和[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-21-emby-媒体库排序性能优化)。
 - 前端 P1-G 全局弹层与反馈表面统一：新增公共 toast/inline notice 与确认弹窗，普通页面反馈和确认样式统一并迁移来源、设置、健康及 Emby 批量移除；播放器专用深色 UI 保持独立，业务流程和按钮语义不变。关键回归 110 项、本批全量 834 项通过/9 项既有条件跳过；另有 2026-10-21 统一提交前最终工作区复验，全量 843 passed / 0 skipped（9 项 native 均执行）、analyze clean、339 个 Dart 文件 format 0 changed、diff-check clean。该复验未重建；最新 Windows Release 仍为 36.6 秒，16:20:50 +08:00 五秒 smoke 通过。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-g全局弹层与反馈表面统一)。
 - 前端 P1-F 仪表盘与任务中心视觉收口：新增共享 dashboard surfaces，统一健康页状态/分区、4/2/1 列概览卡和扫描/分析/离线缓存任务表面；不新增检测规则、后台任务或 schema 变化。最后定向复验 25/25、targeted analyze clean；全量 832 passed / 9 skipped、全项目 analyze 仍通过。最终 Windows Release 36.6 秒及 2026-10-21 15:23:53 +08:00 五秒 smoke 通过，1088×720 明/暗主题健康页截图人工复核通过。真实 Emby、实体键鼠、高 DPI、macOS/Linux 原生目视仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-f仪表盘与任务中心视觉收口)和[健康评分/仪表盘](HEALTH_SCORE.zh-CN.md#2026-10-21-p1-f仪表盘与任务中心视觉收口)。
 - 播放后台性能优化四项已落地并通过自动化验证：显式 mpv 的全量 841/0（9 项 native 实际运行）、analyze、335 文件 format 和 diff-check 通过；90,006 条媒体（其中 90,000 条为无关剧集）的内存 fixture 中目标剧集仅读 3 条，完整偏好 getter 从 25 次 SQL 收敛至 1 次快照。Windows Release 首轮 39.1 秒，最终增量构建 **26.4 秒成功**；2026-10-21 14:55:53 +08:00 五秒 hidden smoke 正常响应、关闭且退出码 0。无真实 Emby 性能对比/提升比例，macOS/Linux 原生和长时性能验收仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-21-播放后台性能优化四项落地自动化验证及-windows-releasesmoke-完成)。
@@ -122,6 +123,7 @@
 | [收藏、已看与服务器字幕](EMBY_ACTIONS_SUBTITLES.zh-CN.md) | 状态写回/回滚、批量观看和文本字幕 |
 | [服务器详情、演职员与艺术照](EMBY_DETAILS.zh-CN.md) | 详情缓存、人员、图片和技术信息 |
 | [视频媒体库导航与浏览](EMBY_NAVIGATION.zh-CN.md) | 来源树、分库、筛选、排序、P0 浏览 UI 调整及侧栏切换按压态残留修复 |
+| [演员作品批量读取与偏好增量刷新](LIBRARY_INCREMENTAL_READS_2026-10-21.zh-CN.md) | 演员作品批量 SQLite 读取、按来源偏好版本和 Emby 展示快照增量覆盖及验证边界 |
 | [首次浏览与人物作品](EMBY_LOADING.zh-CN.md) | 前台分页、后台批量索引和服务器人物作品 |
 | [画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md) | 转码画质、图片/视频缓存、手动离线和容量维护 |
 | [自动离线订阅与任务入口](EMBY_OFFLINE_SUBSCRIPTIONS.zh-CN.md) | 订阅范围、暂停/到期、网络策略和任务控制 |
@@ -143,6 +145,7 @@
 | [2026-10-11 媒体库滚动优化](TEST_REPORT_2026-10-11.zh-CN.md) | 卡片索引、显示尺寸解码和图片校验 |
 | [数据库读取与关闭优化](DATABASE_PERFORMANCE_2026-10-11.zh-CN.md) | 后台读取、事务关闭和性能边界 |
 | [前端性能补充检查](FRONTEND_PERFORMANCE_AUDIT_2026-10-11.zh-CN.md) | 页面和图片管线补充审计 |
+| [Emby 媒体库排序性能检查](PERFORMANCE_REVIEW_2026-10-21.zh-CN.md) | 单次排序标题解析复用、受控基准、回归证据与未实施优化候选 |
 | [播放器关闭后主界面响应检查](FRONTEND_CLOSE_AUDIT_2026-10-11.zh-CN.md) | Windows 关窗、重开和主界面响应 |
 | [Windows 构建与冒烟](WINDOWS_SMOKE.zh-CN.md) | 初始化时期的 Windows 构建与 7 项测试；历史记录 |
 

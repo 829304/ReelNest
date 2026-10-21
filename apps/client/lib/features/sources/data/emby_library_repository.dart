@@ -230,8 +230,9 @@ class EmbyLibraryRepository {
       setWatchlistMany([id], value);
 
   Future<void> setWatchlistMany(Iterable<MediaIdentity> ids, bool value) async {
+    final identities = ids.toSet();
     await sources.database.transaction(() async {
-      final items = await targets(ids);
+      final items = await targets(identities);
       for (final item in items) {
         await sources.database.customStatement(
           '''INSERT INTO media_library_preferences(source_id,local_id,watchlist,user_rating,created_at)
@@ -247,15 +248,16 @@ class EmbyLibraryRepository {
         );
       }
     });
-    sources.traceChanged();
+    sources.libraryPreferencesChanged(identities.map((id) => id.sourceId));
   }
 
   Future<void> setRating(Iterable<MediaIdentity> ids, double? rating) async {
     if (rating != null && (!rating.isFinite || rating < 1 || rating > 5)) {
       throw const SourceFailure('评级必须在 1 到 5 星之间。');
     }
+    final identities = ids.toSet();
     await sources.database.transaction(() async {
-      final items = await targets(ids);
+      final items = await targets(identities);
       for (final item in items) {
         await sources.database.customStatement(
           '''INSERT INTO media_library_preferences(source_id,local_id,watchlist,user_rating,created_at)
@@ -270,7 +272,56 @@ class EmbyLibraryRepository {
         );
       }
     });
-    sources.traceChanged();
+    sources.libraryPreferencesChanged(identities.map((id) => id.sourceId));
+  }
+
+  /// Overlay local preferences without re-reading/decoding remote details,
+  /// episode metadata, playback history or the source's aggregate counts.
+  Future<EmbyVideoSnapshot> refreshPreferences(EmbyVideoSnapshot base) async {
+    final rows = await sources.database
+        .customSelect(
+          'SELECT * FROM media_library_preferences WHERE source_id = ?',
+          variables: [Variable(base.source.id)],
+        )
+        .get();
+    final byId = {for (final row in rows) row.read<String>('local_id'): row};
+    var changed = false;
+    final entries = base.entries.map((entry) {
+      final row = byId[entry.item.identity.localId];
+      final watchlist = row?.read<int>('watchlist') == 1;
+      final rating = row == null
+          ? RemoteRatingPolicy.seedUserRating(entry.item.remote?.rating)
+          : row.readNullable<double>('user_rating');
+      final createdAt = row == null
+          ? entry.item.modified.toUtc()
+          : DateTime.fromMillisecondsSinceEpoch(
+              row.read<int>('created_at'),
+              isUtc: true,
+            );
+      if (watchlist == entry.watchlist &&
+          rating == entry.userRating &&
+          createdAt == entry.createdAt) {
+        return entry;
+      }
+      changed = true;
+      return VideoLibraryEntry(
+        item: entry.item,
+        record: entry.record,
+        createdAt: createdAt,
+        watchlist: watchlist,
+        userRating: rating,
+        searchTerms: entry.searchTerms,
+        reportedProgress: entry.reportedProgress,
+        episodePlayback: entry.episodePlayback,
+      );
+    }).toList();
+    return changed
+        ? EmbyVideoSnapshot(
+            source: base.source,
+            libraries: base.libraries,
+            entries: entries,
+          )
+        : base;
   }
 
   Future<int> removeFromLibrary(Iterable<MediaIdentity> ids) async {
