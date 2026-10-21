@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show ApplyInterceptor;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -15,6 +16,7 @@ import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
 
 import 'support/fake_video_engine.dart';
+import 'support/query_counter.dart';
 
 IndexedMedia media(
   String id, {
@@ -85,6 +87,7 @@ void main() {
 
   late Directory sandbox;
   late SourceRepository sources;
+  late QueryCounter counter;
   late PlaybackRepository records;
   late PlayerPreferencesRepository preferences;
   late PlaybackSession session;
@@ -104,8 +107,9 @@ void main() {
           .writeAsString('fake');
     }
     await File(p.join(sandbox.path, 'Film.mkv')).writeAsString('fake');
+    counter = QueryCounter();
     sources = SourceRepository(
-      database: LibraryDatabase(NativeDatabase.memory()),
+      database: LibraryDatabase(NativeDatabase.memory().interceptWith(counter)),
       adapters: {MediaSourceKind.localFolder: FileSourceAdapter()},
       identityLookup: (_) async => 'fixture',
     );
@@ -143,6 +147,33 @@ void main() {
   Future<void> rejectProgress() => sources.database.customStatement(
     "CREATE TRIGGER reject_queue_progress BEFORE INSERT ON playback_states BEGIN SELECT RAISE(ABORT, 'fixture'); END",
   );
+
+  test('opening and switching read one preference snapshot without whole-library counts', () async {
+    for (final n in [1, 2]) {
+      counter.reads.clear();
+      await session.open(id(n));
+      expect(session.error, isNull);
+      expect(
+        counter.reads
+            .where(
+              (r) =>
+                  r.sql.startsWith('SELECT key, value FROM player_preferences'),
+            )
+            .length,
+        1,
+      );
+      expect(
+        counter.reads.any((r) => r.sql.contains('COUNT(m.local_id)')),
+        isFalse,
+      );
+      expect(
+        counter.reads.any(
+          (r) => r.sql.contains('FROM media LEFT JOIN media_activity USING'),
+        ),
+        isFalse,
+      );
+    }
+  });
 
   test(
     'top-level adjacency follows persisted update time across sources',

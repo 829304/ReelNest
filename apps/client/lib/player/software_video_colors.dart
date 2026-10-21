@@ -36,7 +36,7 @@ class SoftwareVideoColors {
       <double>[0, 1, 0],
       <double>[0, 0, 1],
     ];
-    if (coefficients != null) {
+    if (coefficients != null && (value.hue != 0 || value.saturation != 0)) {
       final (kr, kg, kb) = coefficients;
       final y = [kr, kg, kb];
       final u = [-kr / (2 * (1 - kb)), -kg / (2 * (1 - kb)), .5];
@@ -61,9 +61,15 @@ class SoftwareVideoColors {
     String expression(int channel) {
       final terms = [
         for (var at = 0; at < 3; at++)
-          '${rows[channel][at] * contrast}*${channels[at]}(X,Y)',
+          if (rows[channel][at] * contrast != 0)
+            rows[channel][at] * contrast == 1
+                ? '${channels[at]}(X,Y)'
+                : '${rows[channel][at] * contrast}*${channels[at]}(X,Y)',
       ];
-      return 'pow(max((${terms.join('+')})+$brightness,0),$gamma)';
+      final sum = terms.isEmpty ? '0' : terms.join('+');
+      final shifted = brightness == 0 ? sum : '($sum)+$brightness';
+      final clamped = 'max($shifted,0)';
+      return gamma == 1 ? clamped : 'pow($clamped,$gamma)';
     }
 
     final conversion = explicitInputMatrix

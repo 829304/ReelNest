@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
@@ -19,20 +20,79 @@ import '../domain/video_render_settings.dart';
 class PlayerPreferencesRepository {
   PlayerPreferencesRepository(this.database);
   final LibraryDatabase database;
+  final _snapshotZone = Object();
+
+  /// One SQLite read per open, shared by the existing decoders/defaults.
+  /// The callback only reads preferences. Its snapshot expires when it returns;
+  /// subsequent films and controls always see newly saved values.
+  Future<T> readPlaybackSnapshot<T>(
+    IndexedMedia item,
+    Future<T> Function() read,
+  ) async {
+    final keys = [
+      for (final key in [
+        'playbackOptions',
+        'watchedThreshold',
+        'videoSubtitleStyle',
+        'videoDefaultAudioDelay',
+        'videoDefaultSubtitleDelay',
+        'videoDefaultSubtitleScale',
+        'videoDefaultSubtitlePosition',
+        'subtitleLanguage',
+        'videoAspectOverride',
+        'videoCropMode',
+        'videoDeinterlaceMode',
+        'videoRotationMode',
+        'videoFlipMode',
+        'videoColorAdjustments',
+        'videoSharpenMode',
+        'videoPerformanceSettings',
+        'videoRenderSettings',
+        'videoPlaybackEndAction',
+        'videoLoopCurrentItem',
+        'videoMarkerSkipBehavior',
+        'videoVolume',
+        'videoVolumeBoost',
+      ])
+        'global.$key',
+      for (final kind in ['audio', 'sub', 'rate']) _key(item, kind),
+    ];
+    final rows = await database
+        .customSelect(
+          'SELECT key, value FROM player_preferences WHERE key IN (SELECT value FROM json_each(?))',
+          variables: [Variable(jsonEncode(keys))],
+        )
+        .get();
+    final snapshot = <String, String?>{for (final key in keys) key: null};
+    for (final row in rows) {
+      snapshot[row.read<String>('key')] = row.read<String>('value');
+    }
+    try {
+      return await runZoned(read, zoneValues: {_snapshotZone: snapshot});
+    } finally {
+      // Do not allow an asynchronous child of the callback to retain stale data.
+      snapshot.clear();
+    }
+  }
+
   static const subtitleOff = '__off__';
   String _key(IndexedMedia item, String kind) => jsonEncode([
     item.identity.sourceId,
     item.parentId?.isNotEmpty == true ? item.parentId : item.identity.localId,
     kind,
   ]);
-  Future<String?> _read(String key) async =>
-      (await database
-              .customSelect(
-                'SELECT value FROM player_preferences WHERE key = ?',
-                variables: [Variable(key)],
-              )
-              .getSingleOrNull())
-          ?.read<String>('value');
+  Future<String?> _read(String key) async {
+    final snapshot = Zone.current[_snapshotZone] as Map<String, String?>?;
+    if (snapshot != null && snapshot.containsKey(key)) return snapshot[key];
+    return (await database
+            .customSelect(
+              'SELECT value FROM player_preferences WHERE key = ?',
+              variables: [Variable(key)],
+            )
+            .getSingleOrNull())
+        ?.read<String>('value');
+  }
+
   Future<void> _write(String key, String? value) async {
     final trimmed = value?.trim();
     if (trimmed == null || trimmed.isEmpty) {

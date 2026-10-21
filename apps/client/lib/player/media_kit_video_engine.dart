@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
@@ -8,6 +9,7 @@ import 'package:media_kit/media_kit.dart' hide VideoTrack;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
+import 'coalesced_refresh.dart';
 import 'video_engine.dart';
 import 'video_tracks.dart';
 import 'video_timeline.dart';
@@ -276,7 +278,7 @@ class MediaKitVideoEngine
 
   double _boost = 1;
   double _volume = 80;
-  Future<void> _refreshing = Future.value();
+  late final _trackRefresh = CoalescedRefresh(_readTracks);
   final _trackChanges = StreamController<VideoTrackState>.broadcast();
   VideoTrackState _tracks = const VideoTrackState();
   NativePlayer get _native => _player.platform as NativePlayer;
@@ -496,57 +498,66 @@ class MediaKitVideoEngine
   VideoTrackState get tracks => _tracks;
   @override
   Stream<VideoTrackState> get trackChanges => _trackChanges.stream;
+  Future<void>? _scheduledTrackRefresh;
   void _scheduleRefresh() {
     if (_disposed) return;
+    final pending = refreshTracks();
+    if (identical(_scheduledTrackRefresh, pending)) return;
+    _scheduledTrackRefresh = pending;
+    void clear() {
+      if (identical(_scheduledTrackRefresh, pending)) {
+        _scheduledTrackRefresh = null;
+      }
+    }
+
     unawaited(
-      refreshTracks().catchError((Object error, StackTrace stack) {
-        diagnosticTrace?.failure('track_refresh_failed', error, stack);
-      }),
+      pending.then<void>(
+        (_) => clear(),
+        onError: (Object error, StackTrace stack) {
+          clear();
+          diagnosticTrace?.failure('track_refresh_failed', error, stack);
+        },
+      ),
     );
   }
 
   @override
-  Future<void> refreshTracks() {
-    final next = _refreshing.then((_) async {
-      if (_disposed) return;
-      final raw = await _native.getProperty('track-list');
-      final list = raw.isEmpty ? <dynamic>[] : jsonDecode(raw) as List;
-      final available = list
-          .whereType<Map>()
-          .where((t) => t['type'] == 'audio' || t['type'] == 'sub')
-          .map((t) => VideoTrack.fromMpv(Map<String, dynamic>.from(t)))
-          .toList();
-      final audioId = int.tryParse(await _native.getProperty('aid'));
-      final subtitleId = int.tryParse(await _native.getProperty('sid'));
-      final secondaryId = int.tryParse(
-        await _native.getProperty('secondary-sid'),
-      );
-      final auto = await _native.getProperty('sub-auto');
-      final delay =
-          double.tryParse(await _native.getProperty('sub-delay')) ?? 0;
-      if (_disposed) return;
-      _tracks = VideoTrackState(
-        audio: available
-            .where((t) => t.type == 'audio')
-            .toList(growable: false),
-        subtitles: available
-            .where((t) => t.type == 'sub')
-            .toList(growable: false),
-        audioId: audioId,
-        subtitleId: subtitleId,
-        secondarySubtitleId: secondaryId,
-        autoSubtitles: auto != 'no' && auto.isNotEmpty,
-        subtitleDelay: delay,
-        volumeBoost: _boost,
-        devices: _player.state.audioDevices
-            .map((d) => VideoAudioDevice(d.name, d.description))
-            .toList(growable: false),
-        audioDevice: _player.state.audioDevice.name,
-      );
-      _trackChanges.add(_tracks);
-    });
-    _refreshing = next.catchError((Object _) {});
-    return next;
+  Future<void> refreshTracks() => _trackRefresh.request();
+
+  Future<void> _readTracks() async {
+    if (_disposed) return;
+    final raw = await _native.getProperty('track-list');
+    final list = raw.isEmpty ? <dynamic>[] : jsonDecode(raw) as List;
+    final available = list
+        .whereType<Map>()
+        .where((t) => t['type'] == 'audio' || t['type'] == 'sub')
+        .map((t) => VideoTrack.fromMpv(Map<String, dynamic>.from(t)))
+        .toList();
+    final audioId = int.tryParse(await _native.getProperty('aid'));
+    final subtitleId = int.tryParse(await _native.getProperty('sid'));
+    final secondaryId = int.tryParse(
+      await _native.getProperty('secondary-sid'),
+    );
+    final auto = await _native.getProperty('sub-auto');
+    final delay = double.tryParse(await _native.getProperty('sub-delay')) ?? 0;
+    if (_disposed) return;
+    _tracks = VideoTrackState(
+      audio: available.where((t) => t.type == 'audio').toList(growable: false),
+      subtitles: available
+          .where((t) => t.type == 'sub')
+          .toList(growable: false),
+      audioId: audioId,
+      subtitleId: subtitleId,
+      secondarySubtitleId: secondaryId,
+      autoSubtitles: auto != 'no' && auto.isNotEmpty,
+      subtitleDelay: delay,
+      volumeBoost: _boost,
+      devices: _player.state.audioDevices
+          .map((d) => VideoAudioDevice(d.name, d.description))
+          .toList(growable: false),
+      audioDevice: _player.state.audioDevice.name,
+    );
+    _trackChanges.add(_tracks);
   }
 
   Future<void> _set(String property, String value) =>
@@ -823,7 +834,7 @@ class MediaKitVideoEngine
       await subscription.cancel();
     }
     await _sleep.dispose();
-    await _refreshing;
+    await _trackRefresh.close();
     await _viewportUpdates;
     await _player.dispose();
     await _changes.close();

@@ -111,14 +111,42 @@ class PlayerPalette {
   }
 }
 
-/// Keeps nested player menus on the same dark material as the playback dock.
-/// This local theme is intentionally not applied to the rest of the app.
+const playerTooltipTheme = TooltipThemeData(
+  waitDuration: Duration(milliseconds: 350),
+  showDuration: Duration(milliseconds: 1600),
+  preferBelow: false,
+  verticalOffset: 10,
+  padding: EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+  textStyle: TextStyle(
+    color: Color(0xF2FFFFFF),
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+  ),
+  decoration: BoxDecoration(
+    color: Color(0xF21A1D22),
+    borderRadius: BorderRadius.all(Radius.circular(8)),
+    border: Border.fromBorderSide(BorderSide(color: Color(0x29FFFFFF))),
+    boxShadow: [
+      BoxShadow(
+        color: Color(0x52000000),
+        blurRadius: 12,
+        spreadRadius: -3,
+        offset: Offset(0, 5),
+      ),
+    ],
+  ),
+);
+
+/// Keeps nested player menus, tooltips and controls on the same dark material
+/// as the playback dock. This local theme is intentionally not applied to the
+/// rest of the app.
 ThemeData playerOverlayThemeData(ThemeData base) => base.copyWith(
   colorScheme: base.colorScheme.copyWith(
     surface: const Color(0xFF15181D),
     onSurface: const Color(0xF2FFFFFF),
   ),
   dividerColor: const Color(0x24FFFFFF),
+  tooltipTheme: playerTooltipTheme,
   popupMenuTheme: PopupMenuThemeData(
     color: const Color(0xFF15181D),
     surfaceTintColor: Colors.transparent,
@@ -133,6 +161,71 @@ ThemeData playerOverlayThemeData(ThemeData base) => base.copyWith(
     ),
   ),
 );
+
+enum PlayerInlineNoticeKind { information, warning, error }
+
+/// Compact notice surface shared by player settings and transient popovers.
+/// It deliberately stays inside the current panel so errors remain visible
+/// without introducing another window or a bright Material banner.
+class PlayerInlineNotice extends StatelessWidget {
+  const PlayerInlineNotice({
+    required this.message,
+    required this.palette,
+    this.kind = PlayerInlineNoticeKind.error,
+    super.key,
+  });
+
+  final String message;
+  final PlayerPalette palette;
+  final PlayerInlineNoticeKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = switch (kind) {
+      PlayerInlineNoticeKind.information => const Color(0xFF7CB7FF),
+      PlayerInlineNoticeKind.warning => const Color(0xFFFFC66D),
+      PlayerInlineNoticeKind.error => const Color(0xFFFF8E8E),
+    };
+    final icon = switch (kind) {
+      PlayerInlineNoticeKind.information => Icons.info_outline_rounded,
+      PlayerInlineNoticeKind.warning => Icons.warning_amber_rounded,
+      PlayerInlineNoticeKind.error => Icons.error_outline_rounded,
+    };
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: accent.withValues(alpha: .23), width: .8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: 8,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(icon, size: 14, color: accent.withValues(alpha: .9)),
+            ),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  height: 1.35,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: palette.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Shared player panel material translated from PlayerView.swift.
 ///

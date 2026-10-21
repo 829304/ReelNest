@@ -1,6 +1,8 @@
 # 共用视频播放器实现盘点
 
-本页最近更新：2026-10-19（播放器硬件解码选择与弱网内存缓冲批次）。
+本页最近更新：2026-10-19（播放器“更多设置”弹层 P0 前端收口）。
+
+2026-10-19 播放器“更多设置”弹层 P0 前端收口：仅调整布局、主题与失败提示呈现，不改播放业务、默认值或持久化。弹窗适配安全边距，680×382 窗口四边各留 12px，紧凑侧栏 132px、内容区可滚动；“播放/音画同步/画面/字幕”统一选中、悬停和焦点表面；设置失败提示固定在当前视口标题下，字幕/音轨弹层复用深色提示，主页面及嵌套弹层共用深色 tooltip。新增组件回归覆盖小窗口、tooltip 与可见失败提示。定向播放器测试 54/54、全量普通 Flutter 测试 820 passed / 9 skipped、`flutter analyze --no-pub` 通过；Windows Release 构建 37.9 秒成功，17:34:28 +08:00 五秒隐藏窗口 smoke 的 `HiddenWindowResponding`、`ClosedNormally`、`ExitCode=0` 均通过。9 项跳过为已有 native mpv 条件测试，本次全量未启用 `REELNEST_MPV_PATH`。尚未完成真实媒体可见 UI/视觉、实体键鼠、真实 Emby 全流程及 macOS/Linux 原生验收；启动 smoke 不代表这些验收已完成。详见[当前阶段记录](NEXT_STAGE.zh-CN.md#2026-10-19-播放器更多设置弹层-p0-前端收口)。
 
 2026-10-19 画面显示补充：Linux 软件 renderer 视口等比例 fit 修复已实现；Windows 主机依据上游 `texture_sw.h` 实际 1920×1080 caps 编译项目生成 C++ 代码并通过 test doubles。自动尺寸、旋转、10 组尺寸及 guards 覆盖，有/无 SW 宏均通过，两种上游 callback/getter 漂移注入均被拒绝。此为生成源码替身验证，Linux GTK/EGL 构建、真实大窗口/高 DPI/暂停 resize 仍待；详见[画面显示计划](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md#linux-软件-renderer-视口比例适配源码级验证通过平台验收待完成2026-10-19)。本轮未重跑 Flutter 或 Windows 构建。
 

@@ -60,7 +60,11 @@ class _AddSourceDialogState extends State<AddSourceDialog> {
       child: Dialog(
         backgroundColor: palette.page,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        insetPadding: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: palette.border),
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: AppSheetMetrics.wideWidth,
@@ -102,14 +106,43 @@ class _AddSourceDialogState extends State<AddSourceDialog> {
                     ),
                   ),
                 ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(color: theme.colorScheme.error),
+                if (_error != null) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.error.withValues(alpha: .065),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.colorScheme.error.withValues(alpha: .14),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SourceLineIcon(
+                          SourceGlyph.warning,
+                          size: 14,
+                          color: theme.colorScheme.error,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              height: 1.4,
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                ],
                 if (!widget.access.supported)
                   Text(widget.access.unavailableReason),
                 const SizedBox(height: 16),

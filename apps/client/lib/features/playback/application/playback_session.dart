@@ -275,7 +275,10 @@ class PlaybackSession extends ChangeNotifier {
     try {
       trace?.stage('source_lookup');
       final selected = await sources.media(identity);
-      final source = await sources.source(identity.sourceId);
+      final source = await sources.source(
+        identity.sourceId,
+        includeCounts: false,
+      );
       trace?.event('source_selected', code: source.kind.name);
       if (selected.isSeries ||
           selected.type == 'music' ||
@@ -288,10 +291,17 @@ class PlaybackSession extends ChangeNotifier {
       trace?.stage('preferences');
       final nextHistoryEpoch = await records.historyEpoch(identity);
       final record = await records.read(identity);
-      final nextOptions = await preferences.options;
-      final nextStyle = await preferences.subtitleStyle;
-      final nextTiming = await preferences.timing;
-      final nextDisplay = await preferences.displaySettings;
+      late final PlaybackOptions nextOptions;
+      late final VideoSubtitleStyle nextStyle;
+      late final VideoTimingSettings nextTiming;
+      late final VideoDisplaySettings nextDisplay;
+      late final bool loopCurrentItem;
+      late final VideoMarkerSkipBehavior markerSkipBehavior;
+      late final String? audioPreference, subtitlePreference;
+      late final String subtitleLanguage;
+      late final VideoEndAction action;
+      late final double? rate;
+      late final double volume, volumeBoost;
       var nextColors = VideoColorAdjustments.neutral;
       String? nextSubtitleWarning;
       String? nextDisplayWarning;
@@ -302,32 +312,47 @@ class PlaybackSession extends ChangeNotifier {
       String? nextPerformanceWarning;
       var nextRender = const VideoRenderSettings();
       String? nextRenderWarning;
-      try {
-        nextRender = await preferences.renderSettings;
-      } catch (error, stack) {
-        trace?.failure('render_settings_read_failed', error, stack);
-        nextRenderWarning = '未能读取去色带和 HDR 映射设置，已使用默认值，视频仍可播放。';
-      }
-      try {
-        nextPerformance = await preferences.performanceSettings;
-      } catch (error, stack) {
-        trace?.failure('performance_settings_read_failed', error, stack);
-        nextPerformanceWarning = '未能读取播放性能设置，已使用默认值，视频仍可播放。';
-      }
-      try {
-        nextSharpen = await preferences.sharpenMode;
-      } catch (error, stack) {
-        trace?.failure('sharpen_settings_read_failed', error, stack);
-        nextSharpenWarning = '未能读取锐化设置，已使用默认值，视频仍可播放。';
-      }
-      try {
-        nextColors = await preferences.colorAdjustments;
-      } catch (error, stack) {
-        trace?.failure('color_settings_read_failed', error, stack);
-        nextColorWarning = '未能读取画面色彩设置，已使用默认值，视频仍可播放。';
-      }
-      final loopCurrentItem = await preferences.loopCurrentItem;
-      final markerSkipBehavior = await preferences.markerSkipBehavior;
+      await preferences.readPlaybackSnapshot(selected, () async {
+        nextOptions = await preferences.options;
+        nextStyle = await preferences.subtitleStyle;
+        nextTiming = await preferences.timing;
+        nextDisplay = await preferences.displaySettings;
+        try {
+          nextRender = await preferences.renderSettings;
+        } catch (error, stack) {
+          trace?.failure('render_settings_read_failed', error, stack);
+          nextRenderWarning = '未能读取去色带和 HDR 映射设置，已使用默认值，视频仍可播放。';
+        }
+        try {
+          nextPerformance = await preferences.performanceSettings;
+        } catch (error, stack) {
+          trace?.failure('performance_settings_read_failed', error, stack);
+          nextPerformanceWarning = '未能读取播放性能设置，已使用默认值，视频仍可播放。';
+        }
+        try {
+          nextSharpen = await preferences.sharpenMode;
+        } catch (error, stack) {
+          trace?.failure('sharpen_settings_read_failed', error, stack);
+          nextSharpenWarning = '未能读取锐化设置，已使用默认值，视频仍可播放。';
+        }
+        try {
+          nextColors = await preferences.colorAdjustments;
+        } catch (error, stack) {
+          trace?.failure('color_settings_read_failed', error, stack);
+          nextColorWarning = '未能读取画面色彩设置，已使用默认值，视频仍可播放。';
+        }
+        loopCurrentItem = await preferences.loopCurrentItem;
+        markerSkipBehavior = await preferences.markerSkipBehavior;
+        audioPreference = await preferences.audio(selected);
+        subtitlePreference = await preferences.subtitle(selected);
+        subtitleLanguage = await preferences.subtitleLanguage;
+        action = await preferences.endAction;
+        rate = nextOptions.rememberRate
+            ? await preferences.rate(selected)
+            : null;
+        volume = await preferences.number('videoVolume', 80);
+        volumeBoost = await preferences.number('videoVolumeBoost', 1);
+      });
       final resume =
           at ??
           record.resume(
@@ -398,15 +423,10 @@ class PlaybackSession extends ChangeNotifier {
       final sidecars = localPath == null
           ? <SidecarSubtitle>[]
           : await SidecarSubtitle.find(localPath);
-      final audioPreference = await preferences.audio(selected);
-      final subtitlePreference = await preferences.subtitle(selected);
-      final subtitleLanguage = await preferences.subtitleLanguage;
-      final action = await preferences.endAction;
-      final rate = nextOptions.rememberRate
-          ? await preferences.rate(selected)
-          : null;
-      final inventory = await sources.inventory();
-      final nextQueue = VideoQueue.forItem(selected, inventory.items);
+      final nextQueue = VideoQueue.forItem(
+        selected,
+        await sources.playbackQueueCandidates(selected),
+      );
       if (previous != null) {
         trace?.stage('previous_checkpoint');
         try {
@@ -453,15 +473,13 @@ class PlaybackSession extends ChangeNotifier {
             ? clock.volume
             : nextOptions.useLaunchVolume
             ? nextOptions.launchVolume
-            : (await preferences.number('videoVolume', 80)).clamp(0, 100),
+            : volume.clamp(0, 100),
       );
       await current.setPitchCorrection(nextOptions.pitchCorrection);
       await current.setRate(
         force ? clock.rate : rate ?? nextOptions.defaultRate,
       );
-      await current.setVolumeBoost(
-        (await preferences.number('videoVolumeBoost', 1)).clamp(1, 2),
-      );
+      await current.setVolumeBoost(volumeBoost.clamp(1, 2));
       try {
         await current.setSubtitleDelay(nextTiming.subtitleDelay);
         if (current is VideoSubtitleSettingsEngine) {
@@ -741,7 +759,10 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> refreshQueue() => _serialize(() async {
     if (_closed || loading || item == null) return;
     try {
-      queue = VideoQueue.forItem(item!, (await sources.inventory()).items);
+      queue = VideoQueue.forItem(
+        item!,
+        await sources.playbackQueueCandidates(item!),
+      );
       await _refreshQueueRecords();
       transitionMessage = null;
     } catch (_) {
@@ -755,7 +776,7 @@ class PlaybackSession extends ChangeNotifier {
     try {
       final fresh = VideoQueue.forItem(
         item!,
-        (await sources.inventory()).items,
+        await sources.playbackQueueCandidates(item!),
       );
       final target = fresh.adjacent(item!.identity, direction);
       if (target == null) {
@@ -809,7 +830,7 @@ class PlaybackSession extends ChangeNotifier {
         if (item == null) return;
         final fresh = VideoQueue.forItem(
           item!,
-          (await sources.inventory()).items,
+          await sources.playbackQueueCandidates(item!),
         );
         if (fresh.items.length > 1) await _open(fresh.items[1].identity);
     }

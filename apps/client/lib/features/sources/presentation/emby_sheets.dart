@@ -56,6 +56,7 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
               SizedBox(
                 width: 264,
                 child: InkWell(
+                  key: ValueKey('source-kind-${kind.name}'),
                   onTap: () => setState(() => _kind = kind),
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
@@ -201,7 +202,11 @@ class EmbySheetFrame extends StatelessWidget {
       child: Dialog(
         backgroundColor: palette.page,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        insetPadding: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: palette.border),
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 620, maxHeight: 700),
           child: Padding(
@@ -406,14 +411,11 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
         ),
         if (_busy) ...[
           const SizedBox(height: 12),
-          const LinearProgressIndicator(),
+          const _SheetStatusNotice(message: '正在连接 Emby，请稍候…'),
         ],
         if (_error != null) ...[
           const SizedBox(height: 12),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
+          _SheetStatusNotice(message: _error!, error: true),
         ],
       ],
     );
@@ -470,9 +472,17 @@ class RemotePolicyPanel extends StatelessWidget {
         '痕迹数据同步',
         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
       ),
-      DropdownButton<RemoteTraceSyncMode>(
-        value: trace,
+      DropdownButtonFormField<RemoteTraceSyncMode>(
+        initialValue: trace,
         isExpanded: true,
+        decoration: InputDecoration(
+          filled: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
         items: [
           for (final mode in RemoteTraceSyncMode.values)
             DropdownMenuItem(
@@ -649,22 +659,19 @@ class _EmbyLibrarySheetState extends State<EmbyLibrarySheet> {
                   ),
                 ),
               ),
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('读取媒体库列表…'),
-                ),
+              if (_loading) const _SheetStatusNotice(message: '正在读取媒体库列表…'),
               if (_error != null) ...[
-                const Text('媒体库列表读取失败'),
-                Text(_error!),
-                TextButton(
-                  onPressed: _loading || _saving ? null : _load,
-                  child: const Text('重试'),
+                _SheetStatusNotice(
+                  message: '媒体库列表读取失败\n$_error',
+                  error: true,
+                  actionLabel: '重试',
+                  onAction: _loading || _saving ? null : _load,
                 ),
               ],
               if (!_loading && _error == null && _libraries.isEmpty) ...[
-                const Text('服务器未返回媒体库'),
-                const Text('可以保持同步全部，稍后再重新打开设置。'),
+                const _SheetStatusNotice(
+                  message: '服务器未返回媒体库。可以保持同步全部，稍后再重新打开设置。',
+                ),
               ],
               if (!_loading && _error == null)
                 for (final library in _libraries)
@@ -742,6 +749,83 @@ class _EmbyLibrarySheetState extends State<EmbyLibrarySheet> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SheetStatusNotice extends StatelessWidget {
+  const _SheetStatusNotice({
+    required this.message,
+    this.error = false,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String message;
+  final bool error;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = SourceSheetPalette(theme.brightness == Brightness.dark);
+    final tint = error ? theme.colorScheme.error : palette.selectedTint;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: tint.withValues(alpha: .065),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: tint.withValues(alpha: .14)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: tint.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: SourceLineIcon(
+                error ? SourceGlyph.warning : SourceGlyph.info,
+                size: 13,
+                color: tint,
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.4,
+                    color: error ? tint : palette.secondary,
+                  ),
+                ),
+              ),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

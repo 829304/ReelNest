@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 
 import '../../playback/application/playback_providers.dart';
 import '../../playback/application/marker_analysis_providers.dart';
@@ -75,12 +76,10 @@ Future<void> homeVideoAction(
               .read(embyConnectionProvider)
               .markPlayed([id], false, clearHistory: true);
           if (context.mounted && failed > 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '有 $failed 个条目未能写回远程服务器，本机播放记录已清除，请检查连接和服务器状态。后续同步可能恢复服务器记录。',
-                ),
-              ),
+            showAppToast(
+              context,
+              '有 $failed 个条目未能写回远程服务器，本机播放记录已清除，请检查连接和服务器状态。后续同步可能恢复服务器记录。',
+              kind: AppFeedbackKind.warning,
             );
           }
         } else {
@@ -94,8 +93,11 @@ Future<void> homeVideoAction(
     if (context.mounted) ref.invalidate(homeSourceStatsProvider(id.sourceId));
   } catch (error) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(sourceErrorMessage(error))));
+      showAppToast(
+        context,
+        sourceErrorMessage(error),
+        kind: AppFeedbackKind.error,
+      );
     }
   }
 }

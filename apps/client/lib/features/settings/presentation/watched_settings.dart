@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
-import '../../../ui/widgets/app_sheet.dart';
+import '../../../ui/widgets/settings_surfaces.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../../sources/application/source_providers.dart';
 import 'video_cache_settings.dart';
@@ -64,54 +64,76 @@ class _WatchedSettingsState extends ConsumerState<WatchedSettings> {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return AppSheetSection(
+    return AppSettingsSection(
       title: '视频播放与缓存',
       subtitle: '设置视频启动方式、观看规则和离线缓存。',
-      icon: const Icon(Icons.ondemand_video, size: 17),
-      colors: palette.section,
+      icon: Icons.ondemand_video_outlined,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.verified_outlined, size: 16),
-              const SizedBox(width: 10),
-              const Expanded(child: Text('已看判定')),
-              if (_threshold == null && _busy) const Text('读取中…'),
-              if (_threshold != null)
-                PopupMenuButton<double>(
-                  enabled: !_busy,
-                  initialValue: _threshold,
-                  tooltip: '已看判定',
-                  onSelected: _save,
-                  itemBuilder: (_) => [
-                    for (final value in const [.7, .8, .9, .95])
-                      PopupMenuItem(
-                        value: value,
-                        child: Text('播放 ${(value * 100).round()}%'),
+          AppSettingsRow(
+            title: '已看判定',
+            subtitle: '播放达到设定比例后标记为已看',
+            icon: Icons.verified_outlined,
+            trailing: _threshold == null
+                ? Text(
+                    _busy ? '读取中…' : '--',
+                    style: TextStyle(color: palette.secondary),
+                  )
+                : PopupMenuButton<double>(
+                    enabled: !_busy,
+                    initialValue: _threshold,
+                    tooltip: '已看判定',
+                    onSelected: _save,
+                    itemBuilder: (_) => [
+                      for (final value in const [.7, .8, .9, .95])
+                        PopupMenuItem(
+                          value: value,
+                          child: Text('播放 ${(value * 100).round()}%'),
+                        ),
+                    ],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
                       ),
-                  ],
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
+                      decoration: BoxDecoration(
+                        color: palette.control,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: palette.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${(_threshold! * 100).round()}%',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.expand_more,
+                            size: 15,
+                            color: palette.secondary,
+                          ),
+                        ],
+                      ),
                     ),
-                    child: Text('${(_threshold! * 100).round()}% ▾'),
                   ),
-                ),
-            ],
           ),
           if (_error != null)
-            Row(
-              children: [
-                Expanded(child: Text(_error!)),
-                TextButton(
-                  onPressed: _busy ? null : _load,
-                  child: const Text('重新读取'),
-                ),
-              ],
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: AppSettingsNotice(
+                message: _error!,
+                error: true,
+                actionLabel: '重新读取',
+                onAction: _busy ? null : _load,
+              ),
             ),
-          const SizedBox(height: 16),
+          const AppSettingsDivider(),
           const VideoCacheSettings(),
         ],
       ),

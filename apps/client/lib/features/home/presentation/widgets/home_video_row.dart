@@ -4,6 +4,7 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../ui/theme/source_sheet_palette.dart';
 import '../../domain/home_snapshot.dart';
 import 'home_video_card.dart';
 
@@ -64,6 +65,9 @@ class _HomeVideoRowState extends State<HomeVideoRow> {
   );
   @override
   Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
     final progress = widget.collection == HomeCollection.continueWatching;
     final items = widget.items.take(12).toList();
     final colors = switch (widget.collection) {
@@ -124,6 +128,14 @@ class _HomeVideoRowState extends State<HomeVideoRow> {
               key: ValueKey('home-more-${widget.collection.name}'),
               onPressed: () =>
                   context.push('/home/collection/${widget.collection.name}'),
+              style: TextButton.styleFrom(
+                foregroundColor: palette.secondary,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 32),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(9),
+                ),
+              ),
               child: const Text(
                 '查看全部 ›',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -171,19 +183,19 @@ class _HomeVideoRowState extends State<HomeVideoRow> {
                   Positioned(
                     left: 0,
                     top: progress ? 50 : 100,
-                    child: IconButton.filledTonal(
+                    child: _PageButton(
                       onPressed: () => _move(_scroll.offset - step),
                       tooltip: '上一页',
-                      icon: const Icon(Icons.chevron_left),
+                      previous: true,
                     ),
                   ),
                   Positioned(
                     right: 0,
                     top: progress ? 50 : 100,
-                    child: IconButton.filledTonal(
+                    child: _PageButton(
                       onPressed: () => _move(_scroll.offset + step),
                       tooltip: '下一页',
-                      icon: const Icon(Icons.chevron_right),
+                      previous: false,
                     ),
                   ),
                 ],
@@ -192,6 +204,54 @@ class _HomeVideoRowState extends State<HomeVideoRow> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PageButton extends StatelessWidget {
+  const _PageButton({
+    required this.onPressed,
+    required this.tooltip,
+    required this.previous,
+  });
+
+  final VoidCallback onPressed;
+  final String tooltip;
+  final bool previous;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Tooltip(
+      message: tooltip,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: palette.card.withValues(alpha: .94),
+          shape: BoxShape.circle,
+          border: Border.all(color: palette.border),
+          boxShadow: [
+            BoxShadow(
+              color: palette.shadow.withValues(alpha: .12),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: IconButton(
+          onPressed: onPressed,
+          style: IconButton.styleFrom(
+            foregroundColor: palette.secondary,
+            hoverColor: palette.hoverPill,
+            highlightColor: palette.control,
+          ),
+          iconSize: 20,
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          padding: EdgeInsets.zero,
+          icon: Icon(previous ? Icons.chevron_left : Icons.chevron_right),
+        ),
+      ),
     );
   }
 }

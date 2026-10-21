@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_confirmation_dialog.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../../domain/media_source.dart';
 import 'emby_library_selection_bar.dart';
 import 'emby_video_context_menu.dart';
@@ -180,13 +182,15 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     try {
       final message = await work(ids);
       if (mounted && generation == _generation) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        showAppToast(context, message, kind: AppFeedbackKind.success);
       }
     } catch (error) {
       if (mounted && generation == _generation) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(sourceErrorMessage(error))));
+        showAppToast(
+          context,
+          sourceErrorMessage(error),
+          kind: AppFeedbackKind.error,
+        );
       }
     } finally {
       if (mounted && generation == _generation) {
@@ -222,19 +226,11 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     final library = ref.read(embyLibraryRepositoryProvider);
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('移出所选 ${ids.length} 个条目？'),
-        content: const Text('仅从媒体库索引移除，不会删除服务器上的内容；下次同步可能重新入库。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('移出媒体库'),
-          ),
-        ],
+      builder: (context) => AppConfirmationDialog(
+        title: '移出所选 ${ids.length} 个条目？',
+        message: '仅从媒体库索引移除，不会删除服务器上的内容；下次同步可能重新入库。',
+        confirmLabel: '移出媒体库',
+        destructive: true,
       ),
     );
     if (confirm != true || !mounted || generation != _generation) return;
@@ -334,8 +330,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
         .then((_) => repository.saveSettings(id, value))
         .catchError((Object _) {
           if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('浏览设置保存失败，请重试。')));
+            showAppToast(context, '浏览设置保存失败，请重试。', kind: AppFeedbackKind.error);
           }
         });
   }
@@ -469,83 +464,61 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                   ),
                   if (data != null && settings != null)
                     inset(
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: palette.card,
-                          borderRadius: BorderRadius.circular(17),
-                          border: Border.all(color: palette.border, width: .8),
-                        ),
-                        child: Wrap(
-                          spacing: 12,
-                          runSpacing: 10,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(left: 2, right: 2),
-                              child: Icon(
-                                Icons.filter_alt_outlined,
-                                size: 17,
-                                color: palette.secondary,
+                      _LibraryControlBar(
+                        key: const ValueKey('emby-library-control-bar'),
+                        palette: palette,
+                        watchFilters: [
+                          for (final filter in LibraryWatchFilter.values)
+                            _capsule(
+                              filter.label,
+                              settings.filter == filter,
+                              () => _change(settings.copyWith(filter: filter)),
+                              palette,
+                              key: ValueKey(
+                                'emby-library-filter-${filter.name}',
                               ),
                             ),
-                            Wrap(
-                              spacing: 5,
-                              runSpacing: 5,
-                              children: [
-                                for (final filter in LibraryWatchFilter.values)
-                                  _capsule(
-                                    filter.label,
-                                    settings.filter == filter,
-                                    () => _change(
-                                      settings.copyWith(filter: filter),
-                                    ),
-                                    palette,
-                                  ),
-                              ],
-                            ),
-                            if (hasCached || settings.cachedOnly)
-                              _capsule(
-                                '已缓存',
-                                settings.cachedOnly,
-                                () => _change(
-                                  settings.copyWith(
-                                    cachedOnly: !settings.cachedOnly,
-                                  ),
-                                  persist: false,
-                                ),
-                                palette,
-                              ),
-                            if (genres.isNotEmpty)
-                              _menu(
-                                settings.genre.isEmpty
-                                    ? '全部类型'
-                                    : settings.genre,
-                                <String>['', ...genres],
-                                (value) => value.isEmpty ? '全部类型' : value,
-                                (value) =>
-                                    _change(settings.copyWith(genre: value)),
-                                palette,
-                              ),
-                            _menu(
-                              '${settings.sort.label} · ${settings.reverse ? '倒序' : '正序'}',
-                              sorts,
-                              (value) => value.label,
-                              (mode) => _change(
+                        ],
+                        trailing: [
+                          if (hasCached || settings.cachedOnly)
+                            _capsule(
+                              '已缓存',
+                              settings.cachedOnly,
+                              () => _change(
                                 settings.copyWith(
-                                  sort: mode,
-                                  reverse: mode == settings.sort
-                                      ? !settings.reverse
-                                      : false,
+                                  cachedOnly: !settings.cachedOnly,
                                 ),
+                                persist: false,
                               ),
                               palette,
+                              key: const ValueKey('emby-library-filter-cached'),
                             ),
-                          ],
-                        ),
+                          if (genres.isNotEmpty)
+                            _menu(
+                              settings.genre.isEmpty ? '全部类型' : settings.genre,
+                              <String>['', ...genres],
+                              (value) => value.isEmpty ? '全部类型' : value,
+                              (value) =>
+                                  _change(settings.copyWith(genre: value)),
+                              palette,
+                              key: const ValueKey('emby-library-genre-menu'),
+                            ),
+                          _menu(
+                            '${settings.sort.label} · ${settings.reverse ? '倒序' : '正序'}',
+                            sorts,
+                            (value) => value.label,
+                            (mode) => _change(
+                              settings.copyWith(
+                                sort: mode,
+                                reverse: mode == settings.sort
+                                    ? !settings.reverse
+                                    : false,
+                              ),
+                            ),
+                            palette,
+                            key: const ValueKey('emby-library-sort-menu'),
+                          ),
+                        ],
                       ),
                       bottom: 8,
                     ),
@@ -585,12 +558,11 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                       settings == null ||
                       results == null)
                     inset(
-                      _libraryStatus(
-                        palette,
+                      _LibraryLoadingView(
+                        key: const ValueKey('emby-library-loading'),
+                        palette: palette,
                         icon: Icons.video_library_outlined,
-                        title: '正在读取媒体库…',
-                        message: '正在准备筛选条件和已同步的视频内容。',
-                        loading: true,
+                        title: '正在载入$title',
                       ),
                     )
                   else if (destination.libraryId != null && library == null)
@@ -607,12 +579,18 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                       skipLoadingOnReload: true,
                       loading: () => [
                         inset(
-                          _libraryStatus(
-                            palette,
-                            icon: Icons.auto_awesome_motion_outlined,
-                            title: '正在整理媒体…',
-                            message: '正在应用观看状态、类型和排序条件。',
-                            loading: true,
+                          _LibraryLoadingView(
+                            key: const ValueKey('emby-library-loading'),
+                            palette: palette,
+                            icon: settings.search.isNotEmpty
+                                ? Icons.search_rounded
+                                : Icons.video_library_outlined,
+                            title: settings.search.isNotEmpty
+                                ? '正在搜索$title'
+                                : '正在载入$title',
+                            subtitle: settings.search.isNotEmpty
+                                ? '正在匹配标题、演职人员、题材、简介和子集标题'
+                                : '正在准备当前页面',
                           ),
                         ),
                       ],
@@ -1105,58 +1083,29 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     String title,
     bool selected,
     VoidCallback action,
-    SourceSheetPalette palette,
-  ) => Material(
-    color: selected ? palette.activePill : palette.control,
-    borderRadius: BorderRadius.circular(16),
-    child: InkWell(
-      onTap: action,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-        child: Text(
-          title,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? palette.activePillText : palette.idlePillText,
-          ),
-        ),
-      ),
-    ),
+    SourceSheetPalette palette, {
+    Key? key,
+  }) => _LibraryFilterChip(
+    key: key,
+    title: title,
+    selected: selected,
+    onPressed: action,
+    palette: palette,
   );
   Widget _menu<T>(
     String title,
     List<T> items,
     String Function(T) label,
     void Function(T) select,
-    SourceSheetPalette palette,
-  ) => PopupMenuButton<T>(
-    tooltip: title,
+    SourceSheetPalette palette, {
+    Key? key,
+  }) => _LibraryMenuButton<T>(
+    key: key,
+    title: title,
+    items: items,
+    itemLabel: label,
     onSelected: select,
-    itemBuilder: (_) => items
-        .map((v) => PopupMenuItem(value: v, child: Text(label(v))))
-        .toList(),
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        color: palette.control,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: TextStyle(fontSize: 12, color: palette.menuText),
-            ),
-            const SizedBox(width: 6),
-            const Icon(Icons.expand_more, size: 13),
-          ],
-        ),
-      ),
-    ),
+    palette: palette,
   );
 
   List<String> _posterBadges(VideoLibraryEntry entry, bool cached) {
@@ -1184,5 +1133,467 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     if (normalized.contains('720')) return '720P';
     if (normalized.contains('480')) return '480P';
     return value!.trim().toUpperCase();
+  }
+}
+
+class _LibraryLoadingView extends StatelessWidget {
+  const _LibraryLoadingView({
+    required this.palette,
+    required this.icon,
+    required this.title,
+    this.subtitle = '正在准备当前页面',
+    super.key,
+  });
+
+  final SourceSheetPalette palette;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: reducedMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 1200),
+      curve: Curves.easeInOut,
+      builder: (context, shimmer, _) => Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 320),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: palette.card,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: palette.border, width: .8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox.square(
+                  dimension: 38,
+                  child: Icon(icon, size: 27, color: palette.selectedTint),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: palette.secondary,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            for (var index = 0; index < 4; index++) ...[
+              _LibrarySkeletonRow(
+                palette: palette,
+                shimmer: shimmer,
+                widthFactor: .58 + index * .06,
+              ),
+              if (index != 3) const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibrarySkeletonRow extends StatelessWidget {
+  const _LibrarySkeletonRow({
+    required this.palette,
+    required this.shimmer,
+    required this.widthFactor,
+  });
+
+  final SourceSheetPalette palette;
+  final double shimmer;
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 72,
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: palette.card,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: palette.border, width: .8),
+    ),
+    child: Row(
+      children: [
+        _block(width: 52, height: 52, radius: 8),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FractionallySizedBox(
+                widthFactor: widthFactor.clamp(.4, .84),
+                child: _block(height: 10, radius: 4),
+              ),
+              const SizedBox(height: 7),
+              FractionallySizedBox(
+                widthFactor: (widthFactor - .18).clamp(.28, .66),
+                child: _block(height: 8, radius: 4),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _block({
+    double? width,
+    required double height,
+    required double radius,
+  }) {
+    final position = -2 + shimmer * 4;
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: palette.control,
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment(position - .65, 0),
+          end: Alignment(position + .65, 0),
+          colors: [
+            palette.control,
+            Colors.white.withValues(alpha: palette.dark ? .10 : .58),
+            palette.control,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryControlBar extends StatelessWidget {
+  const _LibraryControlBar({
+    required this.palette,
+    required this.watchFilters,
+    required this.trailing,
+    super.key,
+  });
+
+  final SourceSheetPalette palette;
+  final List<Widget> watchFilters;
+  final List<Widget> trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final filterGroup = Container(
+      key: const ValueKey('emby-library-watch-filters'),
+      padding: const EdgeInsets.all(5),
+      constraints: const BoxConstraints(minHeight: 44),
+      decoration: BoxDecoration(
+        color: palette.control,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border, width: .8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children:
+            watchFilters
+                .expand((control) => [control, const SizedBox(width: 7)])
+                .toList()
+              ..removeLast(),
+      ),
+    );
+    final trailingGroup = Wrap(
+      spacing: 7,
+      runSpacing: 7,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      alignment: WrapAlignment.end,
+      children: trailing,
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border, width: .8),
+        boxShadow: [
+          BoxShadow(
+            color: palette.shadow.withValues(alpha: palette.dark ? .13 : .035),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 720) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                filterGroup,
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: trailingGroup,
+                  ),
+                ),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SingleChildScrollView(
+                key: const ValueKey('emby-library-filter-scroll'),
+                scrollDirection: Axis.horizontal,
+                child: filterGroup,
+              ),
+              if (trailing.isNotEmpty) ...[
+                const SizedBox(height: 9),
+                Align(alignment: Alignment.centerRight, child: trailingGroup),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LibraryFilterChip extends StatefulWidget {
+  const _LibraryFilterChip({
+    required this.title,
+    required this.selected,
+    required this.onPressed,
+    required this.palette,
+    super.key,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onPressed;
+  final SourceSheetPalette palette;
+
+  @override
+  State<_LibraryFilterChip> createState() => _LibraryFilterChipState();
+}
+
+class _LibraryFilterChipState extends State<_LibraryFilterChip> {
+  bool _hovered = false;
+  bool _focused = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = widget.palette;
+    final animated = !MediaQuery.disableAnimationsOf(context);
+    final highlighted = _hovered || _focused || _pressed;
+    final background = widget.selected
+        ? palette.activePill
+        : highlighted
+        ? palette.hoverPill
+        : Colors.transparent;
+    final border = widget.selected
+        ? palette.border
+        : _focused
+        ? palette.selectedTint.withValues(alpha: .68)
+        : Colors.transparent;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      child: AnimatedScale(
+        scale: _pressed ? .975 : 1,
+        duration: animated ? const Duration(milliseconds: 90) : Duration.zero,
+        child: AnimatedContainer(
+          duration: animated
+              ? const Duration(milliseconds: 150)
+              : Duration.zero,
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: border, width: .8),
+            boxShadow: widget.selected
+                ? [
+                    BoxShadow(
+                      color: palette.shadow.withValues(
+                        alpha: palette.dark ? .16 : .055,
+                      ),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onPressed,
+              onHover: (value) => setState(() => _hovered = value),
+              onFocusChange: (value) => setState(() => _focused = value),
+              onHighlightChanged: (value) => setState(() => _pressed = value),
+              borderRadius: BorderRadius.circular(12),
+              splashColor: palette.selectedTint.withValues(alpha: .08),
+              highlightColor: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(
+                  height: 28,
+                  child: Center(
+                    child: AnimatedDefaultTextStyle(
+                      duration: animated
+                          ? const Duration(milliseconds: 150)
+                          : Duration.zero,
+                      curve: Curves.easeOutCubic,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1,
+                        fontWeight: FontWeight.w600,
+                        color: widget.selected
+                            ? palette.activePillText
+                            : palette.idlePillText,
+                      ),
+                      child: Text(widget.title),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryMenuButton<T> extends StatefulWidget {
+  const _LibraryMenuButton({
+    required this.title,
+    required this.items,
+    required this.itemLabel,
+    required this.onSelected,
+    required this.palette,
+    super.key,
+  });
+
+  final String title;
+  final List<T> items;
+  final String Function(T) itemLabel;
+  final ValueChanged<T> onSelected;
+  final SourceSheetPalette palette;
+
+  @override
+  State<_LibraryMenuButton<T>> createState() => _LibraryMenuButtonState<T>();
+}
+
+class _LibraryMenuButtonState<T> extends State<_LibraryMenuButton<T>> {
+  bool _hovered = false;
+  bool _focused = false;
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = widget.palette;
+    final animated = !MediaQuery.disableAnimationsOf(context);
+    final highlighted = _hovered || _focused || _open;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Focus(
+        canRequestFocus: false,
+        onFocusChange: (value) => setState(() => _focused = value),
+        child: PopupMenuButton<T>(
+          tooltip: widget.title,
+          onOpened: () => setState(() => _open = true),
+          onCanceled: () => setState(() => _open = false),
+          onSelected: (value) {
+            setState(() => _open = false);
+            widget.onSelected(value);
+          },
+          itemBuilder: (_) => widget.items
+              .map(
+                (value) => PopupMenuItem<T>(
+                  value: value,
+                  child: Text(widget.itemLabel(value)),
+                ),
+              )
+              .toList(),
+          child: AnimatedContainer(
+            duration: animated
+                ? const Duration(milliseconds: 150)
+                : Duration.zero,
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color: highlighted ? palette.control : palette.card,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _focused
+                    ? palette.selectedTint.withValues(alpha: .68)
+                    : palette.border.withValues(alpha: highlighted ? 1 : .72),
+                width: .8,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 13),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    height: 38,
+                    child: Center(
+                      child: Text(
+                        widget.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1,
+                          fontWeight: FontWeight.w600,
+                          color: palette.menuText,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: _open ? .5 : 0,
+                    duration: animated
+                        ? const Duration(milliseconds: 160)
+                        : Duration.zero,
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      Icons.unfold_more_rounded,
+                      size: 15,
+                      color: palette.secondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -439,6 +439,20 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
+
+      final dialogRect = tester.getRect(
+        find.byKey(const ValueKey('player-settings-dialog')),
+      );
+      expect(dialogRect.left, 12);
+      expect(dialogRect.top, 12);
+      expect(dialogRect.right, 668);
+      expect(dialogRect.bottom, 370);
+
+      final tooltipContext = tester.element(find.byTooltip('关闭设置'));
+      final tooltipDecoration =
+          Theme.of(tooltipContext).tooltipTheme.decoration! as BoxDecoration;
+      expect(tooltipDecoration.color, const Color(0xF21A1D22));
+
       await tester.tap(find.byKey(const ValueKey('player-settings-tab-video')));
       await tester.pumpAndSettle();
 
@@ -498,6 +512,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(session.renderSettings.debandMode, VideoDebandMode.strong);
       expect(session.renderSettings.toneMappingMode, VideoToneMappingMode.clip);
+
+      session.rejectRender = true;
+      final debandOff = find.byKey(const ValueKey('video-deband-off'));
+      await reveal(debandOff);
+      await tester.tap(debandOff);
+      await tester.pumpAndSettle();
+      expect(session.renderSettings.debandMode, VideoDebandMode.strong);
+      expect(
+        find.byKey(const ValueKey('player-settings-control-error')),
+        findsOneWidget,
+      );
+      expect(
+        find
+            .byKey(const ValueKey('player-settings-control-error'))
+            .hitTestable(),
+        findsOneWidget,
+        reason: '设置失败提示应固定在当前视野，而不是留在长列表末尾。',
+      );
+      expect(find.text('视频渲染设置应用失败，请重试。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

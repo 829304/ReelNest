@@ -648,18 +648,50 @@ class SourceRepository {
         Variable(parent.localId),
       ], from: 'media INDEXED BY media_parent');
 
+  /// Read only queue candidates, not every episode's remote JSON in the
+  /// library. Keep the original inventory order for equal sort keys.
+  Future<List<IndexedMedia>> playbackQueueCandidates(
+    IndexedMedia current,
+  ) => database.transaction(() async {
+    final parentId = current.parentId;
+    if (parentId != null) {
+      final parents = await indexedSelection(current.identity.sourceId, [
+        parentId,
+      ]);
+      if (parents.isNotEmpty && parents.single.isSeries) {
+        return [
+          parents.single,
+          ...await _indexedWhere(
+            'media.source_id = ? AND media.parent_id = ? AND media.is_series = 0',
+            [Variable(current.identity.sourceId), Variable(parentId)],
+            from: 'media INDEXED BY media_parent',
+          ),
+        ];
+      }
+    }
+    // Root videos span all sources. Iterate sources first to use the
+    // (source_id, parent_id) index rather than walking all episodes.
+    return _indexedWhere(
+      "media.source_id = queue_sources.id AND media.parent_id IS NULL AND media.is_series = 0 AND media.type NOT IN ('music', 'photo')",
+      [],
+      from: 'sources queue_sources CROSS JOIN media INDEXED BY media_parent',
+      orderBy: 'media.title COLLATE NOCASE, media.source_id, media.local_id',
+    );
+  });
+
   Future<List<IndexedMedia>> _indexedWhere(
     String where,
     List<Variable> variables, {
     String prefix = '',
     String from = 'media',
+    String orderBy = 'media.title COLLATE NOCASE, media.local_id',
   }) async {
     final rows = await database.customSelect(
       '''$prefix SELECT media.*, r.value AS remote_metadata,
         a.updated_at AS activity_updated_at
         FROM $from LEFT JOIN remote_media_metadata r ON r.source_id = media.source_id AND r.local_id = media.local_id
         LEFT JOIN media_activity a ON a.source_id = media.source_id AND a.local_id = media.local_id
-        WHERE $where ORDER BY media.title COLLATE NOCASE, media.local_id''',
+        WHERE $where ORDER BY $orderBy''',
       variables: variables,
     ).get();
     final data = rows.map((r) => r.data).toList();

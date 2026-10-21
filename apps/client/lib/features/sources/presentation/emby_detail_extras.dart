@@ -11,6 +11,7 @@ import '../../../api/emby/emby_detail.dart';
 import '../../../domain/media_source.dart';
 import '../../../platform/external_links.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../application/emby_providers.dart';
 import '../data/emby_detail_repository.dart';
 import 'local_media_artwork.dart';
@@ -61,9 +62,13 @@ class _EmbyDetailExtrasState extends ConsumerState<EmbyDetailExtras> {
           style: TextButton.styleFrom(padding: EdgeInsets.zero),
           child: Row(
             children: [
-              Icon(
-                _expanded ? Icons.keyboard_arrow_down : Icons.chevron_right,
-                size: 16,
+              AnimatedRotation(
+                turns: _expanded ? .25 : 0,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 160),
+                curve: Curves.easeOutCubic,
+                child: const Icon(Icons.chevron_right_rounded, size: 17),
               ),
               const SizedBox(width: 10),
               const Text(
@@ -82,6 +87,7 @@ class _EmbyDetailExtrasState extends ConsumerState<EmbyDetailExtras> {
             ],
           ),
         if (_expanded) ...[
+          const SizedBox(height: 14),
           if (detail.crew.isNotEmpty)
             _people('主创', Icons.person, detail.crew, revision),
           if (detail.cast.isNotEmpty)
@@ -159,8 +165,10 @@ class _EmbyDetailExtrasState extends ConsumerState<EmbyDetailExtras> {
                           );
                         } catch (_) {
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('无法打开浏览器，请重试。')),
+                            showAppToast(
+                              context,
+                              '无法打开浏览器，请重试。',
+                              kind: AppFeedbackKind.error,
                             );
                           }
                         }

@@ -130,6 +130,30 @@ class _SoftwareMpv extends _Mpv {
 }
 
 void main() {
+  test(
+    'CPU simple adjustments avoid zero samples, unit products and unit powers',
+    () {
+      final brightness = SoftwareVideoColors.graph(
+        const VideoColorAdjustments(brightness: 30),
+        'bt.709',
+      );
+      expect(brightness, contains("r='max((r(X,Y))+0.3,0)'"));
+      expect(brightness, isNot(contains('pow(')));
+      expect(brightness, isNot(contains('*')));
+      final gamma = SoftwareVideoColors.graph(
+        const VideoColorAdjustments(gamma: 30),
+        'bt.709',
+      );
+      expect(gamma, contains('pow(max(r(X,Y),0),'));
+      expect(gamma, isNot(contains('*')));
+      final black = SoftwareVideoColors.graph(
+        const VideoColorAdjustments(contrast: -100),
+        'bt.709',
+      );
+      expect(black, isNot(contains('(X,Y)')));
+      expect(black, isNot(contains('pow(')));
+    },
+  );
   test('original five-component rounding, limits and JSON defaults', () {
     expect(
       const VideoColorAdjustments(

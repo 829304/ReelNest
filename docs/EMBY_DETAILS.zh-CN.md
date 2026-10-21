@@ -42,3 +42,13 @@ Windows 四项原生业务场景通过，正常入口 Release 构建成功（32.
 原版只读对照为 `E:/workspace/829304/MediaLib/Sources/MediaLib/Views/DetailView.swift`。`features/sources/presentation/local_media_detail_page.dart` 继续供本地与 Emby 视频共用，新增背景氛围层和响应式宽/窄布局；海报增加描边/阴影，标题操作区与元数据、简介、类型标签的视觉层级重新整理，元数据改用图标胶囊。剧集行补充时长与“暂无本集简介”提示。播放、Emby 操作和缓存操作行为保持不变；不涉及音乐、照片、移动端、协议或数据规则。此次是 UI 增量，不代表已完成原版材质或像素级对照。
 
 本轮三文件分析、98 项导航/浏览/详情相关定向测试与空白检查结果见[媒体库导航 P0 记录](EMBY_NAVIGATION.zh-CN.md#2026-10-13媒体库-p0-前端表面调整)。未运行全量测试、Release 构建或三桌面原生窗口截图验收。
+
+## 2026-10-20：媒体详情页 P1-B 视觉收口
+
+本轮统一详情页顶部静态页头卡并保留返回行为；Hero 去除灰色背景氛围层，改为与原 MediaLib `DetailView.swift` 对齐的静态卡片材质，同时保留海报、元数据和原交互。主/次操作调整为横向可滚动操作条，避免任意换行；播放、评分、想看、Emby 已看写回及缓存操作行为不变。加载、错误和来源移除使用统一状态卡，动画遵循 reduced motion。
+
+季标题与右侧操作拆分，解决嵌套按钮；本地和远程文件状态卡统一。剧集行依据已有播放记录显示已看弱化、对勾、进度、继续观看标签及当前选中左侧锚点，仅表达既有状态，不新增持久化或业务规则。extras 折叠箭头与区块间距统一。
+
+主要改动位于 `apps/client/lib/features/sources/presentation/local_media_detail_page.dart`、`apps/client/lib/features/sources/presentation/emby_detail_extras.dart`；`apps/client/test/emby_detail_test.dart` 相关回归共 **47 项全部通过**，`flutter analyze --no-pub` 全项目无问题。Windows Release `flutter build windows --release --no-pub` 成功，产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。
+
+仍待真实 Emby 数据下的可见 UI、鼠标/键盘交互、长剧集列表、Windows 高 DPI/缩放，以及 macOS/Linux 原生实机视觉验收。Windows Release 成功不代表已完成启动 smoke 或上述可见/跨平台验收。阶段总览见[前端 P1-B 记录](NEXT_STAGE.zh-CN.md#2026-10-20-前端-p1-b媒体详情页视觉收口)。

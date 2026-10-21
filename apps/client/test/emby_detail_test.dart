@@ -452,6 +452,18 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('media-detail-header')), findsOneWidget);
+      expect(find.byKey(const ValueKey('media-detail-hero')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('media-detail-actions')),
+        findsOneWidget,
+      );
+      tester.view.physicalSize = const Size(680, 382);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('media-detail-hero')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      tester.view.physicalSize = const Size(1088, 900);
+      await tester.pumpAndSettle();
       expect(find.text('服务器简介'), findsOneWidget);
       expect(find.textContaining('3840x2160'), findsOneWidget);
       expect(posterRevisions, isNotEmpty);

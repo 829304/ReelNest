@@ -8,6 +8,9 @@ import '../../../domain/library_health.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_confirmation_dialog.dart';
+import '../../../ui/widgets/app_feedback.dart';
+import '../../../ui/widgets/dashboard_surfaces.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
@@ -59,8 +62,11 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     try {
       await ref.read(healthRepositoryProvider).ignore(key);
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('已忽略健康项，可在设置中恢复显示。')));
+        showAppToast(
+          context,
+          '已忽略健康项，可在设置中恢复显示。',
+          kind: AppFeedbackKind.success,
+        );
       }
     } catch (_) {
       if (mounted) setState(() => _error = '健康项保存失败，请重试。');
@@ -76,23 +82,13 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     if (_cleaning || items.isEmpty) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          items.length == 1
-              ? '确认从索引移除“${items.single.title}”？'
-              : '确认从索引移除 ${items.length} 个失效条目？',
-        ),
-        content: const Text('仅移除 ReelNest 内部索引，不会修改媒体文件；离线来源中的条目会保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('仅从 ReelNest 索引移除'),
-          ),
-        ],
+      builder: (context) => AppConfirmationDialog(
+        title: items.length == 1
+            ? '确认从索引移除“${items.single.title}”？'
+            : '确认从索引移除 ${items.length} 个失效条目？',
+        message: '仅移除 ReelNest 内部索引，不会修改媒体文件；离线来源中的条目会保留。',
+        confirmLabel: '仅从 ReelNest 索引移除',
+        destructive: true,
       ),
     );
     if (confirmed != true || !mounted || _cleaning) return;
@@ -106,14 +102,11 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
           .remove(snapshot, items.map((item) => item.identity).toSet());
       ref.invalidate(rawLibraryHealthProvider);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.removed == 0
-                  ? '没有可清理条目。离线、已恢复或状态不明的条目已保留。'
-                  : '索引已清理：已移除 ${result.removed} 个失效条目，保留 ${result.retained} 个条目。媒体文件没有被修改。',
-            ),
-          ),
+        showAppToast(
+          context,
+          result.removed == 0
+              ? '没有可清理条目。离线、已恢复或状态不明的条目已保留。'
+              : '索引已清理：已移除 ${result.removed} 个失效条目，保留 ${result.retained} 个条目。媒体文件没有被修改。',
         );
       }
     } catch (error) {
@@ -141,30 +134,18 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
           onPressed: onPressed,
         ),
       );
-  Widget _pill(String label, Color tint) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-    decoration: BoxDecoration(
-      color: tint.withValues(alpha: .13),
-      borderRadius: BorderRadius.circular(30),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: tint),
-    ),
-  );
-  Widget _heading(String title, String subtitle) => Padding(
-    padding: const EdgeInsets.only(top: 10, bottom: 14),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 4),
-        Text(subtitle, style: const TextStyle(fontSize: 12)),
-      ],
-    ),
+  Widget _pill(String label, Color tint) =>
+      DashboardStatusBadge(label: label, tint: tint);
+  Widget _heading(
+    String title,
+    String subtitle, {
+    IconData? icon,
+    String? badge,
+  }) => DashboardSectionHeading(
+    title: title,
+    subtitle: subtitle,
+    icon: icon,
+    badge: badge,
   );
 
   @override
@@ -179,106 +160,86 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     return PageContent(
       title: '仪表盘',
       subtitle: '汇总片库健康、后台任务和需要处理的维护事项。',
-      header: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              SizedBox(
-                width: 62,
-                height: 68,
-                child: Center(
-                  child: SourceTitleIcon(kind: SourceTitleIconKind.dashboard),
-                ),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '仪表盘',
-                      style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 5),
-                    Text(
-                      '汇总片库健康、后台任务和需要处理的维护事项。',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+      header: DashboardPageHeader(
+        title: '仪表盘',
+        subtitle: '汇总片库健康、后台任务和需要处理的维护事项。',
+        icon: const SourceTitleIcon(kind: SourceTitleIconKind.dashboard),
+        actions: [
+          SourceSheetButton(
+            label: '扫描全部',
+            icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
+            onPressed:
+                scanning ||
+                    _cleaning ||
+                    health.asData?.value.inventory.sources.isNotEmpty != true
+                ? null
+                : () => ref
+                      .read(sourceScansProvider.notifier)
+                      .scanAll(health.requireValue.inventory.sources),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              SourceSheetButton(
-                label: '扫描全部',
-                icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
-                onPressed:
-                    scanning ||
-                        _cleaning ||
-                        health.asData?.value.inventory.sources.isNotEmpty !=
-                            true
-                    ? null
-                    : () => ref
-                          .read(sourceScansProvider.notifier)
-                          .scanAll(health.requireValue.inventory.sources),
-              ),
-              if (health.asData?.value.safeMissing.isNotEmpty == true)
-                SourceSheetButton(
-                  label: '清理失效索引',
-                  onPressed: scanning || _cleaning
-                      ? null
-                      : () {
-                          final snapshot = health.requireValue;
-                          _removeMissing(
-                            snapshot,
-                            snapshot.missingItems
-                                .where(
-                                  (item) => snapshot.safeMissing.contains(
-                                    item.identity,
-                                  ),
-                                )
-                                .toList(),
-                          );
-                        },
-                ),
-              SourceSheetButton(
-                label: '任务中心',
-                onPressed: () => context.go('/health/tasks'),
-              ),
-              SourceSheetButton(
-                label: '重新检测',
-                icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
-                onPressed: () => ref.invalidate(rawLibraryHealthProvider),
-              ),
-            ],
+          if (health.asData?.value.safeMissing.isNotEmpty == true)
+            SourceSheetButton(
+              label: '清理失效索引',
+              outlined: true,
+              onPressed: scanning || _cleaning
+                  ? null
+                  : () {
+                      final snapshot = health.requireValue;
+                      _removeMissing(
+                        snapshot,
+                        snapshot.missingItems
+                            .where(
+                              (item) =>
+                                  snapshot.safeMissing.contains(item.identity),
+                            )
+                            .toList(),
+                      );
+                    },
+            ),
+          SourceSheetButton(
+            label: '任务中心',
+            onPressed: () => context.go('/health/tasks'),
+          ),
+          SourceSheetButton(
+            label: '重新检测',
+            icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
+            prominent: true,
+            onPressed: () => ref.invalidate(rawLibraryHealthProvider),
           ),
         ],
       ),
       children: [
         if (_error != null)
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: AppInlineNotice(
+              message: _error!,
+              kind: AppFeedbackKind.error,
+            ),
           ),
-        const EmbyCacheDashboard(),
         ...health.when(
           skipLoadingOnRefresh: false,
           skipLoadingOnReload: false,
-          loading: () => [
-            const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-            const Text('正在读取媒体库状态…'),
+          loading: () => const [
+            DashboardPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(),
+                  SizedBox(height: 13),
+                  Text('正在读取媒体库状态…'),
+                ],
+              ),
+            ),
           ],
-          error: (error, _) => [Text(sourceErrorMessage(error))],
+          error: (error, _) => [
+            AppInlineNotice(
+              message: sourceErrorMessage(error),
+              kind: AppFeedbackKind.error,
+              actionLabel: '重新检测',
+              onAction: () => ref.invalidate(rawLibraryHealthProvider),
+            ),
+          ],
           data: (snapshot) => _sections(snapshot, palette, scanning),
         ),
       ],
@@ -292,24 +253,30 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
   ) {
     if (snapshot.inventory.sources.isEmpty) {
       return [
-        _HealthCard(
+        DashboardEmptyState(
           title: snapshot.configurationSources.isEmpty
               ? '尚未添加媒体源'
               : '没有可检测的视频媒体源',
-          status: snapshot.configurationSources.isEmpty ? '暂无媒体库' : '视频检测范围为空',
-          accent: const Color(0xFF0EA5E9),
-          children: [
-            Text(
-              snapshot.configurationSources.isEmpty
-                  ? '添加媒体源后，可在这里查看片库健康状态。'
-                  : '当前没有参与视频检测的媒体源；音乐后续单独实现，照片已移出当前范围。',
-            ),
-            const SizedBox(height: 12),
-            SourceSheetButton(
-              label: '管理媒体源',
-              onPressed: () => context.go('/sources'),
-            ),
-          ],
+          message: snapshot.configurationSources.isEmpty
+              ? '添加媒体源后，可在这里查看片库健康状态。'
+              : '当前没有参与视频检测的媒体源；音乐后续单独实现，照片已移出当前范围。',
+          icon: Icons.monitor_heart_outlined,
+          action: Column(
+            children: [
+              DashboardStatusBadge(
+                label: snapshot.configurationSources.isEmpty
+                    ? '暂无媒体库'
+                    : '视频检测范围为空',
+                tint: const Color(0xFF0EA5E9),
+              ),
+              const SizedBox(height: 12),
+              SourceSheetButton(
+                label: '管理媒体源',
+                prominent: true,
+                onPressed: () => context.go('/sources'),
+              ),
+            ],
+          ),
         ),
       ];
     }
@@ -325,13 +292,21 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
         if (snapshot.partialIndex)
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
-            child: Text(
-              '当前检测仅覆盖已载入的媒体；完整同步后可重新检测。',
-              style: TextStyle(fontSize: 12),
+            child: AppInlineNotice(
+              message: '当前检测仅覆盖已载入的媒体；完整同步后可重新检测。',
+              kind: AppFeedbackKind.warning,
             ),
           ),
       ],
-      _heading('监测中心', '挂载源在线状态与元数据缺口集中管理，不再在下方重复列出。'),
+      const EmbyCacheDashboard(),
+      _heading(
+        '监测中心',
+        '挂载源在线状态与元数据缺口集中管理，不再在下方重复列出。',
+        icon: Icons.monitor_heart_outlined,
+        badge: snapshot.offline.isEmpty && gaps.isEmpty
+            ? '状态良好'
+            : '${snapshot.offline.length + gaps.length} 项待处理',
+      ),
       _HealthCard(
         title: '挂载源在线监测',
         status: snapshot.offline.isEmpty
@@ -461,9 +436,15 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
             ),
         ],
       ),
-      _heading('健康详情', '失效文件、失效链接、重复条目与影视详情资料集中处理。'),
+      _heading(
+        '健康详情',
+        '失效文件、失效链接、重复条目与影视详情资料集中处理。',
+        icon: Icons.fact_check_outlined,
+        badge:
+            '${missing.length + snapshot.duplicates.length + snapshot.detailGapItems.length + snapshot.unhealthyURLs.length} 项',
+      ),
       if (missing.isEmpty)
-        const Text('未发现失效文件。', style: TextStyle(fontSize: 11))
+        const AppInlineNotice(message: '未发现失效文件。')
       else
         _HealthCard(
           title: '失效文件/播放路径',
@@ -801,23 +782,9 @@ class _HealthCard extends StatelessWidget {
   final VoidCallback? onToggle;
   @override
   Widget build(BuildContext context) {
-    final palette = SourceSheetPalette(
-      Theme.of(context).brightness == Brightness.dark,
-    );
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: palette.staticSurface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: palette.border),
-        boxShadow: [
-          BoxShadow(
-            color: palette.shadow.withValues(alpha: palette.dark ? .16 : .08),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
+    return DashboardPanel(
+      radius: 20,
+      accent: accent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -825,6 +792,8 @@ class _HealthCard extends StatelessWidget {
             expanded: expanded,
             child: InkWell(
               onTap: onToggle,
+              borderRadius: BorderRadius.circular(10),
+              splashFactory: NoSplash.splashFactory,
               child: Row(
                 children: [
                   Container(
@@ -845,7 +814,7 @@ class _HealthCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Text(status, style: TextStyle(fontSize: 10, color: accent)),
+                  DashboardStatusBadge(label: status, tint: accent),
                   if (expanded != null) ...[
                     const SizedBox(width: 8),
                     RotatedBox(

@@ -253,25 +253,30 @@ class HomeLayoutFooter extends StatelessWidget {
   final HomeLayoutState state;
   final VoidCallback onEdit, onRetry;
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    key: const ValueKey('home-edit'),
-    onPressed: state.ready
-        ? onEdit
-        : state.error != null
-        ? onRetry
-        : null,
-    style: TextButton.styleFrom(
-      foregroundColor: SourceSheetPalette(
-        Theme.of(context).brightness == Brightness.dark,
-      ).secondary,
-      minimumSize: const Size(double.infinity, 46),
-    ),
-    icon: Icon(state.ready ? Icons.edit_outlined : Icons.refresh, size: 14),
-    label: Text(
-      state.error != null && !state.ready ? '首页布局读取失败，重试' : '编辑首页',
-      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return TextButton.icon(
+      key: const ValueKey('home-edit'),
+      onPressed: state.ready
+          ? onEdit
+          : state.error != null
+          ? onRetry
+          : null,
+      style: TextButton.styleFrom(
+        foregroundColor: palette.secondary,
+        backgroundColor: Colors.transparent,
+        minimumSize: const Size(double.infinity, 46),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      icon: Icon(state.ready ? Icons.edit_outlined : Icons.refresh, size: 14),
+      label: Text(
+        state.error != null && !state.ready ? '首页布局读取失败，重试' : '编辑首页',
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
 }
 
 class HomeLayoutEditorDock extends StatelessWidget {
@@ -310,7 +315,10 @@ class HomeLayoutEditorDock extends StatelessWidget {
       color: p.card,
       surfaceTintColor: Colors.transparent,
       menuPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: p.border),
+      ),
       items: state.layout.addable.isEmpty
           ? [
               const PopupMenuItem(
@@ -333,13 +341,13 @@ class HomeLayoutEditorDock extends StatelessWidget {
                         width: 24,
                         height: 24,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEEF5FF),
+                          color: p.iconChip,
                           borderRadius: BorderRadius.circular(7),
                         ),
                         child: Icon(
                           homeModuleIcon(module),
                           size: 14,
-                          color: const Color(0xFF2E90FA),
+                          color: p.accent,
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -352,12 +360,9 @@ class HomeLayoutEditorDock extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const Text(
+                      Text(
                         '添加',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF2E90FA),
-                        ),
+                        style: TextStyle(fontSize: 12, color: p.accent),
                       ),
                     ],
                   ),

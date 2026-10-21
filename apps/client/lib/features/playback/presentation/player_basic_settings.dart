@@ -15,10 +15,12 @@ class PlayerBasicSettings extends StatelessWidget {
   const PlayerBasicSettings({
     required this.session,
     required this.palette,
+    this.showControlError = true,
     super.key,
   });
   final PlaybackSession session;
   final PlayerPalette palette;
+  final bool showControlError;
 
   void change(PlaybackOptions Function(PlaybackOptions) update) =>
       unawaited(session.changeOptions(update));
@@ -188,10 +190,10 @@ class PlayerBasicSettings extends StatelessWidget {
               (v) => change((o) => o.copyWith(showRemainingTime: v)),
             ),
           ),
-          if (session.controlError != null)
-            Text(
-              session.controlError!,
-              style: TextStyle(fontSize: 11, color: palette.secondary),
+          if (showControlError && session.controlError != null)
+            PlayerInlineNotice(
+              message: session.controlError!,
+              palette: palette,
             ),
         ],
       );

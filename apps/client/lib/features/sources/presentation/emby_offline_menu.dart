@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../api/emby/emby_quality.dart';
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../../ui/widgets/app_sheet.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../application/emby_providers.dart';
@@ -30,12 +31,10 @@ class EmbyOfflineMenu extends ConsumerWidget {
       await action();
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is SourceFailure ? error.message : '自动缓存设置失败，请重试。',
-            ),
-          ),
+        showAppToast(
+          context,
+          error is SourceFailure ? error.message : '自动缓存设置失败，请重试。',
+          kind: AppFeedbackKind.error,
         );
       }
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../sources/application/source_providers.dart';
 import '../application/video_preferences_provider.dart';
 
@@ -26,8 +27,11 @@ class _LocalVideoActionsState extends ConsumerState<LocalVideoActions> {
         await action();
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(sourceErrorMessage(error))));
+          showAppToast(
+            context,
+            sourceErrorMessage(error),
+            kind: AppFeedbackKind.error,
+          );
         }
       } finally {
         if (mounted) setState(() => _busy = false);

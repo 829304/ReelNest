@@ -173,6 +173,22 @@ abstract final class AppTheme {
           side: BorderSide(color: palette.border),
         ),
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: palette.page,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        titleTextStyle: baseText.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+        contentTextStyle: baseText.bodyMedium?.copyWith(
+          color: palette.secondary,
+          height: 1.5,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(DesignTokens.sheetRadius),
+          side: BorderSide(color: palette.border),
+        ),
+      ),
       tooltipTheme: TooltipThemeData(
         textStyle: baseText.bodySmall?.copyWith(color: palette.title),
         decoration: BoxDecoration(

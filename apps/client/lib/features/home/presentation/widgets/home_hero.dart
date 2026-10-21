@@ -25,7 +25,7 @@ class _HomeHeroState extends ConsumerState<HomeHero>
     with WidgetsBindingObserver {
   Timer? _timer;
   int _index = 0;
-  bool _hover = false, _busy = false, _active = true;
+  bool _hover = false, _focused = false, _busy = false, _active = true;
   DateTime _lastStep = DateTime.fromMillisecondsSinceEpoch(0);
   double _scrollX = 0, _dragX = 0;
   @override
@@ -39,6 +39,7 @@ class _HomeHeroState extends ConsumerState<HomeHero>
       if (mounted &&
           _active &&
           !_hover &&
+          !_focused &&
           !_busy &&
           TickerMode.valuesOf(context).enabled &&
           ModalRoute.of(context)?.isCurrent != false &&
@@ -124,8 +125,10 @@ class _HomeHeroState extends ConsumerState<HomeHero>
             }
           },
           child: AnimatedScale(
-            scale: _hover && !reduced ? 1.008 : 1,
-            duration: const Duration(milliseconds: 140),
+            scale: (_hover || _focused) && !reduced ? 1.008 : 1,
+            duration: reduced
+                ? Duration.zero
+                : const Duration(milliseconds: 140),
             child: SizedBox(
               height: 246,
               child: Stack(
@@ -138,13 +141,19 @@ class _HomeHeroState extends ConsumerState<HomeHero>
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: _focused
+                              ? Colors.white.withValues(alpha: .78)
+                              : Colors.transparent,
+                          width: _focused ? 1.5 : 1,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(
-                              alpha: _hover ? .24 : .18,
+                              alpha: (_hover || _focused) ? .24 : .18,
                             ),
-                            blurRadius: _hover ? 32 : 24,
-                            offset: Offset(0, _hover ? 12 : 8),
+                            blurRadius: (_hover || _focused) ? 32 : 24,
+                            offset: Offset(0, (_hover || _focused) ? 12 : 8),
                           ),
                         ],
                       ),
@@ -157,11 +166,26 @@ class _HomeHeroState extends ConsumerState<HomeHero>
                               duration: reduced
                                   ? Duration.zero
                                   : const Duration(milliseconds: 400),
-                              child: GestureDetector(
+                              child: Material(
                                 key: ValueKey(video.item.identity),
-                                onTap: () =>
-                                    context.push(homeDetailLocation(video)),
-                                child: _slide(video),
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () =>
+                                      context.push(homeDetailLocation(video)),
+                                  onFocusChange: (focused) {
+                                    if (_focused != focused) {
+                                      setState(() => _focused = focused);
+                                    }
+                                  },
+                                  splashColor: Colors.white.withValues(
+                                    alpha: .08,
+                                  ),
+                                  hoverColor: Colors.transparent,
+                                  highlightColor: Colors.white.withValues(
+                                    alpha: .04,
+                                  ),
+                                  child: _slide(video),
+                                ),
                               ),
                             ),
                             Positioned(
@@ -232,7 +256,7 @@ class _HomeHeroState extends ConsumerState<HomeHero>
                       ),
                     ),
                   ),
-                  if (_hover && slides.length > 1) ...[
+                  if ((_hover || _focused) && slides.length > 1) ...[
                     Positioned(
                       left: 0,
                       top: 90,

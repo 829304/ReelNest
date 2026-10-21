@@ -759,7 +759,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('add-source')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Emby'));
+      await tester.tap(find.byKey(const ValueKey('source-kind-emby')));
       await tester.pump();
       await tester.tap(find.text('下一步'));
       await tester.pumpAndSettle();

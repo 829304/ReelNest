@@ -20,11 +20,13 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
   const PlayerVideoDisplaySettings({
     required this.session,
     required this.palette,
+    this.showControlError = true,
     super.key,
   });
 
   final PlaybackSession session;
   final PlayerPalette palette;
+  final bool showControlError;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -241,12 +243,12 @@ class PlayerVideoDisplaySettings extends StatelessWidget {
               keyFor: (item) => ValueKey('video-tone-mapping-${item.name}'),
             ),
           ),
-          if (session.controlError != null)
+          if (showControlError && session.controlError != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                session.controlError!,
-                style: TextStyle(fontSize: 11, color: palette.secondary),
+              child: PlayerInlineNotice(
+                message: session.controlError!,
+                palette: palette,
               ),
             ),
         ],

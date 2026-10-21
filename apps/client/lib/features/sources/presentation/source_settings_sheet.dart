@@ -63,7 +63,11 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
       child: Dialog(
         backgroundColor: palette.page,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        insetPadding: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: palette.border),
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: AppSheetMetrics.wideWidth,

@@ -264,6 +264,11 @@ void main() {
             )
             .first,
       );
+      await Scrollable.ensureVisible(
+        tester.element(find.byKey(const ValueKey('home-edit'))),
+        alignment: .5,
+      );
+      await settle(tester);
       await tester.tap(find.byKey(const ValueKey('home-edit')));
       await settle(tester);
       final container = ProviderScope.containerOf(
@@ -728,6 +733,86 @@ void main() {
     },
     variant: TargetPlatformVariant({TargetPlatform.windows}),
   );
+
+  testWidgets(
+    'home chrome uses focused search, elevated stats and neutral section actions',
+    (tester) async {
+      for (var n = 0; n < 3; n++) {
+        await seed('视觉影片$n');
+      }
+      await pump(
+        tester,
+        size: const Size(1088, 720),
+        brightness: Brightness.dark,
+      );
+
+      final searchSurface = find.byKey(const ValueKey('home-search-surface'));
+      final beforeSearch = tester.widget<AnimatedContainer>(searchSurface);
+      final beforeBorder =
+          (beforeSearch.decoration! as BoxDecoration).border! as Border;
+      await tester.tap(find.byKey(const ValueKey('home-search-field')));
+      await tester.pump(const Duration(milliseconds: 180));
+      final afterSearch = tester.widget<AnimatedContainer>(searchSurface);
+      final afterBorder =
+          (afterSearch.decoration! as BoxDecoration).border! as Border;
+      expect(afterBorder.top.color, isNot(beforeBorder.top.color));
+
+      final stat = find.byKey(const ValueKey('home-stat-card-影片'));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(stat));
+      await tester.pump(const Duration(milliseconds: 180));
+      final elevated = tester.widget<AnimatedContainer>(stat);
+      expect(elevated.transform!.getTranslation().y, -4);
+      expect((elevated.decoration! as BoxDecoration).boxShadow, isNotEmpty);
+
+      await tester.drag(
+        find.descendant(
+          of: find.byType(HomePage),
+          matching: find.byType(CustomScrollView),
+        ),
+        const Offset(0, -420),
+      );
+      await settle(tester);
+      final dashboardButton = tester.widget<TextButton>(
+        find.ancestor(
+          of: find.text('进入仪表盘 ›'),
+          matching: find.byType(TextButton),
+        ),
+      );
+      final actionColor = dashboardButton.style?.foregroundColor?.resolve({});
+      expect(
+        actionColor,
+        isNot(Theme.of(tester.element(stat)).colorScheme.primary),
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets('home overview remains usable in compact desktop viewport', (
+    tester,
+  ) async {
+    for (var n = 0; n < 3; n++) {
+      await seed('紧凑影片$n');
+    }
+    await pump(tester, size: const Size(680, 382), brightness: Brightness.dark);
+    expect(find.byKey(const ValueKey('home-search-field')), findsOneWidget);
+    expect(find.byType(HomeHero), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.drag(
+      find.descendant(
+        of: find.byType(HomePage),
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, -720),
+    );
+    await settle(tester);
+    expect(find.text('运行状态'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
 
   testWidgets(
     'home displays cached modules, plays, enters details and returns in its own branch',

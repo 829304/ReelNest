@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../playback/application/playback_providers.dart';
@@ -83,45 +84,68 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
           child: CustomScrollView(
             slivers: [
               _inset(
-                Row(
-                  children: [
-                    Text(
-                      source?.name ?? '媒体库',
-                      style: Theme.of(context).textTheme.headlineLarge,
-                    ),
-                    const Spacer(),
-                    TextButton(onPressed: _back, child: const Text('返回')),
-                  ],
+                _DetailPageHeader(
+                  key: const ValueKey('media-detail-header'),
+                  title: source?.name ?? '媒体库',
+                  remote: source?.kind == MediaSourceKind.emby,
+                  onBack: _back,
+                  palette: palette,
                 ),
                 top: 28,
               ),
               if (sources.hasError && source == null)
-                _inset(Text(sourceErrorMessage(sources.error!)))
+                _inset(
+                  _DetailStatusCard(
+                    palette: palette,
+                    icon: Icons.cloud_off_rounded,
+                    title: sourceErrorMessage(sources.error!),
+                    message: '媒体源状态读取失败，现有媒体数据不会被删除。',
+                  ),
+                )
               else if (!sources.isLoading && sources.hasValue && source == null)
-                _inset(const Text('此媒体源已移除。'))
+                _inset(
+                  _DetailStatusCard(
+                    palette: palette,
+                    icon: Icons.folder_off_outlined,
+                    title: '此媒体源已移除。',
+                    message: '可以返回媒体库，选择其他仍然可用的内容。',
+                  ),
+                )
               else
                 ...detail.when(
                   skipLoadingOnReload: true,
-                  loading: () => [_inset(const LinearProgressIndicator())],
+                  loading: () => [
+                    _inset(
+                      _DetailLoadingCard(
+                        key: const ValueKey('media-detail-loading'),
+                        palette: palette,
+                      ),
+                    ),
+                  ],
                   error: (error, stack) => [
                     _inset(
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(sourceErrorMessage(error)),
-                          TextButton(
-                            onPressed: () => ref.invalidate(
-                              sourceMediaDetailProvider(widget.identity),
-                            ),
-                            child: const Text('重试'),
-                          ),
-                        ],
+                      _DetailStatusCard(
+                        palette: palette,
+                        icon: Icons.error_outline_rounded,
+                        title: sourceErrorMessage(error),
+                        message: '详情读取失败，可以返回媒体库或重新尝试。',
+                        actionLabel: '重试',
+                        onAction: () => ref.invalidate(
+                          sourceMediaDetailProvider(widget.identity),
+                        ),
                       ),
                     ),
                   ],
                   data: (item) {
                     if (source == null) {
-                      return [_inset(const LinearProgressIndicator())];
+                      return [
+                        _inset(
+                          _DetailLoadingCard(
+                            key: const ValueKey('media-detail-loading'),
+                            palette: palette,
+                          ),
+                        ),
+                      ];
                     }
                     final extras = source.kind == MediaSourceKind.emby
                         ? ref.watch(
@@ -151,18 +175,18 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                       if (extras != null)
                         _inset(
                           extras.when(
-                            loading: () => const Text('正在整理演职人员、艺术照和相关作品…'),
-                            error: (_, _) => Row(
-                              children: [
-                                const Expanded(
-                                  child: Text('Emby 详情读取失败，基础信息和播放仍可使用。'),
-                                ),
-                                TextButton(
-                                  onPressed: () =>
-                                      setState(() => _detailRefresh++),
-                                  child: const Text('重试'),
-                                ),
-                              ],
+                            loading: () => _DetailInlineNotice(
+                              palette: palette,
+                              icon: Icons.auto_awesome_motion_outlined,
+                              title: '正在整理演职人员、艺术照和相关作品…',
+                              loading: true,
+                            ),
+                            error: (_, _) => _DetailInlineNotice(
+                              palette: palette,
+                              icon: Icons.cloud_off_rounded,
+                              title: 'Emby 详情读取失败，基础信息和播放仍可使用。',
+                              actionLabel: '重试',
+                              onAction: () => setState(() => _detailRefresh++),
                             ),
                             data: (snapshot) => EmbyDetailExtras(
                               key: ValueKey(item.identity),
@@ -197,24 +221,34 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
   }
 
   List<Widget> _series(MediaSource source, IndexedMedia item) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
     final foreground =
         source.kind == MediaSourceKind.emby && source.lastScan == null
         ? ref.watch(embySeriesEpisodesProvider(item.identity))
         : null;
     final result = ref.watch(sourceSeasonsProvider(item.identity));
     return result.when(
-      loading: () => [_inset(const LinearProgressIndicator())],
+      loading: () => [
+        _inset(
+          _DetailInlineNotice(
+            palette: palette,
+            icon: Icons.list_rounded,
+            title: '正在读取剧集…',
+            loading: true,
+          ),
+        ),
+      ],
       error: (error, stack) => [
         _inset(
-          Column(
-            children: [
-              Text(sourceErrorMessage(error)),
-              TextButton(
-                onPressed: () =>
-                    ref.invalidate(sourceSeasonsProvider(item.identity)),
-                child: const Text('重试'),
-              ),
-            ],
+          _DetailInlineNotice(
+            palette: palette,
+            icon: Icons.error_outline_rounded,
+            title: sourceErrorMessage(error),
+            actionLabel: '重试',
+            onAction: () =>
+                ref.invalidate(sourceSeasonsProvider(item.identity)),
           ),
         ),
       ],
@@ -222,13 +256,24 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
         final count = seasons.fold<int>(0, (n, s) => n + s.episodeCount);
         final grouped = seasons.length > 1;
         return [
-          if (foreground?.isLoading == true) _inset(const Text('正在读取服务端剧集…')),
+          if (foreground?.isLoading == true)
+            _inset(
+              _DetailInlineNotice(
+                palette: palette,
+                icon: Icons.cloud_sync_outlined,
+                title: '正在读取服务端剧集…',
+                loading: true,
+              ),
+            ),
           if (foreground?.hasError == true)
             _inset(
-              TextButton(
-                onPressed: () =>
+              _DetailInlineNotice(
+                palette: palette,
+                icon: Icons.cloud_off_rounded,
+                title: '剧集读取失败',
+                actionLabel: '重试',
+                onAction: () =>
                     ref.invalidate(embySeriesEpisodesProvider(item.identity)),
-                child: const Text('剧集读取失败，重试'),
               ),
             ),
           _inset(
@@ -295,6 +340,355 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
   }
 }
 
+class _DetailPageHeader extends StatelessWidget {
+  const _DetailPageHeader({
+    required this.title,
+    required this.remote,
+    required this.onBack,
+    required this.palette,
+    super.key,
+  });
+
+  final String title;
+  final bool remote;
+  final VoidCallback onBack;
+  final SourceSheetPalette palette;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(18, 15, 14, 15),
+    decoration: BoxDecoration(
+      color: palette.card,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: palette.border, width: .8),
+      boxShadow: [
+        BoxShadow(
+          color: palette.shadow.withValues(alpha: palette.dark ? .16 : .045),
+          blurRadius: 20,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: palette.iconChip,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: palette.border, width: .8),
+          ),
+          child: Icon(
+            remote ? Icons.video_library_outlined : Icons.folder_outlined,
+            size: 20,
+            color: palette.selectedTint,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 20,
+                  height: 1.08,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '媒体详情',
+                style: TextStyle(
+                  color: palette.secondary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        SourceSheetButton(
+          key: const ValueKey('media-detail-back'),
+          label: '返回',
+          icon: const Icon(Icons.chevron_left_rounded, size: 17),
+          height: 36,
+          horizontalPadding: 12,
+          outlined: true,
+          onPressed: onBack,
+        ),
+      ],
+    ),
+  );
+}
+
+class _DetailStatusCard extends StatelessWidget {
+  const _DetailStatusCard({
+    required this.palette,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final SourceSheetPalette palette;
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    constraints: const BoxConstraints(minHeight: 250),
+    padding: const EdgeInsets.all(28),
+    decoration: BoxDecoration(
+      color: palette.card,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: palette.border, width: .8),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: palette.selectedTint.withValues(alpha: .10),
+          ),
+          child: Icon(icon, size: 27, color: palette.selectedTint),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: palette.secondary, fontSize: 12.5),
+        ),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(height: 16),
+          SourceSheetButton(
+            label: actionLabel!,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            height: 34,
+            horizontalPadding: 12,
+            outlined: true,
+            onPressed: onAction,
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _DetailInlineNotice extends StatelessWidget {
+  const _DetailInlineNotice({
+    required this.palette,
+    required this.icon,
+    required this.title,
+    this.loading = false,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final SourceSheetPalette palette;
+  final IconData icon;
+  final String title;
+  final bool loading;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    constraints: const BoxConstraints(minHeight: 52),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: palette.card,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: palette.border, width: .8),
+    ),
+    child: Row(
+      children: [
+        if (loading)
+          SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(
+              value: .72,
+              strokeWidth: 2,
+              color: palette.selectedTint,
+            ),
+          )
+        else
+          Icon(icon, size: 18, color: palette.selectedTint),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              color: palette.secondary,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        if (actionLabel != null && onAction != null) ...[
+          const SizedBox(width: 10),
+          SourceSheetButton(
+            label: actionLabel!,
+            height: 30,
+            horizontalPadding: 10,
+            outlined: true,
+            onPressed: onAction,
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _DetailLoadingCard extends StatelessWidget {
+  const _DetailLoadingCard({required this.palette, super.key});
+
+  final SourceSheetPalette palette;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(begin: 0, end: 1),
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 1100),
+    curve: Curves.easeInOut,
+    builder: (context, shimmer, _) => Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: palette.border, width: .8),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final poster = _DetailSkeletonBlock(
+            palette: palette,
+            shimmer: shimmer,
+            radius: 12,
+            width: constraints.maxWidth < 620 ? 150 : 210,
+            height: constraints.maxWidth < 620 ? 225 : 315,
+          );
+          final information = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _DetailSkeletonBlock(
+                palette: palette,
+                shimmer: shimmer,
+                radius: 6,
+                height: 30,
+                widthFactor: .72,
+              ),
+              const SizedBox(height: 18),
+              _DetailSkeletonBlock(
+                palette: palette,
+                shimmer: shimmer,
+                radius: 12,
+                height: 28,
+                widthFactor: .58,
+              ),
+              const SizedBox(height: 20),
+              for (final width in [.96, .88, .74]) ...[
+                _DetailSkeletonBlock(
+                  palette: palette,
+                  shimmer: shimmer,
+                  radius: 4,
+                  height: 10,
+                  widthFactor: width,
+                ),
+                const SizedBox(height: 9),
+              ],
+              const SizedBox(height: 18),
+              _DetailSkeletonBlock(
+                palette: palette,
+                shimmer: shimmer,
+                radius: 12,
+                height: 34,
+                width: 104,
+              ),
+            ],
+          );
+          if (constraints.maxWidth < 620) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [poster, const SizedBox(height: 22), information],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              poster,
+              const SizedBox(width: 24),
+              Expanded(child: information),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+class _DetailSkeletonBlock extends StatelessWidget {
+  const _DetailSkeletonBlock({
+    required this.palette,
+    required this.shimmer,
+    required this.radius,
+    required this.height,
+    this.width,
+    this.widthFactor,
+  });
+
+  final SourceSheetPalette palette;
+  final double shimmer;
+  final double radius;
+  final double height;
+  final double? width;
+  final double? widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    final block = Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment(-2.6 + shimmer * 4, 0),
+          end: Alignment(-1.2 + shimmer * 4, 0),
+          colors: [
+            palette.control,
+            Colors.white.withValues(alpha: palette.dark ? .10 : .58),
+            palette.control,
+          ],
+        ),
+      ),
+    );
+    if (widthFactor == null) return block;
+    return FractionallySizedBox(widthFactor: widthFactor, child: block);
+  }
+}
+
 class _DetailHero extends StatelessWidget {
   const _DetailHero({
     required this.source,
@@ -330,6 +724,11 @@ class _DetailHero extends StatelessWidget {
       if (detail?.contentRating case final contentRating?)
         (icon: Icons.person_outline_rounded, label: contentRating),
     ];
+    final titleActions = source.kind == MediaSourceKind.emby
+        ? EmbyMediaActions(item: item, favoriteOnly: true)
+        : source.kind.isFileSource
+        ? LocalVideoActions(identity: item.identity)
+        : null;
     final artwork = MarkerAnalysisContextMenu(
       identity: item.identity,
       child: DecoratedBox(
@@ -399,11 +798,10 @@ class _DetailHero extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            if (source.kind == MediaSourceKind.emby)
-              EmbyMediaActions(item: item, favoriteOnly: true)
-            else if (source.kind.isFileSource)
-              LocalVideoActions(identity: item.identity),
+            if (titleActions != null) ...[
+              const SizedBox(width: 12),
+              _DetailTitleActions(palette: palette, child: titleActions),
+            ],
           ],
         ),
         const SizedBox(height: 14),
@@ -445,23 +843,31 @@ class _DetailHero extends StatelessWidget {
         ],
         if (detail?.companies.isNotEmpty == true) ...[
           const SizedBox(height: 12),
-          Text(
-            detail!.companies.take(4).join(' · '),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: palette.secondary,
-              height: 1.35,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.business_outlined, size: 15, color: palette.secondary),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  detail!.companies.take(4).join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: palette.secondary,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
         if (item.type != 'music' && item.type != 'photo') ...[
           const SizedBox(height: 18),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          _DetailActionBar(
+            key: const ValueKey('media-detail-actions'),
+            palette: palette,
             children: [
               _PlaybackButton(
                 item: item,
@@ -478,82 +884,160 @@ class _DetailHero extends StatelessWidget {
         ],
       ],
     );
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: palette.card,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: palette.border),
-        ),
-        child: Stack(
-          children: [
-            if (item.backdropPath != null)
-              Positioned.fill(
-                child: Opacity(
-                  opacity: .20,
-                  child: LocalMediaArtwork(
-                    source: source,
-                    item: item,
-                    fit: BoxFit.cover,
-                    backdrop: true,
-                    revision: artworkRevision,
+    return Container(
+      key: const ValueKey('media-detail-hero'),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: palette.border, width: .9),
+        boxShadow: [
+          BoxShadow(
+            color: palette.shadow.withValues(alpha: palette.dark ? .17 : .05),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 720) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: landscape
+                        ? constraints.maxWidth.clamp(240, 360)
+                        : 180,
+                    child: artwork,
                   ),
                 ),
-              ),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      palette.card.withValues(alpha: .94),
-                      palette.card.withValues(alpha: .82),
-                      palette.card.withValues(alpha: .94),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(22),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  if (constraints.maxWidth < 720) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: SizedBox(
-                            width: landscape
-                                ? constraints.maxWidth.clamp(240, 360)
-                                : 180,
-                            child: artwork,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        information,
-                      ],
-                    );
-                  }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(width: landscape ? 320 : 210, child: artwork),
-                      const SizedBox(width: 26),
-                      Expanded(child: information),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+                const SizedBox(height: 24),
+                information,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: landscape ? 320 : 210, child: artwork),
+              const SizedBox(width: 24),
+              Expanded(child: information),
+            ],
+          );
+        },
       ),
     );
   }
+}
+
+class _DetailTitleActions extends StatelessWidget {
+  const _DetailTitleActions({required this.palette, required this.child});
+
+  final SourceSheetPalette palette;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: palette.control,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(14),
+      side: BorderSide(color: palette.border, width: .8),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: IconButtonTheme(
+      data: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: palette.menuText,
+          minimumSize: const Size(34, 34),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          hoverColor: palette.hoverPill,
+          focusColor: palette.selectedTint.withValues(alpha: .10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      child: Padding(padding: const EdgeInsets.all(2), child: child),
+    ),
+  );
+}
+
+class _DetailActionBar extends StatelessWidget {
+  const _DetailActionBar({
+    required this.palette,
+    required this.children,
+    super.key,
+  });
+
+  final SourceSheetPalette palette;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          if (index > 0) const SizedBox(width: 10),
+          if (index == 0)
+            children[index]
+          else
+            _DetailSecondaryActionSurface(
+              palette: palette,
+              child: children[index],
+            ),
+        ],
+      ],
+    ),
+  );
+}
+
+class _DetailSecondaryActionSurface extends StatelessWidget {
+  const _DetailSecondaryActionSurface({
+    required this.palette,
+    required this.child,
+  });
+
+  final SourceSheetPalette palette;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: palette.card,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: palette.border, width: .9),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: TextButtonTheme(
+      data: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: palette.menuText,
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+          ),
+        ),
+      ),
+      child: IconButtonTheme(
+        data: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            foregroundColor: palette.menuText,
+            minimumSize: const Size(32, 32),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            hoverColor: palette.hoverPill,
+          ),
+        ),
+        child: child,
+      ),
+    ),
+  );
 }
 
 class _DetailMetadataChip extends StatelessWidget {
@@ -637,47 +1121,65 @@ class _SeasonHeader extends StatelessWidget {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return SizedBox(
+    return Container(
       height: 40,
-      child: TextButton(
-        onPressed: onToggle,
-        style: TextButton.styleFrom(
-          backgroundColor: palette.card,
-          foregroundColor: palette.text,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: Row(
-          children: [
-            AnimatedRotation(
-              turns: expanded ? .25 : 0,
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 160),
-              child: Text(
-                '›',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: palette.secondary,
+      decoration: BoxDecoration(
+        color: palette.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.border, width: .8),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onToggle,
+                hoverColor: palette.hoverPill,
+                focusColor: palette.selectedTint.withValues(alpha: .10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      AnimatedRotation(
+                        turns: expanded ? .25 : 0,
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 160),
+                        curve: Curves.easeOutCubic,
+                        child: Icon(
+                          Icons.chevron_right_rounded,
+                          size: 17,
+                          color: palette.secondary,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        season.title,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '${season.episodeCount} 集',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: palette.secondary,
+                        ),
+                      ),
+                      const Spacer(),
+                    ],
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 10),
-            Text(
-              season.title,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              '${season.episodeCount} 集',
-              style: TextStyle(fontSize: 11, color: palette.secondary),
-            ),
-            const Spacer(),
-            ?actions,
-          ],
-        ),
+          ),
+          if (actions != null)
+            Padding(padding: const EdgeInsets.only(right: 4), child: actions!),
+        ],
       ),
     );
   }
@@ -761,12 +1263,18 @@ class _EpisodeRow extends ConsumerWidget {
         await ref.read(playbackLauncherProvider).open(item.identity);
       } catch (_) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('无法打开播放器，请重试。')));
+          showAppToast(context, '无法打开播放器，请重试。', kind: AppFeedbackKind.error);
         }
       }
     }
 
+    final record = ref
+        .watch(playbackRecordProvider(item.identity))
+        .asData
+        ?.value;
+    final watched = record?.watched == true;
+    final progress = record?.progress ?? 0;
+    final inProgress = !watched && progress > .015;
     final row = GestureDetector(
       onDoubleTap:
           source.kind.isFileSource || source.kind == MediaSourceKind.emby
@@ -775,133 +1283,214 @@ class _EpisodeRow extends ConsumerWidget {
               play();
             }
           : null,
-      child: TextButton(
-        onPressed: onSelect,
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.all(10),
-          foregroundColor: palette.text,
-          backgroundColor: selected
-              ? palette.selectedTint.withValues(alpha: .08)
-              : palette.card,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: selected
-                  ? palette.selectedTint.withValues(alpha: .42)
-                  : Colors.transparent,
-              width: 1.2,
+      child: Stack(
+        children: [
+          TextButton(
+            onPressed: onSelect,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.all(10),
+              foregroundColor: palette.text,
+              backgroundColor: selected
+                  ? palette.selectedTint.withValues(alpha: .08)
+                  : palette.card,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: selected
+                      ? palette.selectedTint.withValues(alpha: .42)
+                      : Colors.transparent,
+                  width: 1.2,
+                ),
+              ),
             ),
-          ),
-        ),
-        child: Row(
-          children: [
-            Stack(
+            child: Row(
               children: [
-                SizedBox(
-                  width: 120,
-                  height: 68,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LocalMediaArtwork(source: source, item: item),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: SizedBox(
+                    width: 120,
+                    height: 68,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        LocalMediaArtwork(source: source, item: item),
+                        if (watched)
+                          ColoredBox(
+                            color: Colors.black.withValues(alpha: .30),
+                          ),
+                        if (inProgress)
+                          Align(
+                            alignment: Alignment.bottomLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: progress.clamp(0, 1),
+                              child: Container(
+                                height: 4,
+                                color: palette.selectedTint,
+                              ),
+                            ),
+                          ),
+                        if (watched)
+                          Positioned(
+                            right: 5,
+                            top: 5,
+                            child: Icon(
+                              Icons.check_circle_rounded,
+                              size: 18,
+                              color: palette.selectedTint,
+                              shadows: const [
+                                Shadow(
+                                  color: Colors.black45,
+                                  blurRadius: 3,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: .18),
+                                width: .7,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                if (source.kind == MediaSourceKind.emby &&
-                    ref
-                            .watch(playbackRecordProvider(item.identity))
-                            .asData
-                            ?.value
-                            .watched ==
-                        true)
-                  const Positioned(
-                    right: 4,
-                    bottom: 4,
-                    child: Icon(
-                      Icons.visibility,
-                      size: 16,
-                      color: Colors.white,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Flexible(
+                                  child: Opacity(
+                                    opacity: watched ? .7 : 1,
+                                    child: Text(
+                                      item.cardTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (inProgress) ...[
+                                  const SizedBox(width: 7),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: palette.selectedTint.withValues(
+                                        alpha: .13,
+                                      ),
+                                      borderRadius: BorderRadius.circular(9),
+                                    ),
+                                    child: Text(
+                                      '继续观看',
+                                      style: TextStyle(
+                                        color: palette.selectedTint,
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (item.remote?.durationMs case final duration?) ...[
+                            const SizedBox(width: 10),
+                            Text(
+                              '${duration ~/ 60000} 分钟',
+                              style: TextStyle(
+                                color: palette.secondary,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      SizedBox(
+                        height: 31,
+                        child: item.overview == null
+                            ? Align(
+                                alignment: Alignment.topLeft,
+                                child: Text(
+                                  '暂无本集简介',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: palette.secondary.withValues(
+                                      alpha: .68,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Text(
+                                item.overview!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.35,
+                                  color: palette.secondary,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                if (source.kind == MediaSourceKind.emby)
+                  EmbyCacheActions(item: item, compact: true),
+                if (selected)
+                  SourceLineIcon(
+                    SourceGlyph.checkCircle,
+                    size: 20,
+                    color: palette.selectedTint,
+                  )
+                else
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: palette.secondary),
                     ),
                   ),
               ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.cardTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (item.remote?.durationMs case final duration?) ...[
-                        const SizedBox(width: 10),
-                        Text(
-                          '${duration ~/ 60000} 分钟',
-                          style: TextStyle(
-                            color: palette.secondary,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ],
+          ),
+          if (selected)
+            Positioned(
+              left: 3,
+              top: 12,
+              bottom: 12,
+              child: IgnorePointer(
+                child: Container(
+                  width: 4,
+                  decoration: BoxDecoration(
+                    color: palette.selectedTint.withValues(alpha: .82),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const SizedBox(height: 6),
-                  SizedBox(
-                    height: 31,
-                    child: item.overview == null
-                        ? Align(
-                            alignment: Alignment.topLeft,
-                            child: Text(
-                              '暂无本集简介',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: palette.secondary.withValues(alpha: .68),
-                              ),
-                            ),
-                          )
-                        : Text(
-                            item.overview!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              height: 1.35,
-                              color: palette.secondary,
-                            ),
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            if (source.kind == MediaSourceKind.emby)
-              EmbyCacheActions(item: item, compact: true),
-            if (selected)
-              SourceLineIcon(
-                SourceGlyph.checkCircle,
-                size: 20,
-                color: palette.selectedTint,
-              )
-            else
-              Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: palette.secondary),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
     return source.kind == MediaSourceKind.emby
@@ -943,12 +1532,10 @@ class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
       await ref.read(playbackLauncherProvider).open(identity);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is SourceFailure ? error.message : '无法打开播放器，请重试。',
-            ),
-          ),
+        showAppToast(
+          context,
+          error is SourceFailure ? error.message : '无法打开播放器，请重试。',
+          kind: AppFeedbackKind.error,
         );
       }
     } finally {
@@ -990,6 +1577,9 @@ class _RemoteFileStatus extends ConsumerWidget {
   final EmbyDetail? detail;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
     final technical = detail?.technical;
     final video = technical?.videoCodec ?? item.remote?.videoCodec;
     final audio = technical?.audioCodec ?? item.remote?.audioCodec;
@@ -998,8 +1588,9 @@ class _RemoteFileStatus extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: palette.card,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: palette.border, width: .8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1011,7 +1602,19 @@ class _RemoteFileStatus extends ConsumerWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.cloud_outlined, size: 18),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: palette.iconChip,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.cloud_outlined,
+                  size: 17,
+                  color: palette.selectedTint,
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1020,7 +1623,12 @@ class _RemoteFileStatus extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              TextButton(
+              SourceSheetButton(
+                label: '打开',
+                icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                height: 32,
+                horizontalPadding: 11,
+                outlined: true,
                 onPressed: () async {
                   try {
                     await ref
@@ -1028,13 +1636,14 @@ class _RemoteFileStatus extends ConsumerWidget {
                         .open(item.identity);
                   } catch (_) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('无法打开播放器，请重试。')),
+                      showAppToast(
+                        context,
+                        '无法打开播放器，请重试。',
+                        kind: AppFeedbackKind.error,
                       );
                     }
                   }
                 },
-                child: const Text('打开'),
               ),
             ],
           ),
@@ -1047,10 +1656,7 @@ class _RemoteFileStatus extends ConsumerWidget {
                   '${(bitrate / 1000000).toStringAsFixed(1)} Mbps',
                 if (size > 0) '${(size / 1024 / 1024).toStringAsFixed(1)} MiB',
               ].join(' · '),
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+              style: TextStyle(fontSize: 12, color: palette.secondary),
             ),
         ],
       ),
@@ -1088,45 +1694,63 @@ class _LocalFileStatusState extends State<_LocalFileStatus> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
-    future: _exists,
-    builder: (context, snapshot) => Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '文件',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              if (snapshot.connectionState != ConnectionState.done)
-                const SizedBox.square(
-                  dimension: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                SourceLineIcon(
-                  snapshot.data == true
-                      ? SourceGlyph.checkCircle
-                      : SourceGlyph.warning,
-                  size: 18,
-                  color: snapshot.data == true
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : Colors.orange,
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return FutureBuilder<bool>(
+      future: _exists,
+      builder: (context, snapshot) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: palette.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: palette.border, width: .8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '文件',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: palette.iconChip,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: snapshot.connectionState != ConnectionState.done
+                        ? SizedBox.square(
+                            dimension: 15,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: palette.selectedTint,
+                            ),
+                          )
+                        : SourceLineIcon(
+                            snapshot.data == true
+                                ? SourceGlyph.checkCircle
+                                : SourceGlyph.warning,
+                            size: 18,
+                            color: snapshot.data == true
+                                ? palette.selectedTint
+                                : Colors.orange,
+                          ),
+                  ),
                 ),
-              const SizedBox(width: 10),
-              Expanded(child: SelectableText(_path, maxLines: 1)),
-            ],
-          ),
-        ],
+                const SizedBox(width: 10),
+                Expanded(child: SelectableText(_path, maxLines: 1)),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

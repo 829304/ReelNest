@@ -95,18 +95,15 @@ class _HomePageState extends ConsumerState<HomePage> {
           .watch(sidebarSourcesProvider)
           .when(
             skipLoadingOnReload: true,
-            loading: () => const Center(child: Text('正在整理媒体库…')),
-            error: (error, _) => Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(sourceErrorMessage(error)),
-                  TextButton(
-                    onPressed: () => ref.invalidate(sidebarSourcesProvider),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
+            loading: () => const _HomeBootstrapState(
+              title: '正在整理媒体库…',
+              subtitle: '正在读取媒体源和首页布局，请稍候。',
+              loading: true,
+            ),
+            error: (error, _) => _HomeBootstrapState(
+              title: '暂时无法载入首页',
+              subtitle: sourceErrorMessage(error),
+              onRetry: () => ref.invalidate(sidebarSourcesProvider),
             ),
             data: (sources) => _content(context, ref, sources, palette),
           ),
@@ -203,11 +200,11 @@ class _HomePageState extends ConsumerState<HomePage> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
                   sliver: SliverToBoxAdapter(
-                    child: Text(
-                      loading
+                    child: _HomeInlineNotice(
+                      icon: Icons.sync_rounded,
+                      message: loading
                           ? '正在整理媒体库… 已有内容可先浏览。'
                           : '显示已载入的内容；完整同步后将补齐统计与记录。',
-                      style: TextStyle(fontSize: 12, color: palette.secondary),
                     ),
                   ),
                 ),
@@ -215,23 +212,16 @@ class _HomePageState extends ConsumerState<HomePage> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(36, 12, 36, 0),
                   sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final error in errors.values)
-                          Text(error, style: const TextStyle(fontSize: 12)),
-                        TextButton(
-                          onPressed: () {
-                            ref.invalidate(homeVideoPageProvider);
-                            ref.invalidate(homeSourceStatsProvider);
-                            ref.invalidate(homeSeedProvider);
-                            ref.invalidate(
-                              homeRecommendationCandidatesProvider,
-                            );
-                          },
-                          child: const Text('重试'),
-                        ),
-                      ],
+                    child: _HomeInlineNotice(
+                      icon: Icons.error_outline_rounded,
+                      message: errors.values.join('\n'),
+                      actionLabel: '重试',
+                      onAction: () {
+                        ref.invalidate(homeVideoPageProvider);
+                        ref.invalidate(homeSourceStatsProvider);
+                        ref.invalidate(homeSeedProvider);
+                        ref.invalidate(homeRecommendationCandidatesProvider);
+                      },
                     ),
                   ),
                 ),
@@ -363,11 +353,20 @@ class _HomePageState extends ConsumerState<HomePage> {
     decoration: BoxDecoration(
       color: palette.card,
       borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: palette.border),
     ),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.add_to_drive_outlined, size: 62, color: palette.accent),
+        ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: palette.prominentGradient.createShader,
+          child: const Icon(
+            Icons.add_to_drive_outlined,
+            size: 62,
+            color: Colors.white,
+          ),
+        ),
         const SizedBox(height: 32),
         Text(
           title,
@@ -416,62 +415,12 @@ class _HomePageState extends ConsumerState<HomePage> {
           runSpacing: 16,
           children: [
             for (final t in tiles)
-              Container(
+              _HomeStatCard(
                 width: (size.maxWidth - 16 * (columns - 1)) / columns,
-                height: 87,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: p.card,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: p.border),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: t.$4,
-                        borderRadius: BorderRadius.circular(13),
-                      ),
-                      child: Icon(t.$3, color: Colors.white, size: 21),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Flexible(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                loading ? '—' : _count(t.$1),
-                                key: ValueKey('home-stat-${t.$2}'),
-                                style: TextStyle(
-                                  fontSize: 27,
-                                  height: 1.1,
-                                  fontWeight: FontWeight.w900,
-                                  color: t.$4,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Text(
-                            t.$2,
-                            maxLines: 1,
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              height: 1.2,
-                              fontWeight: FontWeight.w600,
-                              color: p.secondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                label: t.$2,
+                value: loading ? '—' : _count(t.$1),
+                icon: t.$3,
+                color: t.$4,
               ),
           ],
         );
@@ -481,4 +430,278 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   String _count(int value) =>
       value >= 10000 ? '${value ~/ 1000}K' : value.toString();
+}
+
+class _HomeBootstrapState extends StatelessWidget {
+  const _HomeBootstrapState({
+    required this.title,
+    required this.subtitle,
+    this.loading = false,
+    this.onRetry,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool loading;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(36),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 260, maxWidth: 680),
+          width: double.infinity,
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: palette.card,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: palette.border),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (loading)
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: palette.accent,
+                    backgroundColor: palette.control,
+                  ),
+                )
+              else
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: palette.iconChip,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(
+                    Icons.cloud_off_outlined,
+                    color: palette.accent,
+                    size: 23,
+                  ),
+                ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: palette.secondary,
+                ),
+              ),
+              if (onRetry != null) ...[
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded, size: 17),
+                  label: const Text('重试'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeInlineNotice extends StatelessWidget {
+  const _HomeInlineNotice({
+    required this.icon,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+      decoration: BoxDecoration(
+        color: palette.cleanPanelFill,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: palette.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: palette.secondary,
+              ),
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(width: 10),
+            TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(
+                foregroundColor: palette.accent,
+                minimumSize: const Size(0, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: Text(actionLabel!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeStatCard extends StatefulWidget {
+  const _HomeStatCard({
+    required this.width,
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final double width;
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  State<_HomeStatCard> createState() => _HomeStatCardState();
+}
+
+class _HomeStatCardState extends State<_HomeStatCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final companion = Color.lerp(widget.color, const Color(0xFF36BFFA), .38)!;
+    final gradient = LinearGradient(colors: [widget.color, companion]);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Semantics(
+        label: '${widget.label} ${widget.value}',
+        child: AnimatedContainer(
+          key: ValueKey('home-stat-card-${widget.label}'),
+          width: widget.width,
+          height: 87,
+          duration: reduced ? Duration.zero : const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          transform: Matrix4.translationValues(
+            0,
+            _hovered && !reduced ? -4 : 0,
+            0,
+          ),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: palette.card,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: palette.border),
+            boxShadow: _hovered
+                ? [
+                    BoxShadow(
+                      color: palette.shadow.withValues(alpha: .16),
+                      blurRadius: 22,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: gradient,
+                  borderRadius: BorderRadius.circular(13),
+                  boxShadow: [
+                    BoxShadow(
+                      color: widget.color.withValues(alpha: .30),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Icon(widget.icon, color: Colors.white, size: 21),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: ShaderMask(
+                          blendMode: BlendMode.srcIn,
+                          shaderCallback: gradient.createShader,
+                          child: Text(
+                            widget.value,
+                            key: ValueKey('home-stat-${widget.label}'),
+                            style: const TextStyle(
+                              fontSize: 27,
+                              height: 1.1,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      widget.label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.2,
+                        fontWeight: FontWeight.w600,
+                        color: palette.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

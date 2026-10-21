@@ -2,6 +2,14 @@
 
 > 2026-10-10 更新：[首次加载与人物作品修正](EMBY_LOADING.zh-CN.md)已接入前台视频分页及按需集列表、服务器人物全部分页、后台批量索引；整库快照的失败/取消保护保留。下文涉及全库等待和仅从详情缓存查询人物的描述属于此前批次。
 
+## 2026-10-20：媒体库浏览页 P1-A 前端收口
+
+筛选控制栏按原 MediaLib 的 `AppAdaptiveControlBar`、`AppControlSegmentedShell`、`GlassCapsuleControl`、`GlassMenuButton` 参数重构。观看筛选为 44px 分段壳与 28px 胶囊；类型和排序使用 38px 下拉。筛选项与下拉控件补齐悬浮、选中、按压、键盘焦点反馈及减少动画适配。
+
+窄窗口下观看筛选可横向滚动，尾部控件换行；680×382 布局已有自动化断言。初始读取和筛选计算期间显示四行原版风格骨架占位，搜索期间采用搜索语义。上述改动只涉及 presentation；媒体分类、筛选/排序规则、服务器行为和持久化口径均未改变。
+
+`emby_navigation_test.dart` 新增控制栏结构与小窗口回归；`flutter analyze` 全量无问题，导航与浏览两个测试文件共 **45 项通过**，包含 Windows/macOS/Linux Flutter 平台变体及明暗主题。最终源码的 `flutter build windows --release --no-pub` **39.8 秒成功**，产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；本轮未执行启动 smoke。仍待真实 Emby 媒体库上的可见窗口人工视觉对照、实体鼠标/键盘验收及三桌面原生运行；平台变体测试不等同于 macOS/Linux 原生验收。阶段汇总见[前端 P1-A 记录](NEXT_STAGE.zh-CN.md#2026-10-20-前端-p1-a-emby-媒体库浏览页收口)。
+
 
 实现日期：2026-10-10。此批接入来源树、分库浏览、搜索、观看筛选、类型筛选、排序和本机想看状态；不代表完整 Emby 或原版 UI 已验收。音乐按用户决定留给独立模块，已有 Audio 同步保留。
 

@@ -1,6 +1,119 @@
 # 当前阶段与历史实施记录
 本轮按原版 `VideoColorAdjustments.swift`、`VideoColorAdjustmentPolicy.swift`、`PlayerView.swift` 迁移亮度、对比度、饱和度、伽马、色相；范围 -100…100、默认 0、半值远离 0 取整、每步 ±5、单项重置。全局 JSON 偏好 `global.videoColorAdjustments`，无 schema，本地/Emby 共用；串行最新值合并、原生应用与保存、失败回滚告警及初始化非致命作为验收契约。实现细节及边界见[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
-更新：2026-10-19。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+更新：2026-10-21。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-21 前端 P1-G：全局弹层与反馈表面统一
+
+新增 `apps/client/lib/ui/widgets/app_feedback.dart`，提供 `AppFeedbackKind`、`showAppToast`、`AppInlineNotice`，统一普通页面的信息/成功/警告/错误反馈，浮动提示采用单层阴影。新增 `app_confirmation_dialog.dart`，统一普通页面确认弹窗的标题、副标题、正文，以及普通/危险确认语义；`app_theme.dart` 补齐 `DialogTheme`。
+
+来源确认弹窗与设置表面复用公共确认样式；健康页、Emby 视频批量移除接入。普通页面直接使用的 `ScaffoldMessenger` SnackBar 改由 `showAppToast` 呈现。播放器内两处专用深色提示/失败弹窗仍保留独立视觉，不强行套用普通页面主题。全程保持原有业务流程、按钮语义和功能不变。
+
+新增 `test/app_feedback_test.dart` 覆盖确认弹窗返回值和统一浮动反馈。`fvm flutter analyze --no-pub` 无问题；关键回归 **110 项通过**；本批全量 **834 项通过、9 项既有条件测试跳过**。2026-10-21 统一提交前对最终完整工作区再次复验：显式设置 `REELNEST_MPV_PATH` 的全量 **843 passed / 0 skipped（40 秒）**，全部 9 项 native 实际执行；`dart analyze lib test integration_test` 无问题，339 个 Dart 文件 format **0 changed**，`git diff --check` 无错误。这是整合复验，与本批原始 834/9 结果分别记录。该次复验未重建；最新 Windows Release 仍为 **36.6 秒成功**，2026-10-21 16:20:50 +08:00 五秒 Windows smoke 的窗口响应、正常关闭和退出码 0 均通过。
+
+## 2026-10-21 前端 P1-F：仪表盘与任务中心视觉收口
+
+新增 `apps/client/lib/ui/widgets/dashboard_surfaces.dart`，提供共享 `DashboardPageHeader`、`DashboardSectionHeading`、`DashboardPanel`、`DashboardStatusBadge`、`DashboardNotice/Toast`、`DashboardEmptyState`、`DashboardIconAction` 表面组件。`library_health_page.dart` 统一页头/操作、加载/错误/空状态、监测中心与健康详情分区，缓存卡移至概览之后；健康业务、忽略/恢复和安全清理边界保持不变。`health_overview.dart` 概览卡改为 4/2/1 列响应式布局。`emby_task_center.dart` 统一扫描、片头片尾分析、离线缓存任务的状态徽标/进度/操作，并收口自动缓存订阅与缓存用量表面。
+
+不新增检测规则、后台任务或数据库变化。定向 `health_ui_test.dart`、`emby_offline_ui_test.dart`、`marker_analysis_ui_test.dart` 共 **25 passed**；最后一处任务徽标文案完成后再次运行定向测试 **25/25**，targeted analyze clean。全量 `flutter test --no-pub` **832 passed / 9 skipped**（总数 841），全项目 `flutter analyze --no-pub` clean 仍有效。最终 Windows Release **36.6 秒成功**；2026-10-21 15:23:53.2444446 +08:00 五秒 smoke 的 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0` 均通过。健康页 1088×720 明/暗主题截图人工复核通过；该截图复核不等同于原生实机视觉验收。
+
+### 剩余验收
+
+真实 Emby、实体鼠标/键盘、高 DPI、macOS/Linux 原生目视验收仍待完成。组件测试、截图复核和 Windows smoke 均不替代这些现场验收。
+
+## 2026-10-21 播放后台性能优化（四项落地，自动化验证及 Windows Release/smoke 完成）
+
+用户授权的四项后台优化已落地：
+
+1. `PlaybackSession` 队列读取改用 `SourceRepository.playbackQueueCandidates`，避免读取整库 inventory。剧集队列只查父系列及同源、同父项的可播放集；电影仍跨全部来源读取根视频。保持既有排序、前后切换、不循环和自动播放规则；source lookup 跳过不需要的总数统计。
+2. 每次打开时通过一次 SQL 读取 25 个相关偏好 key，复用原有解析、默认值和按组非致命告警；偏好快照只在读回调期间有效，回调结束清空，后续影片或控制操作仍读取最新值。
+3. 合并同一事件批次的轨道/设备刷新；读取过程中若状态变化则追加尾读。显式控制操作等待最终读结果；关闭流程丢弃待补读并等待正在执行的读取结束。
+4. 软件色彩表达式仅做等价代数简化：消除 0 项、简化单位乘法和 `pow(x, 1)`；无 hue/saturation 时使用精确单位矩阵。保持画质、分辨率及默认值不变。
+
+### 验证结果
+
+- 启用显式 `REELNEST_MPV_PATH` 的 Flutter 全量 **841 passed / 0 skipped（40 秒）**，全部 9 项 native 测试实际运行；`dart analyze lib test integration_test` 无问题；335 个 Dart 文件 format **0 changed**，`git diff --check` 无错误。
+- 90,006 条媒体（其中 90,000 条为无关剧集）的 SQLite 内存 fixture 验证：原整库读取改为目标剧集只读 3 条（父系列 1 + 同父集 2）；根电影跨来源只读 2 条。该测试只记录受控 fixture 的读取数量，不据此承诺真实 Emby 性能收益或比例。
+- 播放偏好完整 getter 原为 25 次 SQL，现为单次快照 1 次；覆盖同源系列共享、异源隔离、下一次读取可见新值，以及异常退出/异步子任务结束后不残留旧快照。
+- 轨道刷新覆盖同批 100 个请求合并为 1 次读取；在途期间 100 次变化追加 1 次尾读；关闭时丢弃补读并等待在途操作，异常后可恢复。Windows Profile `video_performance_test` GPU/SW 各 1 个功能用例通过（摘要 3 项含 tearDown，8 秒），并覆盖新增 50 个刷新请求与音轨切换交错后的最终轨道。
+- Windows Profile `video_color_test` GPU/SW 各 1 个功能用例通过（摘要 3 项含 tearDown，22 秒）。9 组颜色（含 BT.709/宽色域组合）旧/优化表达式平均纹理像素差 <0.5；GPU/SW、ASS 字幕、锐化、暂停尺寸等既有断言仍通过。
+- 日志位于 `apps/client/build/playback-optimization-*.log`。Windows Release 首轮构建 39.1 秒成功；因构建期间前端工程师修正了 3 处过时选择器（不是本轮前端功能变更），随后最终增量构建 **26.4 秒成功**，以此作为最新构建结果。最终产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；2026-10-21 14:55:53.5063042 +08:00 五秒 hidden smoke 的 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0` 均通过，报告为 `apps/client/build/smoke/release-startup.json`。
+
+### 尚未验证
+
+没有真实 Emby 性能对比、提升比例、macOS/Linux 原生验证或长时性能验收；不能由受控 fixture 推断真实服务器收益。Windows Release 构建与启动 smoke 通过不代表以上平台/场景也已验收。本轮优化仅涉及播放后台，不涉及前端布局或用户可见功能变更。
+
+## 2026-10-21 前端 P1-E：首页视觉收口
+
+对照原 MediaLib `HomeView.swift` / `HomeVividComponents.swift` 完成首页视觉收口，保留推荐、搜索、排序、播放、横向滚动、模块顺序/隐藏持久化及业务默认值。`home_page.dart` 统一启动加载、读取失败、部分同步和来源错误状态面板/行内通知，空状态补齐边框和品牌渐变图标；统计卡恢复原版渐变图标/数字与单层柔影，减少动态时不位移。`home_header.dart` 搜索框增加焦点边框/阴影及 search 输入动作；`home_video_row.dart` 的“查看全部”和翻页按钮改用首页色板，`home_video_card.dart` 增加键盘焦点轮廓并让 hover/focus 共用反馈。
+
+Hero 支持键盘聚焦，聚焦时暂停自动轮播并显示边框/翻页控件，按钮动作不变。搜索结果统一摘要、部分结果、失败/重试与结果行表面并补键盘焦点；布局编辑入口/添加菜单统一明暗主题和边框。运行状态修正默认紫色并为三张卡增加焦点；内容宽度小于 720 时改为横向滚动卡组，宽窗口仍保持原版三列。`home_ui_test.dart` 增加视觉状态和 680×382 紧凑视口覆盖，并加固编辑入口可见性。
+
+本轮未新增照片、音乐或首页模块，未改变推荐算法、数据或持久化。7 个首页相关测试文件共 **97 项全部通过**；全项目 `flutter analyze --no-pub` 无问题；Windows Release 构建 **37.3 秒成功**，产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；`git diff --check` 无空白错误，仅有既有 CRLF 提示。
+
+### 剩余验收
+
+真实本地/Emby 混合数据、真实海报/长标题/大量内容、可见窗口实体鼠标键盘、高 DPI，以及 macOS/Linux 原生构建与实机视觉验收仍待完成。Flutter 自动化与 Windows Release 不代替这些验收。
+
+## 2026-10-21 前端 P1-D：设置与服务器页面视觉统一
+
+新增 `apps/client/lib/ui/widgets/settings_surfaces.dart`，提供统一设置页标题、54px 分区图标/标题/说明、内缩静态卡、34px 设置行，以及说明、路径、提示和确认对话框表面。`settings_page.dart`、`watched_settings.dart`、`video_cache_settings.dart`、`ignored_health_settings.dart`、`servers_page.dart` 迁移到该结构，统一明暗主题、层级、间距和控件配色。
+
+观看阈值、缓存目录/容量/清理与任务中心、诊断忽略/恢复、外观切换及服务器登录/刷新/进入媒体库/退出行为均保留；退出后仍显示“还没有服务器”空状态。未新增 WebDAV、音乐、照片或未实现设置项。`sources_page.dart` 加载骨架在加载期间轻微呼吸，完成或错误后退出动画，并尊重 reduced motion，用于稳定异步错误态切换。
+
+全项目 `flutter analyze --no-pub` 无问题；`library_smoke`、`health_ui`、`emby_offline_ui`、`emby_navigation` 相关测试共 **52 项全部通过**。Windows Release 构建成功，产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。`git diff --check` 无空白错误，仅有既有 CRLF 提示。
+
+### 剩余验收
+
+实机可见 UI、高 DPI、真实服务器登录/刷新/退出、缓存路径选择/清理、macOS/Linux 原生构建及实机验收仍待完成。组件测试和 Windows Release 构建不替代这些真实环境验收。
+
+## 2026-10-21 前端 P1-C：媒体源管理与添加流程视觉收口
+
+媒体源主页来源卡改为常态平铺，移除默认 Card 常驻阴影；悬浮/键盘焦点使用单层柔影和平滑上移，reduced motion 下不位移。卡片展示 52px 来源图标、名称、可达性/来源类型徽标、路径、条目数及上次扫描/同步时间，保留原有别名、浏览、设置、扫描/取消、重新定位、Emby 重新认证和移除入口；操作改为横向可滚动紧凑工具条。扫描进度/消息、忙碌、目录选择不可用、加载、错误和空状态统一为静态卡片材质；添加/扫描页头按钮统一。新增 `SourceConfirmationDialog` 替代重新定位与移除来源的默认 AlertDialog，移除继续以破坏性操作强调；别名弹窗改用统一 sheet 材质，保存失败时保持窗口。
+
+本地添加、来源设置及 Emby 弹窗补齐 12px 安全边距和边框；Emby 登录/选库的忙碌、错误、空结果状态统一提示，痕迹同步下拉改为表单样式。所有扫描、登录、选库、保存、删除及重认证业务逻辑和默认值不变；未新增连接器，也未宣称完整三步向导已完成。
+
+实现涉及 `sources_page.dart`、`source_alias_dialog.dart`、新增 `source_confirmation_dialog.dart`、`add_source_dialog.dart`、`source_settings_sheet.dart`、`emby_sheets.dart`。来源/Emby/导航/扫描协调相关 6 个测试文件 **58 项全部通过**；`sources_grouping_test.dart` 单文件复验通过，包含鼠标悬浮、默认 Card 移除及 680×382 下来源选择→本地配置弹窗。`flutter analyze --no-pub` 全项目无问题；Windows Release 构建 **41.8 秒成功**，产物 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；`git diff --check` 无错误。未执行启动 smoke。
+
+### 剩余验收
+
+真实目录选择器、真实 Emby 登录/选库、可见窗口鼠标/键盘、长路径与大量来源、Windows 高 DPI，以及 macOS/Linux 原生实机视觉验收仍待完成。组件/平台变体测试和 Windows Release 构建不代替这些验收。
+
+## 2026-10-20 前端 P1-A：Emby 媒体库浏览页收口
+
+已按原 MediaLib 的 `AppAdaptiveControlBar` / `AppControlSegmentedShell` / `GlassCapsuleControl` / `GlassMenuButton` 参数收口筛选控制栏：观看筛选采用 44px 分段壳与 28px 胶囊；类型、排序为 38px 下拉。补齐筛选项及下拉控件的悬浮、选中、按压、键盘焦点和减少动画适配。窄窗口布局切换为观看筛选横向滚动、尾部控件换行，并已覆盖 680×382 尺寸。初始读取和筛选计算加载态改为原版风格四行骨架占位，搜索加载使用搜索语义。
+
+本批只改展示与交互反馈，未改变媒体分类、筛选/排序规则、服务器行为或持久化口径。实现位于 `apps/client/lib/features/sources/presentation/emby_video_library_page.dart`；`apps/client/test/emby_navigation_test.dart` 新增控制栏结构和 680×382 断言。全量 `flutter analyze` 无问题；`flutter test test/emby_navigation_test.dart test/emby_browse_test.dart` 共 **45 项通过**，覆盖 Windows/macOS/Linux 平台变体及明暗主题。最终源码重新执行 `flutter build windows --release --no-pub`，**39.8 秒成功**；产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。本轮没有执行启动 smoke。
+
+### 剩余验收
+
+以上平台覆盖是 Flutter 测试变体，不等于 macOS/Linux 原生运行验收。Emby 真实媒体库上的可见窗口人工视觉对照、实体鼠标/键盘交互，以及三桌面原生运行仍待完成；本批测试结果不代表这些验收已通过。
+
+## 2026-10-20 前端 P1-B：媒体详情页视觉收口
+
+详情页顶部统一为静态页头卡并保留返回行为；Hero 去除灰色背景氛围层，改为对齐原版 `DetailView.swift` 的静态卡片材质，同时保留海报、元数据和原交互。主/次操作整理为横向可滚动操作条，避免任意换行；播放、评分、想看、Emby 已看写回和缓存逻辑不变。加载、错误、来源移除状态统一为状态卡，动效遵循 reduced motion。季标题与右侧操作拆分，消除嵌套按钮；本地/远程文件状态卡统一；剧集行依据既有播放记录弱化已看项并展示对勾、进度、继续观看标签和当前选中左侧锚点，不新增持久化或业务规则。extras 折叠箭头与区块间距统一。
+
+涉及 `apps/client/lib/features/sources/presentation/local_media_detail_page.dart` 与 `emby_detail_extras.dart`；`apps/client/test/emby_detail_test.dart` 等相关回归共 **47 项全部通过**，`flutter analyze --no-pub` 全项目无问题。Windows Release `flutter build windows --release --no-pub` 成功，产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。
+
+### 剩余验收
+
+真实 Emby 数据下的可见 UI、鼠标/键盘交互、长剧集列表、Windows 高 DPI/缩放，以及 macOS/Linux 原生实机视觉验收仍待完成。现有自动化测试和 Windows 构建不替代以上人工及跨平台验收。
+
+## 2026-10-19 播放器“更多设置”弹层 P0 前端收口
+
+本批仅整理播放器更多设置弹窗及相关弹层的布局、主题和错误提示可见性，不改变播放业务、设置默认值或持久化行为。
+
+- 弹窗在窗口安全边距内布局；680×382 窗口四边各留 12px，紧凑侧栏宽 132px，设置内容区可滚动。
+- “播放 / 音画同步 / 画面 / 字幕”选项卡复用 `PlayerMenuRowSurface`，统一选中、悬停和焦点状态表面。
+- 新增深色 `PlayerInlineNotice`。`controlError` 固定展示在当前可见视口的标题下方，避免长设置列表把错误提示推到不可见位置；字幕、音轨选择弹层复用该通知表面。
+- 提取 `playerTooltipTheme`，播放器主页面和嵌套弹层统一深色 tooltip。
+- 组件回归新增 680×382 小窗口布局、深色 tooltip、可见失败提示覆盖。
+
+### 验证与验收边界
+
+- 定向播放器测试 **54/54** 通过；普通全量 Flutter 测试 **820 passed / 9 skipped**；`flutter analyze --no-pub` 通过。9 项 skipped 是已有 native mpv 条件测试；本次未设置 `REELNEST_MPV_PATH`，因此不代表 native mpv 全套已验证。
+- Windows Release 构建 37.9 秒成功，产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；2026-10-19 17:34:28 +08:00 五秒隐藏窗口 smoke 的 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0` 均通过。该 smoke 只验证启动响应及正常关闭，不代表可见 UI、实体键鼠或真实播放验收。
+- 真实媒体上的可见窗口人工视觉检查、实体鼠标/键盘交互、真实 Emby 播放全流程、macOS/Linux 原生验证均未完成；不能据自动化测试或启动 smoke 宣称视觉对照或跨平台验收完成。
+- 本批已修改前端组件并完成上述测试、Windows Release 构建及启动 smoke；未改变数据库结构或清理用户数据。
 
 2026-10-19 Linux 视口补充：已在项目生成源码中加入软件 renderer 共用等比例 fit helper，使用上游实际 1920×1080 caps，覆盖 `SetSize` 与自动尺寸 getter（含旋转），保留零尺寸 reset、缓冲上限、暂停重绘和 GPU 路径。Windows 主机运行 `python tool/check_linux_viewport_patch.py --cmake` 并指定 MSVC 自带 CMake，exit 0；实际生成 C++ 代码在有/无 SW 宏下编译，并由 test doubles 覆盖尺寸、自动/旋转/guard 场景和上游漂移故障注入。该检查不是 Linux GTK/EGL 编译或实机画面验收；Linux 大窗口、高 DPI、暂停窗口实测仍待。本轮没有 Dart/Windows 行为变化，不重跑 Flutter 套件或 Windows 构建，不声称新 Windows EXE。详见[画面显示计划](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md#linux-软件-renderer-视口比例适配源码级验证通过平台验收待完成2026-10-19)。
 
@@ -267,9 +380,9 @@
 - 增加“仪表盘”路由，接入挂载源状态、影视元数据缺口和缺失文件列表；可扫描来源、前往源配置、打开缺失条目详情、忽略告警。设置中的“已忽略健康项”提供数量与恢复显示。忽略/恢复只重新过滤缓存，不重复执行全库文件探测。
 - 初始表结构增加 `ignored_health_issues`，按类别、来源 ID 和媒体身份保存；没有数据库版本升级、开发数据兼容或自动重建。忽略配置与媒体索引分离，不修改媒体文件。
 
-**本批边界**：完整仪表盘尚未完成。概览环、离线缓存统计、音乐元数据、后台任务、重复项、链接健康、详情资料缺口、在线补充和重新挂载仍有依赖；不显示为已检测通过。失效索引清理尚未接入，候选行的原操作暂禁用说明原因，未执行任何索引删除。音乐艺术家/专辑尚未入库，不能用空值假报音乐缺口。
+**本批边界（2026-10-12 历史状态）**：当时完整仪表盘尚未完成，概览环、离线缓存统计、后台任务、重复项等仍有依赖；失效索引清理尚未接入。仪表盘与任务中心 UI 后续已由 [2026-10-21 P1-F](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-f仪表盘与任务中心视觉收口) 收口；上述功能依赖（包括在线补充、音乐元数据、重复项/链接健康、详情资料缺口及重新挂载）仍需按各模块计划推进，不因本次视觉收口而视为已实现或已检测通过。照片和音乐数据边界按项目范围处理，不以空值假报缺口。
 
-**UI 状态**：本地区域沿原卡片/来源行/列表参数接入，并补原 dashboard/eyeOff/search/info 矢量路径。完整仪表盘排列、概览、双列影视/音乐卡、分组卡头、悬停/连续圆角、系统字体、通知与详情返回锚点尚未完成；当前不是一比一验收版本。元数据缺口暂按现有标题顺序展示，原 `updatedAt` 排序需随媒体更新时间模型迁移。
+**UI 状态（2026-10-12 历史快照）**：当时仅完成本地区域基础布局，未完成完整仪表盘视觉；该快照已被 2026-10-21 P1-F 的组件实现和验证更新。P1-F 完成统一页头/操作、状态面板、监测与详情分区、缓存卡位置、响应式概览卡及任务中心表面；仍需按项目要求进行真实 Emby、实体键鼠、高 DPI 和 macOS/Linux 原生目视验收。元数据缺口排序/筛选等功能口径仍按对应业务记录，不因 UI 更新而改变。
 
 **检查**：Dart 格式化、静态分析通过；未运行测试、构建或应用。后续验收覆盖在线缺文件/离线根目录、恢复挂载、路径前缀与嵌套排除、同名跨来源身份、私密/相册/音乐规则、连续刷新和过期结果、修改来源期间的探测、忽略持久化和恢复、详情返回，以及三桌面端 UI。保留前批次的未验收项，不沿用历史测试通过数。
 

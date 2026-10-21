@@ -107,6 +107,13 @@ void main() {
           await engine.seek(const Duration(seconds: 1));
           await engine.selectAudio(2);
           await engine.selectSubtitle(2);
+          final burst = List.generate(50, (_) => engine.refreshTracks());
+          await engine.selectAudio(1);
+          await Future.wait(burst);
+          expect(engine.tracks.audioId, 1);
+          expect(engine.tracks.subtitleId, 2);
+          await engine.selectAudio(2);
+          expect(engine.tracks.audioId, 2);
           await engine.setColorAdjustments(
             const VideoColorAdjustments(brightness: 10, gamma: 15),
           );

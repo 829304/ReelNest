@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -54,6 +56,21 @@ void main() {
       expect(find.text('1个'), findsNWidgets(2));
       expect(find.text('可访问'), findsOneWidget);
       expect(find.text('不可访问'), findsOneWidget);
+      final persistedSources = await repository.sources();
+      final firstCard = find.byKey(
+        ValueKey('source-${persistedSources.first.id}'),
+      );
+      expect(firstCard, findsOneWidget);
+      expect(
+        find.descendant(of: firstCard, matching: find.byType(Card)),
+        findsNothing,
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(firstCard));
+      await tester.pump(const Duration(milliseconds: 220));
+      expect(tester.takeException(), isNull);
       final rowScans = tester
           .widgetList<OutlinedButton>(
             find.widgetWithText(OutlinedButton, '重新扫描'),
@@ -77,6 +94,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('已断开媒体源'), findsNothing);
       expect(find.text('2个'), findsOneWidget);
+      tester.view.physicalSize = const Size(680, 382);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('add-source')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('add-source')));
+      await tester.pumpAndSettle();
+      expect(find.text('选择要接入 ReelNest 的来源类型。'), findsOneWidget);
+      await tester.tap(find.text('下一步'));
+      await tester.pumpAndSettle();
+      expect(find.text('选择文件夹并指定分类。'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
   );

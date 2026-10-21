@@ -13,6 +13,7 @@ import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
+import 'package:reelnest/features/settings/presentation/settings_page.dart';
 import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/ui/theme/design_tokens.dart';
 
@@ -211,10 +212,31 @@ void main() {
   }
 
   testWidgets('mobile appearance changes survive navigation', (tester) async {
+    Future<Finder> revealAppearance() async {
+      final scrollable = find
+          .descendant(
+            of: find.byType(SettingsPage),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final selector = find.byKey(
+        const ValueKey('settings-appearance-selector'),
+      );
+      for (var n = 0; n < 6 && selector.evaluate().isEmpty; n++) {
+        await tester.drag(scrollable, const Offset(0, -420));
+        await tester.pumpAndSettle();
+      }
+      expect(selector, findsOneWidget);
+      await tester.ensureVisible(selector);
+      await tester.pumpAndSettle();
+      return selector;
+    }
+
     await start(tester, const Size(390, 844));
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('深色'));
+    var selector = await revealAppearance();
+    await tester.tap(find.descendant(of: selector, matching: find.text('深色')));
     await tester.pumpAndSettle();
     expect(
       tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
@@ -224,10 +246,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '深色')).selected,
-      isTrue,
-    );
+    selector = await revealAppearance();
+    expect(tester.widget<SegmentedButton<ThemeMode>>(selector).selected, {
+      ThemeMode.dark,
+    });
     expect(tester.takeException(), isNull);
   });
 

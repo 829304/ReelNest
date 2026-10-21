@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../playback/application/marker_analysis_providers.dart';
 
 /// The original VideoCacheMenuItems entry for a movie, series or episode.
@@ -25,27 +26,26 @@ class MarkerAnalysisMenuItem extends ConsumerWidget {
       if (eligible.asData?.value != true) return const SizedBox.shrink();
     }
     final controller = ref.read(markerAnalysisProvider);
-    final messenger = ScaffoldMessenger.maybeOf(context);
     return MenuItemButton(
       key: ValueKey(
         'analyze-intro-outro-${identity.sourceId}-${identity.localId}',
       ),
       leadingIcon: const Icon(Icons.auto_awesome_outlined, size: 16),
-      onPressed: () => unawaited(_enqueue(controller, messenger)),
+      onPressed: () => unawaited(_enqueue(context, controller)),
       child: const Text('检测片头片尾'),
     );
   }
 
   Future<void> _enqueue(
+    BuildContext context,
     PlaybackMarkerAnalysisController controller,
-    ScaffoldMessengerState? messenger,
   ) async {
     try {
       await controller.enqueue(identity);
     } catch (error) {
-      if (messenger?.mounted != true) return;
+      if (!context.mounted) return;
       final message = error is SourceFailure ? error.message : '片头片尾检测失败，请重试。';
-      messenger!.showSnackBar(SnackBar(content: Text(message)));
+      showAppToast(context, message, kind: AppFeedbackKind.error);
     }
   }
 }
@@ -106,8 +106,7 @@ class _MarkerAnalysisContextMenuState
         return;
       }
       final message = error is SourceFailure ? error.message : '无法检查当前条目，请重试。';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAppToast(context, message, kind: AppFeedbackKind.error);
     } finally {
       hold.close();
     }

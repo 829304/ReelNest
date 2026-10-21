@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../api/emby/emby_quality.dart';
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
 import '../data/emby_cache_repository.dart';
@@ -30,12 +31,10 @@ class EmbyCacheActions extends ConsumerWidget {
       await action();
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is SourceFailure ? error.message : '缓存操作失败，请重试。',
-            ),
-          ),
+        showAppToast(
+          context,
+          error is SourceFailure ? error.message : '缓存操作失败，请重试。',
+          kind: AppFeedbackKind.error,
         );
       }
     }

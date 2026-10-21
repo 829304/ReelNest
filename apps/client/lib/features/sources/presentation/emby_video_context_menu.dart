@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../playback/application/playback_providers.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../application/emby_library_providers.dart';
@@ -38,8 +39,11 @@ class _EmbyVideoContextMenuState extends ConsumerState<EmbyVideoContextMenu> {
       await work();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(sourceErrorMessage(error))));
+        showAppToast(
+          context,
+          sourceErrorMessage(error),
+          kind: AppFeedbackKind.error,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -90,8 +94,10 @@ class _EmbyVideoContextMenuState extends ConsumerState<EmbyVideoContextMenu> {
         clearHistory: clear,
       );
       if (context.mounted && failed > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('本机状态已保存，$failed 个条目未能写回服务器，请检查连接后重试。')),
+        showAppToast(
+          context,
+          '本机状态已保存，$failed 个条目未能写回服务器，请检查连接后重试。',
+          kind: AppFeedbackKind.warning,
         );
       }
     }

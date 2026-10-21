@@ -77,6 +77,14 @@ class HomeRuntimeStatus extends ConsumerWidget {
             const Spacer(),
             TextButton(
               onPressed: () => context.go('/health'),
+              style: TextButton.styleFrom(
+                foregroundColor: p.secondary,
+                minimumSize: const Size(0, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(9),
+                ),
+              ),
               child: const Text(
                 '进入仪表盘 ›',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
@@ -85,96 +93,179 @@ class HomeRuntimeStatus extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 14),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _Panel(
-                id: 'sources',
-                onTap: () => context.go('/sources'),
-                p: p,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 720;
+            final panelWidth = compact
+                ? math.min(300.0, constraints.maxWidth)
+                : (constraints.maxWidth - 32) / 3;
+            final panels = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: panelWidth,
+                  child: _Panel(
+                    id: 'sources',
+                    onTap: () => context.go('/sources'),
+                    p: p,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Expanded(
-                          child: Text(
-                            '媒体源',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '媒体源',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ),
-                          ),
+                            Text(
+                              '${visible.length} 个',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
-                        Text(
-                          '${visible.length} 个',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: groups.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    '还没有媒体源',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: p.secondary,
+                                    ),
+                                  ),
+                                )
+                              : Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 92,
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 76,
+                                            height: 76,
+                                            child: CustomPaint(
+                                              painter: _SourcePie([
+                                                for (
+                                                  var i = 0;
+                                                  i < groups.length;
+                                                  i++
+                                                )
+                                                  (
+                                                    weight: math.max(
+                                                      groups[i].count ?? 0,
+                                                      1,
+                                                    ),
+                                                    color:
+                                                        groups[i].online == true
+                                                        ? _colors[i %
+                                                              _colors.length]
+                                                        : p.border,
+                                                  ),
+                                              ], p.border),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 7),
+                                          Text(
+                                            unknown > 0
+                                                ? online == 0
+                                                      ? '—/${groups.length}'
+                                                      : '≥$online/${groups.length}'
+                                                : '$online/${groups.length}',
+                                            key: const ValueKey(
+                                              'home-runtime-online',
+                                            ),
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          Text(
+                                            unknown > 0
+                                                ? '$unknown 个待检测'
+                                                : '在线',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: p.secondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _SourceList(groups: groups, p: p),
+                                    ),
+                                  ],
+                                ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: groups.isEmpty
-                          ? Center(
-                              child: Text(
-                                '还没有媒体源',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: p.secondary,
-                                ),
-                              ),
-                            )
-                          : Row(
-                              children: [
-                                SizedBox(
-                                  width: 92,
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: 76,
-                                        height: 76,
-                                        child: CustomPaint(
-                                          painter: _SourcePie([
-                                            for (
-                                              var i = 0;
-                                              i < groups.length;
-                                              i++
-                                            )
-                                              (
-                                                weight: math.max(
-                                                  groups[i].count ?? 0,
-                                                  1,
-                                                ),
-                                                color: groups[i].online == true
-                                                    ? _colors[i %
-                                                          _colors.length]
-                                                    : p.border,
-                                              ),
-                                          ], p.border),
-                                        ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: panelWidth,
+                  child: _Panel(
+                    id: 'health',
+                    onTap: () => context.go('/health'),
+                    p: p,
+                    child: Tooltip(
+                      message: health.totalScore == null
+                          ? '复用最近一次检测；请进入仪表盘完成当前视频库检查。来源或索引变化后需重新检测。'
+                          : '按原版来源、核心资料、详情资料、失效路径和重复项计算。${health.partialIndex ? '当前仅覆盖已载入的媒体，完整同步后可重新检测。' : '当前为视频范围的最近检测结果。'}',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '健康度总评分',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const Spacer(),
+                          Center(
+                            child: SizedBox(
+                              width: 96,
+                              height: 96,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Positioned.fill(
+                                    child: CustomPaint(
+                                      painter: _HealthRing(
+                                        health.totalScore,
+                                        p.border,
                                       ),
-                                      const SizedBox(height: 7),
+                                    ),
+                                  ),
+                                  Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
                                       Text(
-                                        unknown > 0
-                                            ? online == 0
-                                                  ? '—/${groups.length}'
-                                                  : '≥$online/${groups.length}'
-                                            : '$online/${groups.length}',
+                                        health.totalScore?.toString() ?? '—',
                                         key: const ValueKey(
-                                          'home-runtime-online',
+                                          'home-runtime-score',
                                         ),
                                         style: const TextStyle(
-                                          fontSize: 20,
+                                          fontSize: 27,
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                       Text(
-                                        unknown > 0 ? '$unknown 个待检测' : '在线',
+                                        health.label,
                                         style: TextStyle(
                                           fontSize: 11.5,
                                           fontWeight: FontWeight.w700,
@@ -183,164 +274,104 @@ class HomeRuntimeStatus extends ConsumerWidget {
                                       ),
                                     ],
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _SourceList(groups: groups, p: p),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _Panel(
-                id: 'health',
-                onTap: () => context.go('/health'),
-                p: p,
-                child: Tooltip(
-                  message: health.totalScore == null
-                      ? '复用最近一次检测；请进入仪表盘完成当前视频库检查。来源或索引变化后需重新检测。'
-                      : '按原版来源、核心资料、详情资料、失效路径和重复项计算。${health.partialIndex ? '当前仅覆盖已载入的媒体，完整同步后可重新检测。' : '当前为视频范围的最近检测结果。'}',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '健康度总评分',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                        ),
+                          ),
+                          const Spacer(),
+                          _metric('媒体源健康度', health.sourcePercent, _mint, p),
+                          const SizedBox(height: 5),
+                          _metric('元数据健康度', health.metadataPercent, _blue, p),
+                        ],
                       ),
-                      const Spacer(),
-                      Center(
-                        child: SizedBox(
-                          width: 96,
-                          height: 96,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Positioned.fill(
-                                child: CustomPaint(
-                                  painter: _HealthRing(
-                                    health.totalScore,
-                                    p.border,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: panelWidth,
+                  child: _Panel(
+                    id: 'tasks',
+                    onTap: () => context.go('/health/tasks'),
+                    p: p,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '任务中心',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            if (tasks.any((t) => t.active))
+                              Flexible(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: _badge(
+                                    '${tasks.where((t) => t.active).length} 进行中',
+                                    _mint,
                                   ),
                                 ),
                               ),
-                              Column(
+                          ],
+                        ),
+                        const SizedBox(height: 13),
+                        if (tasks.isEmpty)
+                          Expanded(
+                            child: Center(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    health.totalScore?.toString() ?? '—',
-                                    key: const ValueKey('home-runtime-score'),
-                                    style: const TextStyle(
-                                      fontSize: 27,
+                                  Icon(
+                                    Icons.task_alt,
+                                    size: 22,
+                                    color: _blue.withValues(alpha: .68),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    '无任务',
+                                    style: TextStyle(
+                                      fontSize: 18,
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
+                                  const SizedBox(height: 6),
                                   Text(
-                                    health.label,
+                                    '扫描和整理任务会显示在这里',
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
                                       color: p.secondary,
                                     ),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      _metric('媒体源健康度', health.sourcePercent, _mint, p),
-                      const SizedBox(height: 5),
-                      _metric('元数据健康度', health.metadataPercent, _blue, p),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _Panel(
-                id: 'tasks',
-                onTap: () => context.go('/health/tasks'),
-                p: p,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            '任务中心',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
                             ),
-                          ),
-                        ),
-                        if (tasks.any((t) => t.active))
-                          Flexible(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: _badge(
-                                '${tasks.where((t) => t.active).length} 进行中',
-                                _mint,
-                              ),
-                            ),
-                          ),
+                          )
+                        else
+                          for (final task in tasks.take(3)) ...[
+                            _TaskRow(task: task, p: p),
+                            if (task != tasks.take(3).last)
+                              const SizedBox(height: 10),
+                          ],
                       ],
                     ),
-                    const SizedBox(height: 13),
-                    if (tasks.isEmpty)
-                      Expanded(
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.task_alt,
-                                size: 22,
-                                color: _blue.withValues(alpha: .68),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                '无任务',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '扫描和整理任务会显示在这里',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: p.secondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      for (final task in tasks.take(3)) ...[
-                        _TaskRow(task: task, p: p),
-                        if (task != tasks.take(3).last)
-                          const SizedBox(height: 10),
-                      ],
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+            if (!compact) return panels;
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              child: panels,
+            );
+          },
         ),
       ],
     );
@@ -567,22 +598,29 @@ class _Panel extends StatefulWidget {
 }
 
 class _PanelState extends State<_Panel> {
-  bool _hover = false;
+  bool _hover = false, _focused = false;
   @override
   Widget build(BuildContext context) {
     final animate = !MediaQuery.disableAnimationsOf(context);
+    final highlighted = _hover || _focused;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: AnimatedContainer(
         duration: animate ? const Duration(milliseconds: 140) : Duration.zero,
-        transform: Matrix4.translationValues(0, _hover && animate ? -4 : 0, 0),
+        transform: Matrix4.translationValues(
+          0,
+          highlighted && animate ? -4 : 0,
+          0,
+        ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          boxShadow: _hover
+          boxShadow: highlighted
               ? [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: .18),
+                    color: widget.p.shadow.withValues(
+                      alpha: _focused ? .22 : .18,
+                    ),
                     blurRadius: 22,
                     offset: const Offset(0, 8),
                   ),
@@ -593,12 +631,20 @@ class _PanelState extends State<_Panel> {
           color: widget.p.card,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: widget.p.border),
+            side: BorderSide(
+              color: _focused
+                  ? widget.p.accent.withValues(alpha: .78)
+                  : widget.p.border,
+              width: _focused ? 1.5 : 1,
+            ),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             key: ValueKey('home-runtime-${widget.id}'),
             onTap: widget.onTap,
+            onFocusChange: (focused) {
+              if (_focused != focused) setState(() => _focused = focused);
+            },
             child: SizedBox(
               height: 246,
               child: Padding(

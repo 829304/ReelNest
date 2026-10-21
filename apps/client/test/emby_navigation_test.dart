@@ -831,6 +831,33 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('emby-library-control-bar')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('emby-library-watch-filters')),
+            findsOneWidget,
+          );
+          for (final filter in LibraryWatchFilter.values) {
+            expect(
+              find.byKey(ValueKey('emby-library-filter-${filter.name}')),
+              findsOneWidget,
+            );
+          }
+          expect(
+            find.byKey(const ValueKey('emby-library-sort-menu')),
+            findsOneWidget,
+          );
+          tester.view.physicalSize = const Size(680, 382);
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('emby-library-filter-scroll')),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull);
+          tester.view.physicalSize = const Size(1088, 720);
+          await tester.pumpAndSettle();
           expect(find.text('北京故事'), findsWidgets);
           expect(find.text('共 2 项'), findsOneWidget);
           expect(find.text('音乐'), findsNothing);
@@ -984,10 +1011,7 @@ void main() {
           await tester.tap(find.text('重命名'));
           await tester.pumpAndSettle();
           await tester.enterText(
-            find.descendant(
-              of: find.byType(AlertDialog),
-              matching: find.byType(TextField),
-            ),
+            find.byKey(const ValueKey('source-alias-input')),
             '我的 Emby',
           );
           await tester.tap(find.text('保存'));

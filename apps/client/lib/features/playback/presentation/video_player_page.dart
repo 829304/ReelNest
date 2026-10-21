@@ -1152,31 +1152,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     },
     child: TooltipTheme(
       key: const ValueKey('player-tooltip-theme'),
-      data: const TooltipThemeData(
-        waitDuration: Duration(milliseconds: 350),
-        showDuration: Duration(milliseconds: 1600),
-        preferBelow: false,
-        verticalOffset: 10,
-        padding: EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-        textStyle: TextStyle(
-          color: Color(0xF2FFFFFF),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-        decoration: BoxDecoration(
-          color: Color(0xF21A1D22),
-          borderRadius: BorderRadius.all(Radius.circular(8)),
-          border: Border.fromBorderSide(BorderSide(color: Color(0x29FFFFFF))),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x52000000),
-              blurRadius: 12,
-              spreadRadius: -3,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
-      ),
+      data: playerTooltipTheme,
       child: Focus(
         autofocus: true,
         child: Scaffold(

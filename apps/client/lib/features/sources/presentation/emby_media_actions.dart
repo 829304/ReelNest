@@ -2,17 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../../playback/application/playback_providers.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
 import '../application/emby_library_providers.dart';
 
-void _notice(BuildContext context, String message) {
-  if (context.mounted) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  }
+void _notice(
+  BuildContext context,
+  String message, {
+  AppFeedbackKind kind = AppFeedbackKind.information,
+}) {
+  showAppToast(context, message, kind: kind);
 }
 
 Future<void> markEmbyItems(
@@ -31,9 +33,12 @@ Future<void> markEmbyItems(
       failed == 0
           ? (watched ? '已标记为已观看' : '已标记为未观看')
           : '有 $failed 个条目未能写回远程服务器，本机状态已保存，请检查连接后重新操作。',
+      kind: failed == 0 ? AppFeedbackKind.success : AppFeedbackKind.warning,
     );
   } catch (error) {
-    if (context.mounted) _notice(context, sourceErrorMessage(error));
+    if (context.mounted) {
+      _notice(context, sourceErrorMessage(error), kind: AppFeedbackKind.error);
+    }
   }
 }
 
@@ -57,7 +62,13 @@ class _EmbyMediaActionsState extends ConsumerState<EmbyMediaActions> {
     try {
       await action();
     } catch (error) {
-      if (mounted) _notice(context, sourceErrorMessage(error));
+      if (mounted) {
+        _notice(
+          context,
+          sourceErrorMessage(error),
+          kind: AppFeedbackKind.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

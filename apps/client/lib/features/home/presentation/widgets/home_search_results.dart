@@ -48,10 +48,19 @@ class HomeSearchResults extends ConsumerWidget {
           decoration: BoxDecoration(
             color: p.staticSurface.withValues(alpha: .94),
             borderRadius: BorderRadius.circular(radius),
+            border: Border.all(color: p.border),
           ),
           child: Row(
             children: [
-              Icon(Icons.search, color: p.secondary, size: 22),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: p.iconChip,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(Icons.search, color: p.accent, size: 19),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -86,9 +95,9 @@ class HomeSearchResults extends ConsumerWidget {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: Text(
-              'Emby 显示已载入范围内的搜索结果；完整同步后将补齐。',
-              style: TextStyle(fontSize: 12, color: p.secondary),
+            child: _SearchNotice(
+              icon: Icons.info_outline_rounded,
+              message: 'Emby 显示已载入范围内的搜索结果；完整同步后将补齐。',
             ),
           ),
         ),
@@ -96,19 +105,17 @@ class HomeSearchResults extends ConsumerWidget {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final error in state.errors.values) Text(error),
-                if (result.hasError) const Text('搜索暂时失败，请重试。'),
-                TextButton(
-                  onPressed: () {
-                    ref.invalidate(homeSearchSourceProvider);
-                    ref.invalidate(homeSearchProvider(key));
-                  },
-                  child: const Text('重试'),
-                ),
-              ],
+            child: _SearchNotice(
+              icon: Icons.error_outline_rounded,
+              message: [
+                ...state.errors.values,
+                if (result.hasError) '搜索暂时失败，请重试。',
+              ].join('\n'),
+              actionLabel: '重试',
+              onAction: () {
+                ref.invalidate(homeSearchSourceProvider);
+                ref.invalidate(homeSearchProvider(key));
+              },
             ),
           ),
         ),
@@ -148,8 +155,8 @@ class HomeSearchResults extends ConsumerWidget {
                     HomeSearchGroup.variety => Icons.mic_none,
                     HomeSearchGroup.other => Icons.inbox_outlined,
                   },
-                  size: 22,
-                  color: p.secondary,
+                  size: 20,
+                  color: p.accent,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -207,6 +214,63 @@ class HomeSearchResults extends ConsumerWidget {
   }
 }
 
+class _SearchNotice extends StatelessWidget {
+  const _SearchNotice({
+    required this.icon,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 10, 9, 10),
+      decoration: BoxDecoration(
+        color: palette.cleanPanelFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: palette.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: palette.secondary,
+              ),
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(
+                foregroundColor: palette.accent,
+                minimumSize: const Size(0, 32),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              child: Text(actionLabel!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _SearchRow extends ConsumerStatefulWidget {
   const _SearchRow({required this.video, super.key});
   final HomeVideo video;
@@ -215,7 +279,7 @@ class _SearchRow extends ConsumerStatefulWidget {
 }
 
 class _SearchRowState extends ConsumerState<_SearchRow> {
-  bool _hover = false;
+  bool _hover = false, _focused = false;
   @override
   Widget build(BuildContext context) {
     final p = SourceSheetPalette(
@@ -231,75 +295,105 @@ class _SearchRowState extends ConsumerState<_SearchRow> {
         '★ ${item.remote!.rating!.toStringAsFixed(1)}',
     ].join(' · ');
     final active =
-        _hover && !Scrollable.recommendDeferredLoadingForContext(context);
+        (_hover || _focused) &&
+        !Scrollable.recommendDeferredLoadingForContext(context);
+    final reduced = MediaQuery.disableAnimationsOf(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Semantics(
-        label: '${item.title}，$subtitle',
-        hint: '打开媒体详情',
-        button: true,
-        child: Material(
-          color: active ? p.hoverPill : p.staticSurface.withValues(alpha: .9),
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            key: ValueKey('home-search-open-${item.identity}'),
-            borderRadius: BorderRadius.circular(12),
-            onTap: () async {
-              // Do not restore the search field's focus on pop: TextField's
-              // ensureVisible would scroll the retained results back to top.
-              FocusManager.instance.primaryFocus?.unfocus();
-              await context.push(homeDetailLocation(video));
-              // Dependency refresh retains prior rows while cached detail
-              // terms reload. invalidate() would collapse the list on pop.
-              if (mounted) ref.read(sourceRepositoryProvider).traceChanged();
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: SizedBox(
-                      width: 40,
-                      height: 60,
-                      child: LocalMediaArtwork(
-                        source: video.source,
-                        item: item,
-                      ),
-                    ),
+      child: Focus(
+        canRequestFocus: false,
+        onFocusChange: (focused) {
+          if (_focused != focused) setState(() => _focused = focused);
+        },
+        child: Semantics(
+          label: '${item.title}，$subtitle',
+          hint: '打开媒体详情',
+          button: true,
+          child: AnimatedContainer(
+            duration: reduced
+                ? Duration.zero
+                : const Duration(milliseconds: 130),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _focused ? p.accent.withValues(alpha: .7) : p.border,
+              ),
+            ),
+            child: Material(
+              color: active
+                  ? p.hoverPill
+                  : p.staticSurface.withValues(alpha: .9),
+              borderRadius: BorderRadius.circular(11),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                key: ValueKey('home-search-open-${item.identity}'),
+                borderRadius: BorderRadius.circular(12),
+                onTap: () async {
+                  // Do not restore the search field's focus on pop: TextField's
+                  // ensureVisible would scroll the retained results back to top.
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  await context.push(homeDetailLocation(video));
+                  // Dependency refresh retains prior rows while cached detail
+                  // terms reload. invalidate() would collapse the list on pop.
+                  if (mounted) {
+                    ref.read(sourceRepositoryProvider).traceChanged();
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(7),
+                        child: SizedBox(
+                          width: 40,
+                          height: 60,
+                          child: LocalMediaArtwork(
+                            source: video.source,
+                            item: item,
                           ),
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          subtitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: p.secondary),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: p.secondary,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: active ? p.selectedTint : p.secondary,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 16,
-                    color: active ? p.selectedTint : p.secondary,
-                  ),
-                ],
+                ),
               ),
             ),
           ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../domain/library_health.dart';
 import '../../../domain/runtime_status.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/dashboard_surfaces.dart';
 import '../domain/health_score.dart';
 
 /// LibraryHealthCenterView.overviewGrid / DashboardRingCard: four rings, 12 gap,
@@ -40,56 +41,61 @@ class HealthOverview extends StatelessWidget {
     final warning = Color(dark ? 0xFFFFB84D : 0xFFD98A00);
     final cyan = dark ? const Color(0xFF87D0F4) : const Color(0xFF36BFFA);
     final good = Color(dark ? 0xFF45D67F : 0xFF1F9D57);
+    final rings = [
+      _Ring(
+        title: '健康评分',
+        value: '$health%',
+        note: issues == 0 ? '未发现待处理项' : '$issues 项需处理',
+        icon: Icons.verified_outlined,
+        progress: health / 100,
+        tint: issues == 0 ? palette.selectedTint : warning,
+      ),
+      _Ring(
+        title: '来源可用',
+        value: '$online/$sources',
+        note: snapshot.offline.isEmpty
+            ? '全部在线'
+            : '${snapshot.offline.length} 个离线',
+        icon: Icons.storage_outlined,
+        progress: sources == 0 ? 1 : online / sources,
+        tint: snapshot.offline.isEmpty ? cyan : warning,
+      ),
+      _Ring(
+        title: '资料完整',
+        value: '$metadata%',
+        note: gaps == 0 ? '资料完整' : '$gaps 个缺口',
+        icon: Icons.sell_outlined,
+        progress: metadata / 100,
+        tint: gaps == 0 ? good : warning,
+      ),
+      _Ring(
+        title: '后台任务',
+        value: '$active',
+        note: failed > 0 ? '$failed 个失败可处理' : '${tasks.length} 条记录',
+        icon: Icons.checklist_outlined,
+        progress: tasks.isEmpty ? 1 : active / tasks.length,
+        tint: failed > 0 ? Colors.red : palette.selectedTint,
+      ),
+    ];
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
-      child: Row(
-        children: [
-          Expanded(
-            child: _Ring(
-              title: '健康评分',
-              value: '$health%',
-              note: issues == 0 ? '未发现待处理项' : '$issues 项需处理',
-              icon: Icons.verified_outlined,
-              progress: health / 100,
-              tint: issues == 0 ? palette.selectedTint : warning,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _Ring(
-              title: '来源可用',
-              value: '$online/$sources',
-              note: snapshot.offline.isEmpty
-                  ? '全部在线'
-                  : '${snapshot.offline.length} 个离线',
-              icon: Icons.storage_outlined,
-              progress: sources == 0 ? 1 : online / sources,
-              tint: snapshot.offline.isEmpty ? cyan : warning,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _Ring(
-              title: '资料完整',
-              value: '$metadata%',
-              note: gaps == 0 ? '资料完整' : '$gaps 个缺口',
-              icon: Icons.sell_outlined,
-              progress: metadata / 100,
-              tint: gaps == 0 ? good : warning,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _Ring(
-              title: '后台任务',
-              value: '$active',
-              note: failed > 0 ? '$failed 个失败可处理' : '${tasks.length} 条记录',
-              icon: Icons.checklist_outlined,
-              progress: tasks.isEmpty ? 1 : active / tasks.length,
-              tint: failed > 0 ? Colors.red : palette.selectedTint,
-            ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 720
+              ? 4
+              : constraints.maxWidth >= 440
+              ? 2
+              : 1;
+          const gap = 12.0;
+          final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: [
+              for (final ring in rings) SizedBox(width: width, child: ring),
+            ],
+          );
+        },
       ),
     );
   }
@@ -116,13 +122,9 @@ class _Ring extends StatelessWidget {
     return Semantics(
       container: true,
       label: '$title $value $note',
-      child: Container(
+      child: DashboardPanel(
+        radius: 18,
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: p.staticSurface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: p.border),
-        ),
         child: Row(
           children: [
             SizedBox(

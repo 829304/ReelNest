@@ -182,15 +182,18 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
                   ],
                 },
                 if (session.controlError != null)
-                  Text(
-                    session.controlError!,
-                    style: TextStyle(fontSize: 11, color: palette.secondary),
+                  PlayerInlineNotice(
+                    message: session.controlError!,
+                    palette: palette,
                   ),
                 if (session.transitionMessage != null ||
                     session.saveError != null)
-                  Text(
-                    session.saveError ?? session.transitionMessage!,
-                    style: TextStyle(fontSize: 11, color: palette.secondary),
+                  PlayerInlineNotice(
+                    message: session.saveError ?? session.transitionMessage!,
+                    palette: palette,
+                    kind: session.saveError != null
+                        ? PlayerInlineNoticeKind.error
+                        : PlayerInlineNoticeKind.information,
                   ),
               ],
             ),

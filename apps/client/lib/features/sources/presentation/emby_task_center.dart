@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_scan.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_feedback.dart';
+import '../../../ui/widgets/dashboard_surfaces.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../playback/application/marker_analysis_providers.dart';
@@ -21,6 +23,34 @@ bool cacheTaskActive(VideoCacheTask task) => [
   VideoCacheTaskState.saving,
   VideoCacheTaskState.paused,
 ].contains(task.state);
+
+Color _taskStateTint(BuildContext context, String state, bool active) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  if (state.contains('失败') || state.contains('错误')) {
+    return Color(dark ? 0xFFFF8E8E : 0xFFD92D20);
+  }
+  if (state.contains('暂停') || state.contains('取消')) {
+    return Color(dark ? 0xFFFFC66D : 0xFFD98A00);
+  }
+  if (state.contains('完成')) {
+    return Color(dark ? 0xFF67E19A : 0xFF1F9D57);
+  }
+  return active
+      ? Color(dark ? 0xFF87D0F4 : 0xFF2E90FA)
+      : Theme.of(context).colorScheme.onSurfaceVariant;
+}
+
+IconData _taskStateIcon(String state, bool active) {
+  if (state.contains('失败') || state.contains('错误')) {
+    return Icons.error_outline_rounded;
+  }
+  if (state.contains('暂停')) return Icons.pause_circle_outline_rounded;
+  if (state.contains('取消')) return Icons.cancel_outlined;
+  if (state.contains('完成')) return Icons.check_circle_outline_rounded;
+  if (state.contains('等待')) return Icons.schedule_rounded;
+  return active ? Icons.sync_rounded : Icons.radio_button_unchecked_rounded;
+}
+
 String cacheTaskTitle(VideoCacheTask t) => switch (t.state) {
   VideoCacheTaskState.queued => '等待中',
   VideoCacheTaskState.downloading => '运行中',
@@ -30,6 +60,37 @@ String cacheTaskTitle(VideoCacheTask t) => switch (t.state) {
   VideoCacheTaskState.failed => '失败',
   VideoCacheTaskState.cancelled => '已取消',
 };
+
+class _TaskCenterIcon extends StatelessWidget {
+  const _TaskCenterIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: dark
+              ? const [Color(0xFF245E85), Color(0xFF227B6B)]
+              : const [Color(0xFF2E90FA), Color(0xFF34C759)],
+        ),
+        borderRadius: BorderRadius.circular(17),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2E90FA).withValues(alpha: dark ? .22 : .18),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: const Icon(Icons.checklist_rounded, color: Colors.white, size: 28),
+    );
+  }
+}
 
 class EmbyTaskCenterPage extends ConsumerStatefulWidget {
   const EmbyTaskCenterPage({super.key});
@@ -79,36 +140,25 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
                     (cacheTaskActive(b) ? 1 : 0) - (cacheTaskActive(a) ? 1 : 0);
                 return priority == 0 ? 0 : priority;
               });
+            final total = tasks.length + scans.length + markerTasks.length;
+            final activeCount =
+                tasks.values.where(cacheTaskActive).length +
+                scans.values.where((scan) => scan.busy).length +
+                markerTasks.where((task) => task.active).length;
             return PageContent(
               title: '任务中心',
               subtitle: '查看扫描、文件更新和服务同步进度。',
-              header: Row(
-                children: [
-                  const Icon(Icons.checklist, size: 42),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '任务中心',
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        Text(
-                          '查看扫描、文件更新和服务同步进度。',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
+              header: DashboardPageHeader(
+                title: '任务中心',
+                subtitle: '查看扫描、文件更新和服务同步进度。',
+                icon: const _TaskCenterIcon(),
+                actions: [
                   if (tasks.values.any((t) => !cacheTaskActive(t)) ||
                       scans.values.any((s) => !s.busy) ||
                       markerTasks.any((task) => !task.active))
                     SourceSheetButton(
                       label: '清除记录',
+                      outlined: true,
                       onPressed: () => unawaited(
                         _run(() async {
                           cache.clearFinished();
@@ -123,43 +173,26 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
               ),
               children: [
                 if (_error != null || markerAnalysis.historyError != null)
-                  Text(
-                    _error ?? markerAnalysis.historyError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: AppInlineNotice(
+                      message: _error ?? markerAnalysis.historyError!,
+                      kind: AppFeedbackKind.error,
                     ),
                   ),
                 if (tasks.isEmpty && scans.isEmpty && markerTasks.isEmpty)
-                  const SizedBox(
-                    height: 360,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle_outline, size: 40),
-                          SizedBox(height: 12),
-                          Text(
-                            '暂无后台任务',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 8),
-                          Text('扫描、同步和缓存任务会在运行时集中展示。'),
-                        ],
-                      ),
-                    ),
+                  const DashboardEmptyState(
+                    title: '暂无后台任务',
+                    message: '扫描、同步和缓存任务会在运行时集中展示。',
+                    icon: Icons.task_alt_rounded,
                   )
                 else ...[
-                  Text(
-                    '任务记录 · ${tasks.length + scans.length + markerTasks.length} 项',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  DashboardSectionHeading(
+                    title: '任务记录',
+                    subtitle: '任务记录 · $total 项',
+                    icon: Icons.history_rounded,
+                    badge: activeCount == 0 ? '当前空闲' : '$activeCount 项活动任务',
                   ),
-                  const SizedBox(height: 12),
                   for (final active in [true, false]) ...[
                     for (final entry in scans.entries.where(
                       (e) => e.value.busy == active,
@@ -190,18 +223,16 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
                             : entry.value.progress.fraction,
                         actions: [
                           if (entry.value.busy)
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '取消扫描',
                               onPressed: () => ref
                                   .read(sourceScansProvider.notifier)
                                   .cancel(entry.key),
-                              icon: const Icon(
-                                Icons.stop_circle_outlined,
-                                size: 18,
-                              ),
+                              icon: Icons.stop_circle_outlined,
+                              danger: true,
                             ),
                           if (entry.value.failed)
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '重试任务',
                               onPressed: () => unawaited(
                                 _run(
@@ -210,7 +241,7 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
                                       .scan(entry.key),
                                 ),
                               ),
-                              icon: const Icon(Icons.refresh, size: 18),
+                              icon: Icons.refresh_rounded,
                             ),
                         ],
                       ),
@@ -251,40 +282,35 @@ class _EmbyTaskCenterPageState extends ConsumerState<EmbyTaskCenterPage> {
                         actions: [
                           if (task.state == VideoCacheTaskState.queued ||
                               task.state == VideoCacheTaskState.downloading)
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '暂停缓存',
                               onPressed: () => cache.pause(task),
-                              icon: const Icon(
-                                Icons.pause_circle_outline,
-                                size: 18,
-                              ),
+                              icon: Icons.pause_circle_outline,
                             ),
                           if (task.state == VideoCacheTaskState.paused)
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '继续缓存',
                               onPressed: () =>
                                   unawaited(_run(() => cache.resume(task))),
-                              icon: const Icon(
-                                Icons.play_circle_outline,
-                                size: 18,
-                              ),
+                              icon: Icons.play_circle_outline,
                             ),
                           if (task.state == VideoCacheTaskState.failed)
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '重试任务',
                               onPressed: () => unawaited(
                                 _run(
                                   () => cache.enqueue(task.item, task.quality),
                                 ),
                               ),
-                              icon: const Icon(Icons.refresh, size: 18),
+                              icon: Icons.refresh_rounded,
                             ),
                           if (cacheTaskActive(task))
-                            IconButton(
+                            DashboardIconAction(
                               tooltip: '取消缓存',
                               onPressed: () =>
                                   unawaited(_run(() => cache.cancel(task))),
-                              icon: const Icon(Icons.cancel_outlined, size: 18),
+                              icon: Icons.cancel_outlined,
+                              danger: true,
                             ),
                         ],
                       ),
@@ -327,20 +353,21 @@ class _MarkerAnalysisTaskActions extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (retryable && eligible)
-          IconButton(
+          DashboardIconAction(
             tooltip: '重试任务',
             onPressed: () => unawaited(
               run(() async {
                 await controller.retry(task.id);
               }),
             ),
-            icon: const Icon(Icons.refresh, size: 18),
+            icon: Icons.refresh_rounded,
           ),
         if (task.isCancellable)
-          IconButton(
+          DashboardIconAction(
             tooltip: '取消检测',
             onPressed: () => controller.cancel(task.id),
-            icon: const Icon(Icons.cancel_outlined, size: 18),
+            icon: Icons.cancel_outlined,
+            danger: true,
           ),
       ],
     );
@@ -367,46 +394,62 @@ class _TaskRow extends StatelessWidget {
     final p = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return Container(
+    final tint = _taskStateTint(context, state, active);
+    return DashboardPanel(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: p.card,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: p.border),
-      ),
+      radius: 15,
+      accent: active ? tint : null,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(icon, size: 32, color: p.accent),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: tint.withValues(alpha: p.dark ? .16 : .09),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 20, color: tint),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
+                Row(
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                    Text(
-                      state,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: state == '失败' ? Colors.red : p.accent,
-                      ),
+                    const SizedBox(width: 8),
+                    DashboardStatusBadge(
+                      label: state,
+                      tint: tint,
+                      icon: _taskStateIcon(state, active),
                     ),
                   ],
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 7),
                 if (active) ...[
-                  LinearProgressIndicator(value: progress),
-                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 5,
+                      color: tint,
+                      backgroundColor: tint.withValues(alpha: .13),
+                    ),
+                  ),
+                  const SizedBox(height: 7),
                 ],
                 Text(
                   detail,
@@ -417,7 +460,10 @@ class _TaskRow extends StatelessWidget {
               ],
             ),
           ),
-          ...actions,
+          if (actions.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Wrap(spacing: 6, children: actions),
+          ],
         ],
       ),
     );
@@ -437,12 +483,10 @@ class OfflineSubscriptionsSection extends ConsumerWidget {
             await work();
           } catch (error) {
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    error is SourceFailure ? error.message : '自动缓存设置失败，请重试。',
-                  ),
-                ),
+              showAppToast(
+                context,
+                error is SourceFailure ? error.message : '自动缓存设置失败，请重试。',
+                kind: AppFeedbackKind.error,
               );
             }
           }
@@ -452,26 +496,44 @@ class OfflineSubscriptionsSection extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (state.error != null)
-              Row(
-                children: [
-                  Expanded(child: Text(state.error!)),
-                  TextButton(
-                    onPressed: () => unawaited(run(repository.maintain)),
-                    child: const Text('重试'),
-                  ),
-                ],
+              AppInlineNotice(
+                message: state.error!,
+                kind: AppFeedbackKind.error,
+                actionLabel: '重试',
+                onAction: () => unawaited(run(repository.maintain)),
               ),
             if (state.rules.isNotEmpty) ...[
-              const Text(
-                '自动缓存订阅',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              DashboardSectionHeading(
+                title: '自动缓存订阅',
+                subtitle: '为已订阅系列自动维护离线内容。',
+                icon: Icons.offline_pin_outlined,
+                badge: '${state.rules.length} 项',
               ),
-              const SizedBox(height: 12),
               for (final rule in state.rules)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                DashboardPanel(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  radius: 15,
                   child: Row(
                     children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary
+                              .withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          Icons.cloud_download_outlined,
+                          size: 19,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -482,13 +544,26 @@ class OfflineSubscriptionsSection extends ConsumerWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              '${rule.compact} · ${rule.network.label}${rule.paused(DateTime.now()) ? ' · 已暂停' : ''}',
-                              style: const TextStyle(fontSize: 12),
+                              '${rule.compact} · ${rule.network.label}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
+                      if (rule.paused(DateTime.now())) ...[
+                        const DashboardStatusBadge(
+                          label: '已暂停',
+                          tint: Color(0xFFD98A00),
+                          icon: Icons.pause_circle_outline,
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      DashboardIconAction(
                         tooltip: rule.paused(DateTime.now())
                             ? '继续自动缓存'
                             : '暂停 7 天',
@@ -500,18 +575,17 @@ class OfflineSubscriptionsSection extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        icon: Icon(
-                          rule.paused(DateTime.now())
-                              ? Icons.play_arrow
-                              : Icons.pause,
-                          size: 18,
-                        ),
+                        icon: rule.paused(DateTime.now())
+                            ? Icons.play_arrow_rounded
+                            : Icons.pause_rounded,
                       ),
-                      IconButton(
+                      const SizedBox(width: 6),
+                      DashboardIconAction(
                         tooltip: '停止自动缓存',
                         onPressed: () =>
                             unawaited(run(() => repository.stop(rule.series))),
-                        icon: const Icon(Icons.close, size: 18),
+                        icon: Icons.close_rounded,
+                        danger: true,
                       ),
                     ],
                   ),
@@ -534,24 +608,22 @@ class EmbyCacheDashboard extends ConsumerWidget {
     final p = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return Container(
-      padding: const EdgeInsets.all(16),
+    return DashboardPanel(
       margin: const EdgeInsets.only(bottom: 22),
-      decoration: BoxDecoration(
-        color: p.card,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: p.border),
-      ),
       child: summary.when(
-        loading: () => const Text('正在读取缓存用量…'),
-        error: (_, _) => Row(
+        loading: () => const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Expanded(child: Text('缓存用量读取失败，请检查缓存目录。')),
-            TextButton(
-              onPressed: () => ref.invalidate(embyCacheStorageProvider),
-              child: const Text('重试'),
-            ),
+            LinearProgressIndicator(),
+            SizedBox(height: 12),
+            Text('正在读取缓存用量…'),
           ],
+        ),
+        error: (_, _) => AppInlineNotice(
+          message: '缓存用量读取失败，请检查缓存目录。',
+          kind: AppFeedbackKind.error,
+          actionLabel: '重试',
+          onAction: () => ref.invalidate(embyCacheStorageProvider),
         ),
         data: (s) {
           final limitBytes = s.limit * 1024 * 1024 * 1024;
@@ -566,16 +638,40 @@ class EmbyCacheDashboard extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  const Expanded(
-                    child: Text(
-                      '离线缓存用量',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: p.accent.withValues(alpha: p.dark ? .16 : .10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.offline_pin_outlined,
+                      size: 20,
+                      color: p.accent,
                     ),
                   ),
-                  Text('${s.count} 个缓存', style: const TextStyle(fontSize: 12)),
+                  const SizedBox(width: 11),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '离线缓存用量',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text('供视频离线播放使用', style: TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  DashboardStatusBadge(
+                    label: '${s.count} 个缓存',
+                    tint: over ? const Color(0xFFD98A00) : p.accent,
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -608,9 +704,15 @@ class EmbyCacheDashboard extends ConsumerWidget {
                 over ? '已超出缓存上限，可在设置中清理或调大上限。' : '离线缓存供视频离线播放使用，上限可在设置中调整。',
                 style: const TextStyle(fontSize: 12),
               ),
-              TextButton(
-                onPressed: () => context.go('/health/tasks'),
-                child: const Text('任务中心'),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SourceSheetButton(
+                  label: '打开任务中心',
+                  height: 32,
+                  horizontalPadding: 12,
+                  onPressed: () => context.go('/health/tasks'),
+                ),
               ),
             ],
           );

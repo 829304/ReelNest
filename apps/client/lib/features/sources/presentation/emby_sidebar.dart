@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../domain/media_source.dart';
 import '../../../shell/sidebar_components.dart';
 import '../../../ui/theme/app_palette.dart';
+import '../../../ui/widgets/app_feedback.dart';
 import '../application/emby_library_providers.dart';
 import '../application/source_providers.dart';
 import '../application/emby_providers.dart';
@@ -68,8 +69,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
         if (revision == _toggleRevision) {
           setState(() => _collapsed = {..._savedCollapsed});
         }
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('侧栏状态保存失败，请重试。')));
+        showAppToast(context, '侧栏状态保存失败，请重试。', kind: AppFeedbackKind.error);
       }
     }
   }

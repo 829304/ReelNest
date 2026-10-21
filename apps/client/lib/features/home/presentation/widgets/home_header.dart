@@ -4,7 +4,7 @@ import '../../../../ui/theme/source_sheet_palette.dart';
 
 /// HomeVividHeader / HomeVividSearchControl: 230x41, radius 13; wrap below
 /// the title when the desktop window cannot fit the horizontal arrangement.
-class HomeHeader extends StatelessWidget {
+class HomeHeader extends StatefulWidget {
   const HomeHeader({
     required this.greeting,
     required this.controller,
@@ -18,6 +18,13 @@ class HomeHeader extends StatelessWidget {
   final VoidCallback onSubmit;
 
   @override
+  State<HomeHeader> createState() => _HomeHeaderState();
+}
+
+class _HomeHeaderState extends State<HomeHeader> {
+  bool _searchFocused = false;
+
+  @override
   Widget build(BuildContext context) {
     final p = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
@@ -26,7 +33,7 @@ class HomeHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$greeting，欢迎回来',
+          '${widget.greeting}，欢迎回来',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -62,46 +69,73 @@ class HomeHeader extends StatelessWidget {
         ),
       ],
     );
-    final search = Container(
-      width: 230,
-      height: 41,
-      padding: const EdgeInsets.symmetric(horizontal: 15),
-      decoration: BoxDecoration(
-        color: p.card,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: p.outline),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14000000),
-            blurRadius: 16,
-            offset: Offset(0, 6),
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final search = Focus(
+      onFocusChange: (focused) {
+        if (_searchFocused != focused) {
+          setState(() => _searchFocused = focused);
+        }
+      },
+      child: AnimatedContainer(
+        key: const ValueKey('home-search-surface'),
+        width: 230,
+        height: 41,
+        duration: reduced ? Duration.zero : const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 15),
+        decoration: BoxDecoration(
+          color: p.card,
+          borderRadius: BorderRadius.circular(13),
+          border: Border.all(
+            color: _searchFocused ? p.accent.withValues(alpha: .72) : p.outline,
+            width: _searchFocused ? 1.35 : 1,
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.search, size: 16, color: p.secondary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              key: const ValueKey('home-search-field'),
-              controller: controller,
-              onChanged: onChanged,
-              onSubmitted: (_) => onSubmit(),
-              style: TextStyle(fontSize: 13, color: p.text),
-              decoration: InputDecoration(
-                hintText: '搜索全部媒体',
-                hintStyle: TextStyle(fontSize: 13, color: p.secondary),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+          boxShadow: [
+            BoxShadow(
+              color: (_searchFocused ? p.accent : Colors.black).withValues(
+                alpha: _searchFocused ? .14 : .08,
+              ),
+              blurRadius: _searchFocused ? 18 : 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            AnimatedSwitcher(
+              duration: reduced
+                  ? Duration.zero
+                  : const Duration(milliseconds: 120),
+              child: Icon(
+                Icons.search,
+                key: ValueKey(_searchFocused),
+                size: 16,
+                color: _searchFocused ? p.accent : p.secondary,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                key: const ValueKey('home-search-field'),
+                controller: widget.controller,
+                onChanged: widget.onChanged,
+                onSubmitted: (_) => widget.onSubmit(),
+                textInputAction: TextInputAction.search,
+                style: TextStyle(fontSize: 13, color: p.text),
+                decoration: InputDecoration(
+                  hintText: '搜索全部媒体',
+                  hintStyle: TextStyle(fontSize: 13, color: p.secondary),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
     // Measure the actual title, rather than guessing a width for Chinese fonts.

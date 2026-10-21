@@ -81,6 +81,15 @@ class _PlayerBehaviorSettingsDialogState
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
+    final horizontalInset = screen.width < 760 ? 12.0 : 46.0;
+    final verticalInset = screen.height < 560 ? 12.0 : 46.0;
+    final dialogWidth = (screen.width - horizontalInset * 2)
+        .clamp(0, 900)
+        .toDouble();
+    final dialogHeight = (screen.height - verticalInset * 2)
+        .clamp(0, 660)
+        .toDouble();
+    final compact = dialogWidth < 720;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -93,14 +102,9 @@ class _PlayerBehaviorSettingsDialogState
             child: Material(
               type: MaterialType.transparency,
               child: SizedBox(
-                width: (screen.width - 92)
-                    .clamp(680, 900)
-                    .clamp(0, screen.width)
-                    .toDouble(),
-                height: (screen.height - 92)
-                    .clamp(500, 660)
-                    .clamp(0, screen.height)
-                    .toDouble(),
+                key: const ValueKey('player-settings-dialog'),
+                width: dialogWidth,
+                height: dialogHeight,
                 child: PlayerPanelSurface(
                   palette: palette,
                   shadowRadius: 22,
@@ -108,44 +112,56 @@ class _PlayerBehaviorSettingsDialogState
                   child: Column(
                     children: [
                       _header(context),
+                      _controlNotice(),
                       Divider(height: 1, color: palette.rowStroke),
                       Expanded(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _sidebar(),
+                            _sidebar(compact ? 132 : 150),
                             VerticalDivider(width: 1, color: palette.rowStroke),
                             Expanded(
-                              child: SingleChildScrollView(
-                                key: ValueKey(
-                                  'player-settings-content-${selected.name}',
+                              child: Scrollbar(
+                                child: SingleChildScrollView(
+                                  key: ValueKey(
+                                    'player-settings-content-${selected.name}',
+                                  ),
+                                  padding: EdgeInsets.fromLTRB(
+                                    compact ? 14 : 18,
+                                    16,
+                                    compact ? 14 : 18,
+                                    18,
+                                  ),
+                                  child: switch (selected) {
+                                    PlayerAdvancedSettingsTab.playback =>
+                                      PlayerBasicSettings(
+                                        session: session,
+                                        palette: palette,
+                                        showControlError: false,
+                                      ),
+                                    PlayerAdvancedSettingsTab.sync =>
+                                      PlayerSyncSettings(
+                                        session: session,
+                                        palette: palette,
+                                        showControlError: false,
+                                      ),
+                                    PlayerAdvancedSettingsTab.video =>
+                                      PlayerVideoDisplaySettings(
+                                        session: session,
+                                        palette: palette,
+                                        showControlError: false,
+                                      ),
+                                    PlayerAdvancedSettingsTab.subtitles =>
+                                      PlayerSubtitleStyleSettings(
+                                        session: session,
+                                        palette: palette,
+                                        fontFamilies: fontFamilies ??=
+                                            session.subtitleFontFamilies,
+                                        onRetryFonts: retryFonts,
+                                        showControlError: false,
+                                      ),
+                                  },
                                 ),
-                                padding: const EdgeInsets.all(18),
-                                child: switch (selected) {
-                                  PlayerAdvancedSettingsTab.playback =>
-                                    PlayerBasicSettings(
-                                      session: session,
-                                      palette: palette,
-                                    ),
-                                  PlayerAdvancedSettingsTab.sync =>
-                                    PlayerSyncSettings(
-                                      session: session,
-                                      palette: palette,
-                                    ),
-                                  PlayerAdvancedSettingsTab.video =>
-                                    PlayerVideoDisplaySettings(
-                                      session: session,
-                                      palette: palette,
-                                    ),
-                                  PlayerAdvancedSettingsTab.subtitles =>
-                                    PlayerSubtitleStyleSettings(
-                                      session: session,
-                                      palette: palette,
-                                      fontFamilies: fontFamilies ??=
-                                          session.subtitleFontFamilies,
-                                      onRetryFonts: retryFonts,
-                                    ),
-                                },
                               ),
                             ),
                           ],
@@ -196,8 +212,28 @@ class _PlayerBehaviorSettingsDialogState
     ),
   );
 
-  Widget _sidebar() => SizedBox(
-    width: 150,
+  Widget _controlNotice() => AnimatedBuilder(
+    animation: session,
+    builder: (context, _) => AnimatedSwitcher(
+      duration: const Duration(milliseconds: 140),
+      reverseDuration: const Duration(milliseconds: 100),
+      child: session.controlError == null
+          ? const SizedBox.shrink(
+              key: ValueKey('player-settings-control-error-empty'),
+            )
+          : Padding(
+              key: const ValueKey('player-settings-control-error'),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+              child: PlayerInlineNotice(
+                message: session.controlError!,
+                palette: palette,
+              ),
+            ),
+    ),
+  );
+
+  Widget _sidebar(double width) => SizedBox(
+    width: width,
     child: Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -207,42 +243,35 @@ class _PlayerBehaviorSettingsDialogState
             Semantics(
               button: true,
               selected: selected == tab,
-              child: InkWell(
+              child: PlayerMenuRowSurface(
                 key: ValueKey('player-settings-tab-${tab.name}'),
+                palette: palette,
                 onTap: () => select(tab),
-                borderRadius: BorderRadius.circular(9),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  height: 32,
-                  padding: const EdgeInsets.symmetric(horizontal: 11),
-                  decoration: BoxDecoration(
-                    color: selected == tab
-                        ? palette.selectedFill
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Row(
-                    spacing: 8,
-                    children: [
-                      Icon(
-                        tab.icon,
-                        size: 14,
+                selected: selected == tab,
+                fill: Colors.transparent,
+                minHeight: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  spacing: 8,
+                  children: [
+                    Icon(
+                      tab.icon,
+                      size: 14,
+                      color: selected == tab
+                          ? palette.primary
+                          : palette.secondary,
+                    ),
+                    Text(
+                      tab.title,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                         color: selected == tab
                             ? palette.primary
                             : palette.secondary,
                       ),
-                      Text(
-                        tab.title,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: selected == tab
-                              ? palette.primary
-                              : palette.secondary,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),

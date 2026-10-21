@@ -63,7 +63,7 @@ void main() {
     );
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byKey(const ValueKey('source-alias-dialog')), findsNothing);
     expect((await repository.source(source.id)).name, source.name);
   });
 
@@ -83,7 +83,7 @@ void main() {
       await tester.enterText(input, '  客厅影音  ');
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byKey(const ValueKey('source-alias-dialog')), findsOneWidget);
       expect(tester.widget<TextField>(input).controller!.text, '  客厅影音  ');
       expect(tester.widget<TextField>(input).decoration!.errorText, isNotNull);
       expect((await repository.source(source.id)).name, source.name);
@@ -91,7 +91,7 @@ void main() {
       await database.customStatement('DROP TRIGGER reject_alias');
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byKey(const ValueKey('source-alias-dialog')), findsNothing);
       final saved = await repository.source(source.id);
       expect(saved.name, '客厅影音');
       expect(saved.location, source.location);

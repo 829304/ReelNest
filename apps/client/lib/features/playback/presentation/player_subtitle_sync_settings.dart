@@ -12,11 +12,13 @@ class PlayerSyncSettings extends StatelessWidget {
   const PlayerSyncSettings({
     required this.session,
     required this.palette,
+    this.showControlError = true,
     super.key,
   });
 
   final PlaybackSession session;
   final PlayerPalette palette;
+  final bool showControlError;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -115,8 +117,11 @@ class PlayerSyncSettings extends StatelessWidget {
               keyPrefix: 'subtitle-position',
             ),
           ),
-          if (session.controlError != null)
-            _ErrorText(message: session.controlError!, palette: palette),
+          if (showControlError && session.controlError != null)
+            PlayerInlineNotice(
+              message: session.controlError!,
+              palette: palette,
+            ),
         ],
       );
     },
@@ -129,6 +134,7 @@ class PlayerSubtitleStyleSettings extends StatelessWidget {
     required this.palette,
     required this.fontFamilies,
     required this.onRetryFonts,
+    this.showControlError = true,
     super.key,
   });
 
@@ -136,6 +142,7 @@ class PlayerSubtitleStyleSettings extends StatelessWidget {
   final PlayerPalette palette;
   final Future<List<String>> fontFamilies;
   final VoidCallback onRetryFonts;
+  final bool showControlError;
 
   void update({
     Object? fontName = _keepSubtitleFont,
@@ -282,8 +289,11 @@ class PlayerSubtitleStyleSettings extends StatelessWidget {
                   onSelected: (value) => update(backgroundOpacity: value),
                 ),
               ),
-              if (session.controlError != null)
-                _ErrorText(message: session.controlError!, palette: palette),
+              if (showControlError && session.controlError != null)
+                PlayerInlineNotice(
+                  message: session.controlError!,
+                  palette: palette,
+                ),
             ],
           ),
           Text(
@@ -634,15 +644,4 @@ class _FontMenu extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _ErrorText extends StatelessWidget {
-  const _ErrorText({required this.message, required this.palette});
-
-  final String message;
-  final PlayerPalette palette;
-
-  @override
-  Widget build(BuildContext context) =>
-      Text(message, style: TextStyle(fontSize: 11, color: palette.secondary));
 }
