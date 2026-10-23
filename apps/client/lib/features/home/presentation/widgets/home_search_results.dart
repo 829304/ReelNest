@@ -337,7 +337,9 @@ class _SearchRowState extends ConsumerState<_SearchRow> {
                   // Dependency refresh retains prior rows while cached detail
                   // terms reload. invalidate() would collapse the list on pop.
                   if (mounted) {
-                    ref.read(sourceRepositoryProvider).traceChanged();
+                    ref
+                        .read(sourceRepositoryProvider)
+                        .traceChanged(sourceIds: [item.identity.sourceId]);
                   }
                 },
                 child: Padding(

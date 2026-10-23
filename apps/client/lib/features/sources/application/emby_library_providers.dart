@@ -1,8 +1,7 @@
-import 'dart:isolate';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../home/data/home_search_worker.dart';
 
 import '../data/emby_library_repository.dart';
 import '../domain/emby_library.dart';
@@ -15,14 +14,19 @@ final embyLibraryRepositoryProvider = Provider<EmbyLibraryRepository>(
 );
 final embySidebarSectionsProvider = FutureProvider.autoDispose
     .family<Set<EmbyVideoSection>, String>((ref, id) {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select((_) => sources.sourceViewRevision(id)),
+      );
       return ref.watch(embyLibraryRepositoryProvider).sidebarSections(id);
     });
 // Playback-window notifications and explicit retries invalidate this base.
 final embyVideoContentProvider = FutureProvider.autoDispose
     .family<EmbyVideoSnapshot, String>((ref, id) {
       final sources = ref.watch(sourceRepositoryProvider);
-      ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
+      ref.watch(
+        sourceChangesProvider.select((_) => sources.sourceContentRevision(id)),
+      );
       return ref.watch(embyLibraryRepositoryProvider).snapshot(id);
     });
 final embyVideoSnapshotProvider = FutureProvider.autoDispose
@@ -48,15 +52,20 @@ typedef VideoLibraryQuery = ({
 });
 final embyVideoResultsProvider = FutureProvider.autoDispose
     .family<List<VideoLibraryEntry>, VideoLibraryQuery>((ref, query) async {
+      final cancellation = ScanCancellation();
+      ref.onDispose(cancellation.cancel);
       final snapshot = await ref.watch(
         embyVideoSnapshotProvider(query.destination.sourceId).future,
       );
+      cancellation.check();
       final threshold = await PlayerPreferencesRepository(
         ref.watch(sourceRepositoryProvider).database,
       ).watchedThreshold;
+      cancellation.check();
       var scoped = snapshot.scope(query.destination);
       if (query.settings.cachedOnly) {
         final cached = await ref.watch(embyCachedVideosProvider.future);
+        cancellation.check();
         final identities = cached.map((c) => c.identity).toSet();
         final parents = <MediaIdentity>{};
         for (final id in identities) {
@@ -77,8 +86,9 @@ final embyVideoResultsProvider = FutureProvider.autoDispose
       // Original defers search/filter work for large snapshots. Isolates receive
       // display models only, never a repository, credential, or HTTP client.
       if (scoped.length > 180) {
-        return Isolate.run(
+        return runHomeSearchWorker(
           () => filterVideoLibrary(scoped, settings, threshold),
+          cancellation,
         );
       }
       return filterVideoLibrary(scoped, settings, threshold);

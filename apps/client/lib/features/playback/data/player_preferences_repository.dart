@@ -14,6 +14,8 @@ import '../domain/video_color_adjustments.dart';
 import '../domain/video_sharpen_mode.dart';
 import '../domain/video_performance_settings.dart';
 import '../domain/video_render_settings.dart';
+import '../domain/video_screenshot.dart';
+import '../domain/video_equalizer_settings.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -48,6 +50,8 @@ class PlayerPreferencesRepository {
         'videoSharpenMode',
         'videoPerformanceSettings',
         'videoRenderSettings',
+        'videoScreenshotMode',
+        'videoEqualizerSettings',
         'videoPlaybackEndAction',
         'videoLoopCurrentItem',
         'videoMarkerSkipBehavior',
@@ -121,6 +125,13 @@ class PlayerPreferencesRepository {
 
   Future<void> rememberNumber(String key, double value) =>
       _write('global.$key', value.toString());
+
+  Future<VideoScreenshotMode> get screenshotMode async =>
+      VideoScreenshotMode.fromStorage(
+        await _read('global.videoScreenshotMode'),
+      );
+  Future<void> rememberScreenshotMode(VideoScreenshotMode mode) =>
+      _write('global.videoScreenshotMode', mode.name);
   Future<VideoSubtitleStyle> get subtitleStyle async {
     final raw = await _read('global.videoSubtitleStyle');
     if (raw == null) return VideoSubtitleStyle.standard;
@@ -226,6 +237,22 @@ class PlayerPreferencesRepository {
 
   Future<void> rememberSharpenMode(VideoSharpenMode mode) =>
       _write('global.videoSharpenMode', mode.name);
+
+  Future<VideoEqualizerSettings> get equalizerSettings async {
+    final raw = await _read('global.videoEqualizerSettings');
+    if (raw == null) return const VideoEqualizerSettings();
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic>
+          ? VideoEqualizerSettings.fromJson(value)
+          : const VideoEqualizerSettings();
+    } on FormatException {
+      return const VideoEqualizerSettings();
+    }
+  }
+
+  Future<void> rememberEqualizerSettings(VideoEqualizerSettings value) =>
+      _write('global.videoEqualizerSettings', jsonEncode(value.toJson()));
 
   Future<VideoPerformanceSettings> get performanceSettings async {
     final raw = await _read('global.videoPerformanceSettings');

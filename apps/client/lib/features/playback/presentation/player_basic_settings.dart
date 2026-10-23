@@ -7,7 +7,9 @@ import '../application/playback_session.dart';
 import '../domain/playback_marker.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_queue.dart';
+import '../domain/video_equalizer_settings.dart';
 import '../domain/video_scrubber_preview_mode.dart';
+import '../domain/video_screenshot.dart';
 import 'player_visuals.dart';
 
 /// PlayerView's playback behavior rows. Advanced tabs remain separate work.
@@ -31,18 +33,12 @@ class PlayerBasicSettings extends StatelessWidget {
     builder: (context, _) {
       final value = session.options;
       final precision = session.precision.value;
+      final equalizer = session.equalizerSettings;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         spacing: 8,
         children: [
-          Text(
-            '播放行为',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: palette.subdued,
-            ),
-          ),
+          sectionTitle('播放行为'),
           row(
             '默认倍速',
             Icons.speed,
@@ -161,6 +157,32 @@ class PlayerBasicSettings extends StatelessWidget {
               (v) => change((o) => o.copyWith(pitchCorrection: v)),
             ),
           ),
+          sectionTitle('音频均衡器', separated: true),
+          row(
+            '启用均衡器',
+            Icons.tune_rounded,
+            toggle(
+              equalizer.enabled,
+              (enabled) =>
+                  unawaited(session.updateEqualizerSettings(enabled: enabled)),
+              key: const ValueKey('video-equalizer-enabled'),
+            ),
+          ),
+          if (equalizer.enabled)
+            row(
+              '预设',
+              Icons.graphic_eq_rounded,
+              wrappingChoices<VideoEqualizerPreset>(
+                VideoEqualizerPreset.values,
+                equalizer.preset,
+                (preset) => preset.displayName,
+                (preset) =>
+                    unawaited(session.updateEqualizerSettings(preset: preset)),
+                keyFor: (preset) =>
+                    ValueKey('video-equalizer-preset-${preset.name}'),
+              ),
+            ),
+          sectionTitle('窗口与时间轴', separated: true),
           row(
             '窗口置顶',
             Icons.push_pin_outlined,
@@ -183,6 +205,17 @@ class PlayerBasicSettings extends StatelessWidget {
             ),
           ),
           row(
+            '截图内容',
+            Icons.camera_alt_outlined,
+            choices<VideoScreenshotMode>(
+              VideoScreenshotMode.values,
+              session.screenshotMode,
+              (mode) => mode.label,
+              (mode) => unawaited(session.setScreenshotMode(mode)),
+              keyFor: (mode) => ValueKey('screenshot-mode-${mode.name}'),
+            ),
+          ),
+          row(
             '剩余时间',
             Icons.timer_outlined,
             toggle(
@@ -198,6 +231,18 @@ class PlayerBasicSettings extends StatelessWidget {
         ],
       );
     },
+  );
+
+  Widget sectionTitle(String title, {bool separated = false}) => Padding(
+    padding: EdgeInsets.only(top: separated ? 7 : 0),
+    child: Text(
+      title,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: palette.subdued,
+      ),
+    ),
   );
 
   Widget row(String title, IconData icon, Widget control) => ConstrainedBox(
@@ -290,9 +335,61 @@ class PlayerBasicSettings extends StatelessWidget {
     ],
   );
 
-  Widget toggle(bool value, ValueChanged<bool> onChanged) => Align(
+  Widget wrappingChoices<T>(
+    List<T> items,
+    T selected,
+    String Function(T) label,
+    ValueChanged<T> onSelect, {
+    Key Function(T)? keyFor,
+  }) => Wrap(
+    alignment: WrapAlignment.end,
+    spacing: 5,
+    runSpacing: 5,
+    children: [
+      for (final item in items)
+        Semantics(
+          selected: selected == item,
+          button: true,
+          child: InkWell(
+            key: keyFor?.call(item),
+            onTap: () => onSelect(item),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              height: 24,
+              constraints: const BoxConstraints(minWidth: 44),
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected == item
+                    ? palette.selectedFill
+                    : palette.choiceFill,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  width: .8,
+                  color: selected == item
+                      ? palette.selectedStroke
+                      : palette.rowStroke,
+                ),
+              ),
+              child: Text(
+                label(item),
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: palette.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+
+  Widget toggle(bool value, ValueChanged<bool> onChanged, {Key? key}) => Align(
     alignment: Alignment.centerRight,
     child: Semantics(
+      key: key,
       toggled: value,
       label: value ? '开启' : '关闭',
       child: InkWell(

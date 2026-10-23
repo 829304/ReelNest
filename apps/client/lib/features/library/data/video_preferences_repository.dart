@@ -56,7 +56,7 @@ class VideoPreferencesRepository {
         ],
       );
     });
-    sources.traceChanged();
+    sources.libraryPreferencesChanged([id.sourceId]);
   }
 
   Future<void> setLocalFavorite(MediaIdentity id, bool value) async {
@@ -74,6 +74,6 @@ class VideoPreferencesRepository {
         [favoriteKey(id), '$value'],
       );
     });
-    sources.traceChanged();
+    sources.traceChanged(sourceIds: [id.sourceId]);
   }
 }

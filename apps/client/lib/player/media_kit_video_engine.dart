@@ -3,13 +3,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/rendering.dart';
 import 'package:media_kit/media_kit.dart' hide VideoTrack;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
 
 import 'coalesced_refresh.dart';
+import 'mpv_screenshot.dart';
+import 'video_screenshot_engine.dart';
+import '../features/playback/domain/video_screenshot.dart';
 import 'video_engine.dart';
 import 'video_tracks.dart';
 import 'video_timeline.dart';
@@ -23,6 +29,8 @@ import 'video_display_settings_engine.dart';
 import 'video_color_adjustments_engine.dart';
 import 'software_video_colors.dart';
 import 'video_sharpen_engine.dart';
+import 'video_equalizer_engine.dart';
+import '../features/playback/domain/video_equalizer_settings.dart';
 import 'video_performance_settings_engine.dart';
 import 'video_render_settings_engine.dart';
 import '../features/playback/domain/video_render_settings.dart';
@@ -45,8 +53,10 @@ class MediaKitVideoEngine
         VideoDisplayEngine,
         VideoColorEngine,
         VideoSharpenEngine,
+        VideoEqualizerEngine,
         VideoPerformanceEngine,
         VideoRenderEngine,
+        VideoScreenshotEngine,
         DiagnosableVideoEngine {
   MediaKitVideoEngine({
     Player? player,
@@ -166,6 +176,77 @@ class MediaKitVideoEngine
   Future<void> _viewportUpdates = Future.value();
   (int, int)? _viewportTarget, _viewportSubmitted;
   bool _viewportReset = false;
+  final _screenshotSurface = GlobalKey();
+  Future<void> _captures = Future.value();
+
+  @override
+  Future<Uint8List> captureCurrentFrame(VideoScreenshotMode mode) {
+    final capture = _captures.then((_) async {
+      _checkAlive();
+      if (_opening ||
+          _error != null ||
+          (_player.state.width ?? 0) <= 0 ||
+          (_player.state.height ?? 0) <= 0) {
+        throw const VideoScreenshotFailure('当前画面暂不可截图，请稍后重试。');
+      }
+      ui.Image? image;
+      try {
+        if (mode == VideoScreenshotMode.window) {
+          // Original renderView capture: video viewport, subtitles and borders;
+          // no Flutter player controls, menu, HUD or another desktop window.
+          await WidgetsBinding.instance.endOfFrame.timeout(
+            const Duration(seconds: 2),
+          );
+          _checkAlive();
+          final context = _screenshotSurface.currentContext;
+          final boundary = context?.findRenderObject();
+          if (context == null ||
+              !context.mounted ||
+              boundary is! RenderRepaintBoundary ||
+              !boundary.attached ||
+              boundary.size.isEmpty) {
+            throw const VideoScreenshotFailure('视频画面尚未显示，无法保存窗口所见。');
+          }
+          final ratio = View.of(context).devicePixelRatio;
+          VideoScreenshotLimits.dimensions(
+            (boundary.size.width * ratio).ceil(),
+            (boundary.size.height * ratio).ceil(),
+          );
+          image = await boundary.toImage(pixelRatio: ratio);
+        } else {
+          final raw = await captureMpvScreenshot(_native, mode);
+          _checkAlive();
+          final decoded = Completer<ui.Image>();
+          ui.decodeImageFromPixels(
+            raw.bgra,
+            raw.width,
+            raw.height,
+            ui.PixelFormat.bgra8888,
+            decoded.complete,
+            rowBytes: raw.stride,
+          );
+          image = await decoded.future;
+        }
+        _checkAlive();
+        final encoded = await image.toByteData(format: ui.ImageByteFormat.png);
+        _checkAlive();
+        if (encoded == null) throw const VideoScreenshotFailure('无法编码截图，请重试。');
+        final png = encoded.buffer.asUint8List(
+          encoded.offsetInBytes,
+          encoded.lengthInBytes,
+        );
+        VideoScreenshotLimits.png(png);
+        return png;
+      } finally {
+        image?.dispose();
+      }
+    });
+    _captures = capture.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return capture;
+  }
 
   void _requestViewport(Size logicalSize, double pixelRatio) {
     if (_disposed ||
@@ -377,6 +458,27 @@ class MediaKitVideoEngine
   VideoColorAdjustments colorAdjustments = VideoColorAdjustments.neutral;
   @override
   VideoSharpenMode sharpenMode = VideoSharpenMode.off;
+  @override
+  VideoEqualizerSettings equalizerSettings = const VideoEqualizerSettings();
+  late final _equalizerCommands = MpvEqualizerCommands(
+    command: _native.command,
+    read: (name) async => jsonEncode(readMpvNodeProperty(_native, name)),
+  );
+  @override
+  Future<void> setEqualizerSettings(VideoEqualizerSettings value) async {
+    _checkAlive();
+    try {
+      await _equalizerCommands.apply(value);
+    } on VideoEqualizerRollbackFailure {
+      try {
+        equalizerSettings = await _equalizerCommands.actual(equalizerSettings);
+      } catch (_) {}
+      rethrow;
+    }
+    _checkAlive();
+    equalizerSettings = value;
+  }
+
   late final _ownedFilters = MpvOwnedVideoFilters(
     command: _native.command,
     read: (name) async => jsonEncode(readMpvNodeProperty(_native, name)),
@@ -811,16 +913,22 @@ class MediaKitVideoEngine
   }
 
   @override
-  Widget surface() => LayoutBuilder(
-    builder: (context, constraints) {
-      _requestViewport(constraints.biggest, View.of(context).devicePixelRatio);
-      return Video(
-        controller: _video,
-        controls: NoVideoControls,
-        wakelock: false,
-        fit: BoxFit.fill,
-      );
-    },
+  Widget surface() => RepaintBoundary(
+    key: _screenshotSurface,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        _requestViewport(
+          constraints.biggest,
+          View.of(context).devicePixelRatio,
+        );
+        return Video(
+          controller: _video,
+          controls: NoVideoControls,
+          wakelock: false,
+          fit: BoxFit.fill,
+        );
+      },
+    ),
   );
   @override
   Future<void> dispose() async {
@@ -835,6 +943,7 @@ class MediaKitVideoEngine
     }
     await _sleep.dispose();
     await _trackRefresh.close();
+    await _captures;
     await _viewportUpdates;
     await _player.dispose();
     await _changes.close();

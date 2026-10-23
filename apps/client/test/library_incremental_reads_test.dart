@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:async';
 import 'dart:convert';
 
@@ -7,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/api/emby/emby_client.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/features/home/application/home_providers.dart';
+import 'package:reelnest/features/home/domain/home_snapshot.dart';
 import 'package:reelnest/features/sources/application/emby_library_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/emby_connection_repository.dart';
@@ -220,6 +223,181 @@ void main() {
     );
   });
 
+  test('home and navigation refresh only affected sources; unknown changes remain global', () async {
+    await item('film');
+    await item('film', source: 'b');
+    final container = ProviderContainer(
+      retry: (_, _) => null,
+      overrides: [sourceRepositoryProvider.overrideWithValue(sources)],
+    );
+    addTearDown(container.dispose);
+    const pageA = (
+      sourceId: 'a',
+      collection: HomeCollection.watchlist,
+      offset: 0,
+    );
+    const pageB = (
+      sourceId: 'b',
+      collection: HomeCollection.watchlist,
+      offset: 0,
+    );
+    container.listen(sidebarSourcesProvider, (_, _) {});
+    container.listen(sourcesProvider, (_, _) {});
+    container.listen(homeVideoPageProvider(pageA), (_, _) {});
+    container.listen(homeVideoPageProvider(pageB), (_, _) {});
+    container.listen(homeSourceStatsProvider('b'), (_, _) {});
+    container.listen(homeRecommendationCandidatesProvider('b'), (_, _) {});
+    container.listen(embySidebarSectionsProvider('a'), (_, _) {});
+    container.listen(embySidebarSectionsProvider('b'), (_, _) {});
+    final sidebar = await container.read(sidebarSourcesProvider.future);
+    final counted = await container.read(sourcesProvider.future);
+    await container.read(homeVideoPageProvider(pageA).future);
+    final page = await container.read(homeVideoPageProvider(pageB).future);
+    final stats = await container.read(homeSourceStatsProvider('b').future);
+    final recommendations = await container.read(
+      homeRecommendationCandidatesProvider('b').future,
+    );
+    final sections = await container.read(
+      embySidebarSectionsProvider('b').future,
+    );
+    await container.read(embySidebarSectionsProvider('a').future);
+    counter.reads.clear();
+    await EmbyLibraryRepository(sources)
+        .setWatchlist((sourceId: 'a', localId: 'film'), true);
+    await container.pump();
+    expect(
+      (await container.read(homeVideoPageProvider(pageA).future)).items,
+      hasLength(1),
+    );
+    expect(
+      await container.read(embySidebarSectionsProvider('a').future),
+      contains(EmbyVideoSection.watchlist),
+    );
+    expect(
+      identical(await container.read(sidebarSourcesProvider.future), sidebar),
+      isTrue,
+    );
+    expect(
+      identical(await container.read(sourcesProvider.future), counted),
+      isTrue,
+    );
+    expect(
+      identical(
+        await container.read(homeVideoPageProvider(pageB).future),
+        page,
+      ),
+      isTrue,
+    );
+    expect(
+      identical(
+        await container.read(homeSourceStatsProvider('b').future),
+        stats,
+      ),
+      isTrue,
+    );
+    expect(
+      identical(
+        await container.read(homeRecommendationCandidatesProvider('b').future),
+        recommendations,
+      ),
+      isTrue,
+    );
+    expect(
+      identical(
+        await container.read(embySidebarSectionsProvider('b').future),
+        sections,
+      ),
+      isTrue,
+    );
+    await sources.setRemoteFavorite((sourceId: 'a', localId: 'film'), true);
+    await container.pump();
+    expect(
+      await container.read(embySidebarSectionsProvider('a').future),
+      contains(EmbyVideoSection.favorites),
+    );
+    expect(
+      identical(
+        await container.read(homeVideoPageProvider(pageB).future),
+        page,
+      ),
+      isTrue,
+    );
+    expect(
+      identical(await container.read(sidebarSourcesProvider.future), sidebar),
+      isTrue,
+    );
+    sources.traceChanged();
+    await container.pump();
+    expect(
+      identical(
+        await container.read(homeVideoPageProvider(pageB).future),
+        page,
+      ),
+      isFalse,
+    );
+    expect(
+      identical(await container.read(sidebarSourcesProvider.future), sidebar),
+      isFalse,
+    );
+  });
+
+  test('sparse preference overlays retain children, order and old snapshots across resets', () async {
+    await item('show', type: 'series');
+    await item('film');
+    await item('episode', parent: 'show', type: 'episode');
+    await db.customStatement("""WITH RECURSIVE n(i) AS
+      (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<10000)
+      INSERT INTO media(source_id,local_id,title,type,bytes,modified,is_series,identity_kind,parent_id)
+      SELECT 'a','ep'||i,'ep'||i,'episode',0,0,0,'fixture','show' FROM n""");
+    final repo = EmbyLibraryRepository(sources);
+    const film = (sourceId: 'a', localId: 'film');
+    const show = (sourceId: 'a', localId: 'show');
+    const episode = (sourceId: 'a', localId: 'episode');
+    const watchlist = (
+      sourceId: 'a',
+      section: EmbyVideoSection.watchlist,
+      libraryId: null as String?,
+    );
+    await repo.setWatchlist(film, true);
+    final base = _CountingSnapshot(await repo.snapshot('a'));
+    base.observe();
+    final children = base.childrenOf(show);
+    expect(children, hasLength(10001));
+    await repo.setWatchlist(film, false);
+    await repo.setWatchlist(show, true);
+    await repo.setRating([episode], null);
+    final updated = await repo.refreshPreferences(base);
+    expect(
+      base.observed!.reads,
+      0,
+      reason: "Preference overlay must not traverse 10,003 content rows",
+    );
+    expect(updated.scope(watchlist).map((e) => e.item.identity), [show]);
+    expect(base.scope(watchlist).map((e) => e.item.identity), [film]);
+    expect(
+      updated
+          .childrenOf(show)
+          .firstWhere((e) => e.item.identity == episode)
+          .userRating,
+      isNull,
+    );
+    expect(identical(updated.childrenOf(show).first, children.first), isTrue);
+    expect(updated.entries.length, base.entries.length);
+    expect(() => updated.entries.clear(), throwsUnsupportedError);
+    expect(() => updated.childrenOf(show).clear(), throwsUnsupportedError);
+    await db.customStatement(
+      "DELETE FROM media_library_preferences WHERE source_id='a'",
+    );
+    final reset = await repo.refreshPreferences(updated);
+    expect(reset.scope(watchlist), isEmpty);
+    expect(reset.entryFor(episode)!.userRating, 4);
+    expect(updated.entryFor(show)!.watchlist, isTrue);
+    expect(base.entryFor(film)!.watchlist, isTrue);
+    await repo.setWatchlistMany([show, film], true);
+    final again = await repo.refreshPreferences(reset);
+    expect(again.scope(watchlist).map((e) => e.item.identity), [film, show]);
+  });
+
   test(
     'preference write during the initial content read is not lost',
     () async {
@@ -258,4 +436,37 @@ class _DelayedLibrary extends EmbyLibraryRepository {
     await release.future;
     return value;
   }
+}
+
+// Instrument list access, rather than asserting a machine-dependent timing.
+class _CountingSnapshot extends EmbyVideoSnapshot {
+  _CountingSnapshot(EmbyVideoSnapshot base)
+    : super(
+        source: base.source,
+        libraries: base.libraries,
+        entries: base.entries,
+      );
+  _CountingEntries? observed;
+  void observe() => observed = _CountingEntries(super.entries);
+  @override
+  List<VideoLibraryEntry> get entries => observed ?? super.entries;
+}
+
+class _CountingEntries extends ListBase<VideoLibraryEntry> {
+  _CountingEntries(this.base);
+  final List<VideoLibraryEntry> base;
+  int reads = 0;
+  @override
+  int get length => base.length;
+  @override
+  set length(int value) => throw UnsupportedError('immutable');
+  @override
+  VideoLibraryEntry operator [](int index) {
+    reads++;
+    return base[index];
+  }
+
+  @override
+  void operator []=(int index, VideoLibraryEntry value) =>
+      throw UnsupportedError('immutable');
 }

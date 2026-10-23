@@ -21,6 +21,8 @@ import '../domain/video_display_settings.dart';
 import '../../../player/video_color_adjustments_engine.dart';
 import '../domain/video_color_adjustments.dart';
 import '../domain/video_sharpen_mode.dart';
+import '../domain/video_equalizer_settings.dart';
+import '../../../player/video_equalizer_engine.dart';
 import '../../../player/video_sharpen_engine.dart';
 import '../domain/video_performance_settings.dart';
 import '../../../player/video_performance_settings_engine.dart';
@@ -32,6 +34,9 @@ import '../../../player/mpv_video_frame_preview.dart';
 import '../../sources/data/source_repository.dart';
 import '../data/playback_repository.dart';
 import '../data/player_preferences_repository.dart';
+import '../data/video_screenshot_store.dart';
+import '../domain/video_screenshot.dart';
+import '../../../player/video_screenshot_engine.dart';
 import '../data/playback_marker_repository.dart';
 import '../domain/playback_marker.dart';
 import 'playback_timeline_controller.dart';
@@ -60,10 +65,73 @@ class PlaybackSession extends ChangeNotifier {
     this.diagnostics,
     Future<List<String>> Function()? subtitleFonts,
     VideoPreviewGenerator? previewGenerator,
+    VideoScreenshotStore? screenshotStore,
   }) : preferences =
            preferences ?? PlayerPreferencesRepository(sources.database),
        _previewGenerator = previewGenerator ?? generateMpvVideoPreview,
-       _subtitleFonts = subtitleFonts ?? SubtitleFontCatalog().families;
+       _subtitleFonts = subtitleFonts ?? SubtitleFontCatalog().families,
+       _screenshotStore = screenshotStore ?? VideoScreenshotStore();
+  final VideoScreenshotStore _screenshotStore;
+  VideoScreenshotMode screenshotMode = VideoScreenshotMode.subtitles;
+  bool capturingFrame = false;
+  bool get canCaptureFrame =>
+      !_closed &&
+      _closing == null &&
+      !loading &&
+      error == null &&
+      item != null &&
+      engine is VideoScreenshotEngine;
+
+  Future<void> setScreenshotMode(VideoScreenshotMode value) =>
+      _controls(() async {
+        await preferences.rememberScreenshotMode(value);
+        screenshotMode = value;
+      }, failureMessage: '截图内容设置保存失败，请重试。');
+
+  Future<String> captureCurrentFrame() {
+    if (!canCaptureFrame || capturingFrame) {
+      return Future.error(const VideoScreenshotFailure('当前画面暂不可截图，请稍后重试。'));
+    }
+    final current = engine! as VideoScreenshotEngine;
+    final title = item!.title;
+    final identity = item!.identity;
+    capturingFrame = true;
+    notifyListeners();
+    final result = Completer<String>();
+    unawaited(
+      _serialize(() async {
+        try {
+          if (!canCaptureFrame ||
+              !identical(engine, current) ||
+              item?.identity != identity) {
+            throw const VideoScreenshotFailure('播放内容已切换，请重新截图。');
+          }
+          final mode = screenshotMode;
+          final png = await current.captureCurrentFrame(mode);
+          // Closing/switching waits on this serialized operation, keeping the
+          // captured media's identity and native player alive until it settles.
+          if (_closed || _closing != null) {
+            throw const VideoScreenshotFailure('播放器正在关闭，本次截图未保存。');
+          }
+          final path = await _screenshotStore.save(title, png);
+          _trace?.event('screenshot_saved', code: mode.name);
+          result.complete(path);
+        } catch (error, stack) {
+          _trace?.failure('screenshot_failed', error, stack);
+          result.completeError(
+            error is VideoScreenshotFailure
+                ? error
+                : const VideoScreenshotFailure('未能取得当前画面，请稍后重试。'),
+          );
+        } finally {
+          capturingFrame = false;
+          if (!_closed) notifyListeners();
+        }
+      }),
+    );
+    return result.future;
+  }
+
   final SourceRepository sources;
   final PlaybackDiagnostics? diagnostics;
   PlaybackTrace? _trace;
@@ -89,6 +157,7 @@ class PlaybackSession extends ChangeNotifier {
   VideoDisplaySettings displaySettings = const VideoDisplaySettings();
   VideoColorAdjustments colorAdjustments = VideoColorAdjustments.neutral;
   VideoSharpenMode sharpenMode = VideoSharpenMode.off;
+  VideoEqualizerSettings equalizerSettings = const VideoEqualizerSettings();
   VideoPerformanceSettings performanceSettings =
       const VideoPerformanceSettings();
   VideoRenderSettings renderSettings = const VideoRenderSettings();
@@ -302,12 +371,15 @@ class PlaybackSession extends ChangeNotifier {
       late final VideoEndAction action;
       late final double? rate;
       late final double volume, volumeBoost;
+      var nextScreenshotMode = VideoScreenshotMode.subtitles;
       var nextColors = VideoColorAdjustments.neutral;
       String? nextSubtitleWarning;
       String? nextDisplayWarning;
       String? nextColorWarning;
       var nextSharpen = VideoSharpenMode.off;
       String? nextSharpenWarning;
+      var nextEqualizer = const VideoEqualizerSettings();
+      String? nextEqualizerWarning;
       var nextPerformance = const VideoPerformanceSettings();
       String? nextPerformanceWarning;
       var nextRender = const VideoRenderSettings();
@@ -317,6 +389,11 @@ class PlaybackSession extends ChangeNotifier {
         nextStyle = await preferences.subtitleStyle;
         nextTiming = await preferences.timing;
         nextDisplay = await preferences.displaySettings;
+        try {
+          nextScreenshotMode = await preferences.screenshotMode;
+        } catch (error, stack) {
+          trace?.failure('screenshot_settings_read_failed', error, stack);
+        }
         try {
           nextRender = await preferences.renderSettings;
         } catch (error, stack) {
@@ -334,6 +411,12 @@ class PlaybackSession extends ChangeNotifier {
         } catch (error, stack) {
           trace?.failure('sharpen_settings_read_failed', error, stack);
           nextSharpenWarning = '未能读取锐化设置，已使用默认值，视频仍可播放。';
+        }
+        try {
+          nextEqualizer = await preferences.equalizerSettings;
+        } catch (error, stack) {
+          trace?.failure('equalizer_settings_read_failed', error, stack);
+          nextEqualizerWarning = '未能读取均衡器设置，已使用默认值，视频仍可播放。';
         }
         try {
           nextColors = await preferences.colorAdjustments;
@@ -522,6 +605,22 @@ class PlaybackSession extends ChangeNotifier {
         nextSharpenWarning = '锐化设置未能应用，视频仍可播放，请重新调整。';
       }
       try {
+        if (current is VideoEqualizerEngine) {
+          await (current as VideoEqualizerEngine).setEqualizerSettings(
+            nextEqualizer,
+          );
+        } else if (nextEqualizer.filterGraph != null) {
+          nextEqualizerWarning = '此播放后端暂不支持已保存的均衡器设置。';
+        }
+      } catch (error, stack) {
+        trace?.failure(
+          'equalizer_settings_initialization_failed',
+          error,
+          stack,
+        );
+        nextEqualizerWarning = '均衡器设置未能应用，视频仍可播放，请重新调整。';
+      }
+      try {
         if (current is VideoRenderEngine) {
           await (current as VideoRenderEngine).setRenderSettings(nextRender);
         } else if (nextRender != const VideoRenderSettings()) {
@@ -569,6 +668,7 @@ class PlaybackSession extends ChangeNotifier {
       item = selected;
       _historyEpoch = nextHistoryEpoch;
       filePath = localPath;
+      screenshotMode = nextScreenshotMode;
       cacheWarning = nextCacheWarning;
       _cacheLease = candidateLease;
       candidateLease = null;
@@ -604,6 +704,7 @@ class PlaybackSession extends ChangeNotifier {
         nextDisplayWarning,
         nextColorWarning,
         nextSharpenWarning,
+        nextEqualizerWarning,
         nextPerformanceWarning,
         nextRenderWarning,
       ].whereType<String>().join(' ');
@@ -611,6 +712,7 @@ class PlaybackSession extends ChangeNotifier {
       _readDisplaySettings(current);
       _readColorAdjustments(current);
       _readSharpenMode(current);
+      _readEqualizerSettings(current);
       _readPerformanceSettings(current);
       _readRenderSettings(current);
       _readSubtitleSettings(current);
@@ -1408,6 +1510,8 @@ class PlaybackSession extends ChangeNotifier {
           ? '色彩设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : exception is VideoSharpenRollbackFailure
           ? '锐化设置未能完全恢复，视频仍可播放，请重新应用设置。'
+          : exception is VideoEqualizerRollbackFailure
+          ? '均衡器设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : exception is VideoPerformanceRollbackFailure
           ? '播放性能设置未能完全恢复，视频仍可播放，请重新应用设置。'
           : exception is VideoRenderRollbackFailure
@@ -1686,6 +1790,46 @@ class PlaybackSession extends ChangeNotifier {
       _readPerformanceSettings(current);
     }
   }, failureMessage: '播放性能设置未能应用或保存，视频仍可播放，请重试。');
+
+  void _readEqualizerSettings(VideoEngine current) {
+    equalizerSettings = current is VideoEqualizerEngine
+        ? (current as VideoEqualizerEngine).equalizerSettings
+        : const VideoEqualizerSettings();
+  }
+
+  Future<void> updateEqualizerSettings({
+    bool? enabled,
+    VideoEqualizerPreset? preset,
+  }) => _controls(() async {
+    final current = engine!;
+    if (current is! VideoEqualizerEngine) {
+      throw UnsupportedError('Audio equalizer is unavailable');
+    }
+    final equalizer = current as VideoEqualizerEngine;
+    // Merge inside the serial operation, after prior edits or their rollback.
+    final before = equalizer.equalizerSettings;
+    final next = before.copyWith(enabled: enabled, preset: preset);
+    try {
+      await equalizer.setEqualizerSettings(next);
+      try {
+        await preferences.rememberEqualizerSettings(next);
+      } catch (error, stack) {
+        try {
+          await equalizer.setEqualizerSettings(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            'equalizer_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw const VideoEqualizerRollbackFailure();
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      _readEqualizerSettings(current);
+    }
+  }, failureMessage: '均衡器设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> setSharpenMode(VideoSharpenMode mode) => _controls(() async {
     final current = engine!;

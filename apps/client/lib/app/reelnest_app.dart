@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -28,6 +29,7 @@ class _ReelNestAppState extends ConsumerState<ReelNestApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    releaseWindowsTextInputOnFocusLoss(state);
     if (state == AppLifecycleState.resumed) {
       ref.read(embyOfflineProvider).request();
     }
@@ -52,5 +54,21 @@ class _ReelNestAppState extends ConsumerState<ReelNestApp>
       themeMode: ref.watch(appearanceProvider),
       routerConfig: ref.watch(routerProvider),
     );
+  }
+}
+
+/// Windows Flutter currently keeps its legacy IME context attached when a
+/// window loses native focus. Leaving an active TextField connected across a
+/// long focus loss can make the restored window accept ordinary key events but
+/// stop receiving Chinese/Japanese/Korean composition messages. Disconnect the
+/// framework text client while the desktop window is inactive; the next click
+/// reconnects it with the current input method.
+@visibleForTesting
+void releaseWindowsTextInputOnFocusLoss(AppLifecycleState state) {
+  if (!Platform.isWindows) return;
+  if (state == AppLifecycleState.inactive ||
+      state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.paused) {
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 }

@@ -225,6 +225,14 @@ UI 已完成并冻结：HUD 只局部订阅 timeline 速率，避免外层 timel
 - 全量 `flutter test` **616 项通过、2 项既有测试跳过**；静态检查通过。Windows Release 重构建成功，五秒客户端启动烟测通过。
 - 未进行 macOS/Linux 原生窗口人工目视或像素级验收；测试中的平台分支不能替代真实原生外观验收。
 
+### Windows 播放器窗口 chrome 拖拽与 IME 焦点修复（2026-10-22）
+
+非迷你播放器窗口顶部 chrome 调整为从窗口 y=0 开始、高 54px；标题区全宽及右侧 14px 拖拽带支持拖动，窗口按钮仍为独立点击目标。`playback_test.dart` 覆盖位置与高度，避免改变按钮命中语义。
+
+Flutter 3.47.6 / Windows 11 10.0.26200 的失焦后 CJK IME 组合消息症状与 [Flutter issue #190042](https://github.com/flutter/flutter/issues/190042) 描述一致。窗口 inactive、hidden 或 paused 时仅在 Windows 主动 unfocus 当前 TextField；恢复后再次点击时重新连接当前 IME text client。此为 ReelNest Windows 侧的焦点生命周期处理，不改 macOS/Linux，也不宣称已确认 Flutter issue 的具体底层根因。
+
+`app_test.dart`、`playback_test.dart`、`home_ui_test.dart` 合计 **61 项通过**，`flutter analyze` clean。Windows Release 43.7 秒成功；2026-10-22 09:28:12 +08:00 五秒 hidden smoke 的窗口响应、正常关闭及退出码 0 均通过。阶段概要见[2026-10-22 Windows 修复](NEXT_STAGE.zh-CN.md#2026-10-22-windows-播放器窗口-chrome-拖拽与-ime-焦点修复)。
+
 ### P0 播放器前端视觉收口（2026-10-14）
 
 本批仅整理播放器 presentation，不修改播放业务规则、播放内核、精确控制或操作流程。
@@ -316,6 +324,26 @@ P1-C 实现及 Windows 自动化验证已完成；真实 Emby、人工可见窗�
 - `flutter build windows --release --no-pub --target lib/main.dart` 成功，产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。
 - `scripts/windows-smoke.ps1 -ObservationSeconds 5`：Release 隐藏窗口创建、五秒响应、正常关窗通过，退出码 0；本次输出无数据库关闭异常。
 - 原生播放测试不使用用户服务器或媒体；启动检查使用本机现有应用数据，不执行媒体扫描或播放写回。未完成真实 Emby 全流程、播放器可见画面/实体键鼠、滚动性能、macOS/Linux 原生及原版 UI 对照验收。
+
+## 2026-10-22 播放器截图实现与验证
+
+领域 `VideoScreenshotMode` 以 `subtitles`（带字幕，默认）、`video`（纯视频）、`window`（窗口所见）表示；持久化于既有 `player_preferences` 的 `global.videoScreenshotMode`，值为 enum `name`。`Session` 提供 `screenshotMode`、`canCaptureFrame`、`capturingFrame`、`setScreenshotMode`、`captureCurrentFrame`；成功给出 PNG 绝对路径，失败返回安全展示消息的 `VideoScreenshotFailure`。用户可按无修饰 `S` 或从播放画面右键菜单选择“保存当前画面”，并在播放器设置“截图内容”选模式。成功反馈只显示 basename；未知错误使用固定安全提示。
+
+`subtitles` / `video` 使用当前 mpv 对应截图模式；`window` 仅取视频渲染区域，含字幕和黑边、不含 Flutter 控制栏/HUD，保持原 `renderView` 兜底语义。不得改字幕选择或可见性、暂停/跳转/seek，不另开解码器。Windows 保存于 `resolvedExecutable.parent/userdata/screenshots/`（逐层真实路径校验，无外部目录回退）；macOS 保存于用户 Pictures 下 `ReelNest 截图/`；Linux 优先 `XDG_PICTURES_DIR/ReelNest 截图/`，否则 `HOME/Pictures/ReelNest 截图/`。PNG 文件名含影片标题和时间；重名不覆盖，原子发布、失败清理未完成文件并设尺寸限制。macOS/Linux 路径实现和单测已接入，尚无原生实机验收；不宣称移动端支持。
+
+验证：store/session 新增 11 项、UI 两文件相关 31 项通过。全量 `flutter test --no-pub --reporter expanded` 显式设置 `REELNEST_MPV_PATH` 执行 native，**859 passed / 1 skipped**（45 秒，唯一跳过为可选排序性能基准）；`dart analyze lib test integration_test` 无问题；348 个 Dart 文件 format 0 changed；`git diff --check` clean。
+
+Windows Profile 最终 `integration_test/video_screenshot_test.dart` 的 GPU/SW 两项实际功能用例通过（runner 汇总 3 项含 tearDown，13 秒），覆盖三模式、字幕有无、PNG 像素/尺寸、黑边及无 HUD、图像变换、播放/暂停状态不变、每种 renderer 8 次旋转/resize 截图循环，以及 loopback Range HTTP 播放截图不新增请求；最终 native 运行包含 raw 格式 `bgr0`/`bgra` 校验。既有 `video_viewport_test.dart` GPU/SW 两项实际功能用例也通过（runner 汇总 3 项，2 秒）。
+
+Windows Release 构建 **40.5 秒成功**，EXE 为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`；2026-10-22 14:33:44.0518851 +08:00 五秒 smoke 的 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0` 均通过。未使用真实用户 Emby 服务器验收，原版 UI 视觉逐项对照仍待完成。
+
+Windows 调试中观察到既有 `media_kit_video` resize 时 texture callback 注册竞态：mutable `texture_id_` 在重注册期间被 `map.at` 查找，Profile 本机两次崩溃；minidump 与 SDK PDB 将位置定位到 `flutter::ExternalTextureD3d::PopulateTexture`，随后 `std::terminate`。已在项目自有 `windows/media_kit_viewport.cmake` 生成的项目源码修复：callback 捕获各自注册 ID，旧 ID 撤回和新 descriptor/ID 发布由同一 mutex 同步，旧 callback 或缺失记录返回 null；GPU/SW 均覆盖，最终旋转/resize 循环回归通过。此记录只描述已观察到的竞态和对应修复，不确诊所有历史崩溃，也不代表 macOS/Linux 原生验收完成。排查工具和 dump 摘要只保存在 ignored `apps/client/build/screenshot-diagnostics`，不进入发行包；Pub 缓存未修改。
+
+截图实现与 Windows 自动化验证已完成；macOS/Linux 原生实机、真实用户 Emby 服务器与原版 UI 视觉逐项验收仍待完成。不得外推为全平台验收或所有历史崩溃均已定位。
+
+## 2026-10-22 视频播放器音频均衡器状态
+
+视频均衡器已实现并通过 Windows 自动化验证：后端定向 17 项、UI 定向 14 项、显式 native 全量 873 passed / 1 skipped，Windows Profile GPU/SW 与 native PCM 五频/八预设验证通过；`dart analyze` clean，353 个 Dart 文件格式检查 0 改动。Windows Release 41.2 秒成功，2026-10-22 14:57:45.2163649 +08:00 五秒 smoke 窗口响应、正常关闭和退出码 0 均通过。真实设备听感、真实 Emby、macOS/Linux 原生及原版 UI 视觉验收仍待；详细证据见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。
 
 ### 2026-10-15 候选审核开发前提交基线
 

@@ -63,7 +63,7 @@ class EmbyBrowseRepository {
       }
       cancellation.check();
     });
-    sources.traceChanged();
+    sources.traceChanged(sourceIds: [sourceId]);
     return views;
   }
 

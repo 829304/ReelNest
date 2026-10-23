@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -13,10 +14,13 @@ import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/data/video_screenshot_store.dart';
 import 'package:reelnest/features/playback/domain/playback_record.dart';
+import 'package:reelnest/features/playback/domain/video_screenshot.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/player/video_screenshot_engine.dart';
 
 import 'support/fake_video_engine.dart';
 
@@ -55,10 +59,14 @@ void main() {
       sources: sources,
       records: records,
       createEngine: () {
-        final engine = FakeVideoEngine();
+        final engine = _ScreenshotFakeVideoEngine();
         engines.add(engine);
         return engine;
       },
+      screenshotStore: VideoScreenshotStore(
+        directory: () async => Directory(p.join(sandbox.path, 'screenshots')),
+        now: () => DateTime(2026, 10, 22, 10, 11, 12),
+      ),
     );
   });
   tearDown(() async {
@@ -493,6 +501,9 @@ void main() {
         find.byKey(const ValueKey('player-window-chrome')),
         findsOneWidget,
       );
+      final windowChrome = find.byKey(const ValueKey('player-window-chrome'));
+      expect(tester.getTopLeft(windowChrome).dy, 0);
+      expect(tester.getSize(windowChrome).height, 54);
       expect(find.byTooltip('锁定控制栏'), findsOneWidget);
       final lockControl = find.byKey(const ValueKey('player-controls-lock'));
       expect(tester.getSize(lockControl), const Size.square(36));
@@ -535,10 +546,42 @@ void main() {
         ).popupMenuTheme.color,
         const Color(0xFF15181D),
       );
-      Navigator.of(
-        tester.element(find.byKey(const ValueKey('player-precision-menu'))),
-      ).pop();
+      expect(find.text('保存当前画面'), findsOneWidget);
+      expect(find.text('图片'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('capture-current-frame')));
+      await waitUntil(
+        () => (engines.single as _ScreenshotFakeVideoEngine)
+            .capturedModes
+            .isNotEmpty,
+      );
+      expect(find.byKey(const ValueKey('player-precision-menu')), findsNothing);
+      expect((engines.single as _ScreenshotFakeVideoEngine).capturedModes, [
+        VideoScreenshotMode.subtitles,
+      ]);
+      await waitUntil(
+        () => find
+            .text('截图已保存：Film 2026-10-22 10.11.12.png')
+            .evaluate()
+            .isNotEmpty,
+      );
+      (engines.single as _ScreenshotFakeVideoEngine).failCapture = true;
+      await tester.tapAt(const Offset(400, 260), buttons: 2);
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('capture-current-frame')));
+      await waitUntil(() => find.text('截图失败：测试截图失败').evaluate().isNotEmpty);
+      expect(find.byKey(const ValueKey('player-precision-menu')), findsNothing);
+      final screenshotEngine = engines.single as _ScreenshotFakeVideoEngine;
+      screenshotEngine.failCapture = false;
+      screenshotEngine.failCaptureUnexpectedly = true;
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await waitUntil(() => screenshotEngine.capturedModes.length == 3);
+      expect(
+        screenshotEngine.capturedModes.last,
+        VideoScreenshotMode.subtitles,
+      );
+      await waitUntil(
+        () => find.text('截图失败：未能取得当前画面，请稍后重试。').evaluate().isNotEmpty,
+      );
       await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
       await waitUntil(() => windowCoordinator.miniMode);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
@@ -935,6 +978,27 @@ void main() {
           resourcesClosed = true;
         }
       },
+    );
+  }
+}
+
+class _ScreenshotFakeVideoEngine extends FakeVideoEngine
+    implements VideoScreenshotEngine {
+  final capturedModes = <VideoScreenshotMode>[];
+  bool failCapture = false;
+  bool failCaptureUnexpectedly = false;
+
+  @override
+  Future<Uint8List> captureCurrentFrame(VideoScreenshotMode mode) async {
+    capturedModes.add(mode);
+    if (failCapture) {
+      throw const VideoScreenshotFailure('测试截图失败');
+    }
+    if (failCaptureUnexpectedly) {
+      throw StateError(r'secret C:\media\Film.mkv');
+    }
+    return base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     );
   }
 }

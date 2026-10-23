@@ -1,15 +1,33 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
 import '../application/playback_timeline_controller.dart';
 import '../domain/playback_marker.dart';
+import '../domain/video_screenshot.dart';
 import 'player_visuals.dart';
 
 typedef PlayerNotice = void Function(String message);
+
+Future<void> capturePlayerFrame(
+  PlaybackSession session,
+  PlayerNotice onNotice,
+) async {
+  try {
+    final path = await session.captureCurrentFrame();
+    onNotice('截图已保存：${p.basename(path)}');
+  } catch (error) {
+    final message = error is VideoScreenshotFailure
+        ? error.message
+        : '未能取得当前画面，请稍后重试。';
+    onNotice('截图失败：$message');
+  }
+}
 
 class PlayerMarkerPanel extends StatefulWidget {
   const PlayerMarkerPanel({
@@ -750,14 +768,21 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     if (session.controlError == null) onNotice('A-B 循环已清除');
   }
 
+  Future<void> _capture(BuildContext context) async {
+    Navigator.of(context).pop();
+    await capturePlayerFrame(session, onNotice);
+  }
+
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
     const width = 286.0;
-    const estimatedHeight = 360.0;
+    const estimatedHeight = 398.0;
+    final maxHeight = math.max(120.0, screen.height - 24);
+    final visibleHeight = math.min(estimatedHeight, maxHeight);
     final left = position.dx.clamp(12, screen.width - width - 12).toDouble();
     final top = position.dy
-        .clamp(12, screen.height - estimatedHeight - 12)
+        .clamp(12, math.max(12.0, screen.height - visibleHeight - 12))
         .toDouble();
     return Theme(
       data: playerOverlayThemeData(Theme.of(context)),
@@ -767,129 +792,146 @@ class _PlayerPrecisionMenu extends StatelessWidget {
             left: left,
             top: top,
             width: width,
-            child: PlayerPanelEntrance(
-              child: AnimatedBuilder(
-                animation: Listenable.merge([
-                  session,
-                  session.precision,
-                  session.timeline,
-                ]),
-                builder: (context, _) {
-                  final state = session.precision.value;
-                  final loop = state.loop;
-                  return Material(
-                    color: Colors.transparent,
-                    child: PlayerPanelSurface(
-                      key: const ValueKey('player-precision-menu'),
-                      palette: palette,
-                      radius: 15,
-                      shadowRadius: 18,
-                      shadowOffset: const Offset(0, 8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _section('播放'),
-                            _item(
-                              key: const ValueKey('restart-playback'),
-                              icon: Icons.first_page_rounded,
-                              title: '从头播放',
-                              shortcut: 'Home',
-                              onTap: _canControl
-                                  ? () => session.seek(Duration.zero)
-                                  : null,
-                            ),
-                            _item(
-                              key: const ValueKey('open-playback-info'),
-                              icon: Icons.info_outline_rounded,
-                              title: '播放信息',
-                              shortcut: 'I',
-                              onTap: () async {
-                                Navigator.of(context).pop();
-                                onOpenPlaybackInfo();
-                              },
-                            ),
-                            Divider(height: 11, color: palette.divider),
-                            _section('循环'),
-                            _item(
-                              key: const ValueKey('toggle-current-loop'),
-                              icon: Icons.repeat_one_rounded,
-                              title: '单片循环',
-                              value: loop.loopCurrentItem ? '已开启' : '已关闭',
-                              selected: loop.loopCurrentItem,
-                              onTap: _canControl
-                                  ? () => _loop(!loop.loopCurrentItem)
-                                  : null,
-                            ),
-                            _item(
-                              key: const ValueKey('cycle-ab-loop'),
-                              icon: Icons.repeat_rounded,
-                              title: loop.start == null
-                                  ? '设置 A 点'
-                                  : loop.end == null
-                                  ? '设置 B 点'
-                                  : '重设 A 点',
-                              value: _loopValue(loop),
-                              shortcut: 'B',
-                              onTap: _canControl ? _cycleAB : null,
-                            ),
-                            if (loop.start != null)
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: PlayerPanelEntrance(
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    session,
+                    session.precision,
+                    session.timeline,
+                  ]),
+                  builder: (context, _) {
+                    final state = session.precision.value;
+                    final loop = state.loop;
+                    return Material(
+                      color: Colors.transparent,
+                      child: PlayerPanelSurface(
+                        key: const ValueKey('player-precision-menu'),
+                        palette: palette,
+                        radius: 15,
+                        shadowRadius: 18,
+                        shadowOffset: const Offset(0, 8),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _section('播放'),
                               _item(
-                                key: const ValueKey('clear-ab-loop'),
-                                icon: Icons.cancel_outlined,
-                                title: '清除 A-B 循环',
-                                shortcut: 'Shift+B',
-                                onTap: _canControl ? _clearAB : null,
+                                key: const ValueKey('restart-playback'),
+                                icon: Icons.first_page_rounded,
+                                title: '从头播放',
+                                shortcut: 'Home',
+                                onTap: _canControl
+                                    ? () => session.seek(Duration.zero)
+                                    : null,
                               ),
-                            Divider(height: 11, color: palette.divider),
-                            _section('逐帧'),
-                            Row(
-                              spacing: 6,
-                              children: [
-                                Expanded(
-                                  child: _compactAction(
-                                    key: const ValueKey('step-frame-backward'),
-                                    icon: Icons.skip_previous_rounded,
-                                    title: '上一帧',
-                                    shortcut: ',',
-                                    action: _canControl
-                                        ? () =>
-                                              session.stepFrame(backward: true)
-                                        : null,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: _compactAction(
-                                    key: const ValueKey('step-frame-forward'),
-                                    icon: Icons.skip_next_rounded,
-                                    title: '下一帧',
-                                    shortcut: '.',
-                                    action: _canControl
-                                        ? () => session.stepFrame()
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (!state.supported)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 7),
-                                child: Text(
-                                  '当前播放引擎不支持循环或逐帧操作。',
-                                  style: TextStyle(
-                                    color: palette.subdued,
-                                    fontSize: 10.5,
-                                  ),
-                                ),
+                              _item(
+                                key: const ValueKey('capture-current-frame'),
+                                icon: Icons.camera_alt_rounded,
+                                title: '保存当前画面',
+                                value: '图片',
+                                onTap:
+                                    session.canCaptureFrame &&
+                                        !session.capturingFrame
+                                    ? () => _capture(context)
+                                    : null,
                               ),
-                          ],
+                              _item(
+                                key: const ValueKey('open-playback-info'),
+                                icon: Icons.info_outline_rounded,
+                                title: '播放信息',
+                                shortcut: 'I',
+                                onTap: () async {
+                                  Navigator.of(context).pop();
+                                  onOpenPlaybackInfo();
+                                },
+                              ),
+                              Divider(height: 11, color: palette.divider),
+                              _section('循环'),
+                              _item(
+                                key: const ValueKey('toggle-current-loop'),
+                                icon: Icons.repeat_one_rounded,
+                                title: '单片循环',
+                                value: loop.loopCurrentItem ? '已开启' : '已关闭',
+                                selected: loop.loopCurrentItem,
+                                onTap: _canControl
+                                    ? () => _loop(!loop.loopCurrentItem)
+                                    : null,
+                              ),
+                              _item(
+                                key: const ValueKey('cycle-ab-loop'),
+                                icon: Icons.repeat_rounded,
+                                title: loop.start == null
+                                    ? '设置 A 点'
+                                    : loop.end == null
+                                    ? '设置 B 点'
+                                    : '重设 A 点',
+                                value: _loopValue(loop),
+                                shortcut: 'B',
+                                onTap: _canControl ? _cycleAB : null,
+                              ),
+                              if (loop.start != null)
+                                _item(
+                                  key: const ValueKey('clear-ab-loop'),
+                                  icon: Icons.cancel_outlined,
+                                  title: '清除 A-B 循环',
+                                  shortcut: 'Shift+B',
+                                  onTap: _canControl ? _clearAB : null,
+                                ),
+                              Divider(height: 11, color: palette.divider),
+                              _section('逐帧'),
+                              Row(
+                                spacing: 6,
+                                children: [
+                                  Expanded(
+                                    child: _compactAction(
+                                      key: const ValueKey(
+                                        'step-frame-backward',
+                                      ),
+                                      icon: Icons.skip_previous_rounded,
+                                      title: '上一帧',
+                                      shortcut: ',',
+                                      action: _canControl
+                                          ? () => session.stepFrame(
+                                              backward: true,
+                                            )
+                                          : null,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: _compactAction(
+                                      key: const ValueKey('step-frame-forward'),
+                                      icon: Icons.skip_next_rounded,
+                                      title: '下一帧',
+                                      shortcut: '.',
+                                      action: _canControl
+                                          ? () => session.stepFrame()
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (!state.supported)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 7),
+                                  child: Text(
+                                    '当前播放引擎不支持循环或逐帧操作。',
+                                    style: TextStyle(
+                                      color: palette.subdued,
+                                      fontSize: 10.5,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ),

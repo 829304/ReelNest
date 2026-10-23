@@ -71,7 +71,7 @@
 |---|---|
 | 时间轴与精确控制 | 手动边界与跳过、P1-C 预览、章节候选与审核、原版条目检测入口及系列批量任务已接入；最新批次最终验证见专项记录。已有控制仍需真实来源、三桌面端实机与视觉验收 |
 | 窗口与辅助工具 | 启动宽度/比例及视频尺寸适配、截图及截图内容选择、右键菜单剩余操作；P1-C 自动化已通过，真实 Emby、人工可见窗口及 macOS/Linux 原生验收待完成；防休眠实机空闲超时仍待 |
-| 字幕与音频高级项 | 字幕样式快速连续更新 P2 已修复；3 个定向测试文件 28 项、全量 753 passed / 6 skipped、analyze、296 文件格式检查均通过。Windows production Release 45.7 秒成功，五秒 smoke 正常响应并退出（16:57:14 +08:00）。ASS/位图、macOS/Linux、真实 Emby 和人工 UI/视觉验收待完成。在线字幕、均衡器/预设仍未迁移。详情见[字幕与音轨批次](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步p2-修复及-windows-验证完成2026-10-16) |
+| 字幕与音频高级项 | 字幕样式快速连续更新 P2 已修复；3 个定向测试文件 28 项、全量 753 passed / 6 skipped、analyze、296 文件格式检查均通过。Windows production Release 45.7 秒成功，五秒 smoke 正常响应并退出（16:57:14 +08:00）。ASS/位图、macOS/Linux、真实 Emby 和人工 UI/视觉验收待完成。在线字幕仍未迁移；视频播放器均衡器已实现、Windows 自动化验证通过：后端 17 项、UI 14 项、全量 873/1、Profile GPU/SW、Release 41.2 秒及五秒 smoke 均通过。真实设备听感、真实 Emby、macOS/Linux 原生及原版 UI 视觉验收仍待，详见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。音乐均衡器不作为本条视频阶段范围。 |
 | 实时播放统计（实现及 Windows 验证完成） | 六项只读统计已接入播放信息面板。原实现全量 743 passed / 6 skipped、Windows Profile texture 专项通过、production Release/smoke 通过；后续播放器整合全量为 **768 passed / 7 skipped**（52 秒）。既有 `playback_stats_test` Windows Profile texture 回归报告与旧库一致：FPS、decoder/output drops、hardwareDecoder、forward bytes/seconds、AV sync 可用；`renderPasses=false`，HTTP cache 读数可用。当前 texture VO 不提供 `vo-passes`，UI 显示 `--`，不得切换 VO 强采；硬解读取可用不代表实际硬解已启用。真实 Emby、转码/切画质、macOS/Linux、可见 UI/视觉及长时间性能验收未覆盖。详见[实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md) |
 
 字幕样式快速连续更新 P2 已修复并完成 Windows 验证；3 个定向测试文件合计 28 项、全量 753 passed / 6 skipped 通过，analyze、296 文件格式检查、Windows Release 与 smoke 均通过。其他平台和 UI 视觉验收仍待。详见[字幕与音轨说明](PLAYER_TRACKS.zh-CN.md#p2-修正快速连续样式更新合并windows-验证完成)。

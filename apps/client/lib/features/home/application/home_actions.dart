@@ -84,7 +84,7 @@ Future<void> homeVideoAction(
           }
         } else {
           await ref.read(playbackRepositoryProvider).clearHistory([id]);
-          sources.traceChanged();
+          sources.traceChanged(sourceIds: [id.sourceId]);
         }
         if (context.mounted) ref.invalidate(playbackRecordProvider(id));
       case 'markerAnalysis':

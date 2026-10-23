@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-19
+- 最后更新：2026-10-22
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -223,6 +223,24 @@ library/reelnest.sqlite
 通用键值表，`value` 由拥有该键的模块解释。当前用于播放器全局/媒体偏好、清理代次、来源连接非敏感配置、库视图状态、侧栏折叠、缓存目录和容量设置等。
 
 `global.markerAnalysisTasks` 保存片头片尾检测的有界 JSON 任务快照：任务/root 身份、状态、计数、时间和安全错误。最多持久化/恢复 60 条，新插入保留 40 条且保护运行中请求；退出中断的 queued/running 恢复为 failed，不自动重跑。清除记录只删除非活跃快照，不删除 `playback_markers`。私密标题统一为“片头片尾检测”；不存凭据、播放 URL、章节正文或原始异常。此键与持久候选分开提交，记录保存失败会提示但不抹去已提交候选。
+
+播放器截图计划使用现有 `player_preferences`，不新增表、列或 schema：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoScreenshotMode` | enum `name` 字符串 | `subtitles`（带字幕）；另有 `video`（纯视频）、`window`（窗口所见） |
+
+截图输出为 PNG，含影片标题与时间；重名不可覆盖，目标文件原子发布，失败清理未完成文件并限制 PNG 尺寸。Windows 目标为 `resolvedExecutable.parent/userdata/screenshots/`，逐层真实路径校验且不向外部目录回退；macOS 为用户 Pictures 下 `ReelNest 截图/`；Linux 为 `XDG_PICTURES_DIR/ReelNest 截图/`，无该变量时为 `HOME/Pictures/ReelNest 截图/`。macOS/Linux 路径实现和单测已接入，原生实机仍待；移动端不在本阶段范围。
+
+截图实现及 Windows 自动化验证已完成：store/session 11 项、UI 两文件 31 项通过；显式启用 native 的全量测试 859 passed / 1 skipped（可选排序性能基准）；analyze clean、348 个 Dart 文件 format 0 changed、diff-check clean。Windows Profile GPU/SW 截图两项实际功能用例和 viewport 两项实际功能用例通过；Windows Release 40.5 秒成功，五秒 smoke 于 2026-10-22 14:33:44 +08:00 通过。真实用户 Emby、macOS/Linux 原生实机及原版 UI 视觉验收未完成。Windows Profile resize callback 修复范围仅限观测到的竞态，不代表所有历史崩溃均已定位。播放器偏好批量 key 当前为 26；此前记录的 25 是历史截面，保持原样不追溯修改。详见[播放器截图实现与验证](NEXT_STAGE.zh-CN.md#2026-10-22-播放器截图阶段已实现windows-自动化验证通过)。
+
+视频播放器均衡器阶段新增全局偏好键（实现及 Windows 自动化验证完成）：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoEqualizerSettings` | JSON 字符串 | `{"enabled":false,"preset":"flat"}`；8 个预设的 raw name 及原始频点/增益见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md) |
+
+该 key 使用既有 `player_preferences`，不新增 schema；播放器偏好批量 key 当前为 27，文档中既有 26/25 是历史截面，不回改。后端/UI、native PCM、Windows Profile/全量以及 Release/smoke 证据见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。真实设备听感、Emby 或跨平台验收仍未完成。
 
 播放器画面色彩调整使用下列全局偏好键（本轮实现已完成；Windows Profile、Release 构建及 5 秒 smoke 通过；平台/来源验收边界见[色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)）：
 

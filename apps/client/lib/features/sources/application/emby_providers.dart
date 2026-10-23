@@ -140,12 +140,14 @@ final embyOfflineProvider = Provider<EmbyOfflineRepository>((ref) {
   return repository;
 });
 final embyCacheStorageProvider = FutureProvider((ref) {
-  ref.watch(sourceChangesProvider);
+  final sources = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
   return ref.watch(embyCacheProvider).storageSummary();
 });
 
 final embyCachedVideosProvider = FutureProvider<List<CachedVideo>>((ref) {
-  ref.watch(sourceChangesProvider);
+  final sources = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
   return ref.watch(embyCacheProvider).entries();
 });
 final embyCacheCandidatesProvider = FutureProvider.autoDispose
@@ -241,7 +243,10 @@ final embyBrowseRepositoryProvider = Provider<EmbyBrowseRepository>(
 /// This is deliberately independent of the full-index snapshot provider.
 final embyBrowseCatalogProvider = FutureProvider.autoDispose
     .family<List<EmbyLibrary>, String>((ref, id) {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select((_) => sources.sourceContentRevision(id)),
+      );
       final token = ScanCancellation();
       ref.onDispose(token.cancel);
       return ref.watch(embyBrowseRepositoryProvider).catalog(id, token);

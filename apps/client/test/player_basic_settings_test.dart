@@ -10,12 +10,15 @@ import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
 import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/features/playback/domain/playback_options.dart';
+import 'package:reelnest/features/playback/domain/video_equalizer_settings.dart';
 import 'package:reelnest/features/playback/domain/video_scrubber_preview_mode.dart';
+import 'package:reelnest/features/playback/domain/video_screenshot.dart';
 import 'package:reelnest/features/playback/domain/playback_record.dart';
 import 'package:reelnest/features/playback/presentation/player_behavior_settings.dart';
 import 'package:reelnest/features/playback/presentation/player_visuals.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/platform/playback_sleep_guard.dart';
+import 'package:reelnest/player/video_equalizer_engine.dart';
 import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
 
@@ -61,7 +64,7 @@ void main() {
       records: records,
       checkpointInterval: const Duration(hours: 1),
       createEngine: () {
-        final engine = FakeVideoEngine();
+        final engine = _EqualizerFakeVideoEngine();
         engines.add(engine);
         return engine;
       },
@@ -86,7 +89,7 @@ void main() {
       records: records,
       checkpointInterval: const Duration(hours: 1),
       createEngine: () {
-        final engine = FakeVideoEngine();
+        final engine = _EqualizerFakeVideoEngine();
         engines.add(engine);
         return engine;
       },
@@ -308,58 +311,150 @@ void main() {
         expect(done, isTrue, reason: 'Settings operation did not finish');
       }
 
-      await finish(session.open(film));
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showPlayerBehaviorSettings(
-                context,
-                session,
-                const PlayerPalette(),
+      Future<void> waitFor(bool Function() condition) async {
+        for (var n = 0; n < 150 && !condition(); n++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+        expect(condition(), isTrue, reason: 'Settings state did not settle');
+        await tester.pump();
+      }
+
+      try {
+        await finish(session.open(film));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showPlayerBehaviorSettings(
+                  context,
+                  session,
+                  const PlayerPalette(),
+                ),
+                child: const Text('settings'),
               ),
-              child: const Text('settings'),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('settings'));
-      await tester.pumpAndSettle();
-      expect(find.text('记忆本片倍速'), findsOneWidget);
-      expect(find.text('自动标记已看'), findsOneWidget);
-      expect(find.text('窗口置顶'), findsOneWidget);
-      expect(find.text('预览图'), findsOneWidget);
-      expect(find.text('剩余时间'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.tap(find.text('15秒').first);
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-      });
-      await tester.pumpAndSettle();
-      expect(session.options.skipSeconds, 15);
-      final previewMode = find.byKey(
-        const ValueKey('scrubber-preview-balanced'),
-      );
-      await tester.ensureVisible(previewMode);
-      await tester.pumpAndSettle();
-      await tester.tap(previewMode);
-      await tester.runAsync(() async {
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-      });
-      await tester.pumpAndSettle();
-      expect(
-        session.options.videoScrubberPreviewMode,
-        VideoScrubberPreviewMode.balanced,
-      );
-      late PlaybackOptions saved;
-      await finish(preferences.options.then((value) => saved = value));
-      expect(saved.skipSeconds, 15);
-      expect(saved.videoScrubberPreviewMode, VideoScrubberPreviewMode.balanced);
-      await finish(session.close(discardProgress: true));
-      await tester.pumpWidget(const SizedBox());
-      session.dispose();
-      await finish(sources.close());
-      resourcesClosed = true;
+        );
+        await tester.tap(find.text('settings'));
+        await tester.pumpAndSettle();
+        expect(find.text('记忆本片倍速'), findsOneWidget);
+        expect(find.text('自动标记已看'), findsOneWidget);
+        expect(find.text('音频均衡器'), findsOneWidget);
+        expect(find.text('启用均衡器'), findsOneWidget);
+        expect(find.text('预设'), findsNothing);
+        expect(session.equalizerSettings, const VideoEqualizerSettings());
+        expect(find.text('窗口置顶'), findsOneWidget);
+        expect(find.text('预览图'), findsOneWidget);
+        expect(find.text('截图内容'), findsOneWidget);
+        expect(find.text('剩余时间'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('15秒').first);
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
+        await tester.pumpAndSettle();
+        expect(session.options.skipSeconds, 15);
+        final previewMode = find.byKey(
+          const ValueKey('scrubber-preview-balanced'),
+        );
+        await tester.ensureVisible(previewMode);
+        await tester.pumpAndSettle();
+        await tester.tap(previewMode);
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
+        await tester.pumpAndSettle();
+        expect(
+          session.options.videoScrubberPreviewMode,
+          VideoScrubberPreviewMode.balanced,
+        );
+        final screenshotMode = find.byKey(
+          const ValueKey('screenshot-mode-window'),
+        );
+        await tester.ensureVisible(screenshotMode);
+        await tester.pumpAndSettle();
+        await tester.tap(screenshotMode);
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        });
+        await tester.pumpAndSettle();
+        expect(session.screenshotMode, VideoScreenshotMode.window);
+        final equalizerToggle = find.byKey(
+          const ValueKey('video-equalizer-enabled'),
+        );
+        await tester.ensureVisible(equalizerToggle);
+        await tester.pumpAndSettle();
+        await tester.tap(equalizerToggle);
+        await waitFor(() => session.equalizerSettings.enabled);
+        expect(find.text('预设'), findsOneWidget);
+        for (final preset in VideoEqualizerPreset.values) {
+          expect(find.text(preset.displayName), findsOneWidget);
+        }
+        final vocalPreset = find.byKey(
+          const ValueKey('video-equalizer-preset-vocal'),
+        );
+        await tester.ensureVisible(vocalPreset);
+        await tester.pumpAndSettle();
+        await tester.tap(vocalPreset);
+        await waitFor(
+          () => session.equalizerSettings.preset == VideoEqualizerPreset.vocal,
+        );
+        expect(
+          await preferences.equalizerSettings,
+          const VideoEqualizerSettings(
+            enabled: true,
+            preset: VideoEqualizerPreset.vocal,
+          ),
+        );
+        await tester.tap(equalizerToggle);
+        await waitFor(() => !session.equalizerSettings.enabled);
+        expect(session.equalizerSettings.preset, VideoEqualizerPreset.vocal);
+        expect(find.text('预设'), findsNothing);
+        await tester.tap(equalizerToggle);
+        await waitFor(() => session.equalizerSettings.enabled);
+        expect(session.equalizerSettings.preset, VideoEqualizerPreset.vocal);
+        expect(find.text('预设'), findsOneWidget);
+        final equalizerEngine = engines.last as _EqualizerFakeVideoEngine;
+        equalizerEngine.failEqualizerUpdate = true;
+        final rockPreset = find.byKey(
+          const ValueKey('video-equalizer-preset-rock'),
+        );
+        await tester.tap(rockPreset);
+        await waitFor(() => session.controlError != null);
+        expect(
+          session.equalizerSettings,
+          const VideoEqualizerSettings(
+            enabled: true,
+            preset: VideoEqualizerPreset.vocal,
+          ),
+        );
+        expect(session.controlError, isNot(contains('C:\\private')));
+        expect(find.text(session.controlError!), findsOneWidget);
+        final selectedVocal = tester.widget<Semantics>(
+          find
+              .ancestor(of: vocalPreset, matching: find.byType(Semantics))
+              .first,
+        );
+        expect(selectedVocal.properties.selected, isTrue);
+        late PlaybackOptions saved;
+        await finish(preferences.options.then((value) => saved = value));
+        expect(saved.skipSeconds, 15);
+        expect(
+          saved.videoScrubberPreviewMode,
+          VideoScrubberPreviewMode.balanced,
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        if (!resourcesClosed) {
+          await finish(session.close(discardProgress: true));
+          session.dispose();
+          await finish(sources.close());
+          resourcesClosed = true;
+        }
+      }
     },
   );
 
@@ -437,4 +532,19 @@ void main() {
       expect(calls, [true, true, false]);
     });
   });
+}
+
+class _EqualizerFakeVideoEngine extends FakeVideoEngine
+    implements VideoEqualizerEngine {
+  @override
+  VideoEqualizerSettings equalizerSettings = const VideoEqualizerSettings();
+  bool failEqualizerUpdate = false;
+
+  @override
+  Future<void> setEqualizerSettings(VideoEqualizerSettings value) async {
+    if (failEqualizerUpdate) {
+      throw StateError(r'failed C:\private\Film.mkv');
+    }
+    equalizerSettings = value;
+  }
 }

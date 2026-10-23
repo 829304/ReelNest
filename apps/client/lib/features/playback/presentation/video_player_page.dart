@@ -547,7 +547,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     final customButtons = !Platform.isMacOS;
     return SizedBox(
       key: const ValueKey('player-window-chrome'),
-      height: 38,
+      height: 54,
       child: Row(
         children: [
           Expanded(
@@ -555,7 +555,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Padding(
-                  padding: EdgeInsets.only(left: Platform.isMacOS ? 72 : 2),
+                  padding: EdgeInsets.only(left: Platform.isMacOS ? 72 : 20),
                   child: Text(
                     session.item?.cardTitle ?? 'ReelNest',
                     maxLines: 1,
@@ -602,6 +602,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
               chrome: true,
               danger: true,
             ),
+            const DragToMoveArea(child: SizedBox(width: 14, height: 54)),
           ],
         ],
       ),
@@ -1117,6 +1118,11 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       const SingleActivator(LogicalKeyboardKey.keyM): () {
         unawaited(_toggleMuteWithHud());
       },
+      const SingleActivator(LogicalKeyboardKey.keyS): () {
+        if (!session.canCaptureFrame || session.capturingFrame) return;
+        _show();
+        unawaited(capturePlayerFrame(session, _showNotice));
+      },
       const SingleActivator(LogicalKeyboardKey.keyI): () {
         if (_showingPlaybackInfo) {
           _hidePlaybackInfo();
@@ -1237,10 +1243,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                             session.error == null,
                         child: Align(
                           alignment: Alignment.topCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 17, 18, 0),
-                            child: _windowChrome(),
-                          ),
+                          child: _windowChrome(),
                         ),
                       ),
                     ),

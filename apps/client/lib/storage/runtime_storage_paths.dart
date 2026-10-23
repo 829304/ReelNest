@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'pictures_directory.dart';
+
 /// Windows portable data belongs to the executable, never the launcher's cwd.
 /// Other platforms retain their existing platform-specific locations.
 class RuntimeStoragePaths {
@@ -30,6 +32,17 @@ class RuntimeStoragePaths {
       portable ? Directory(p.join(root.path, 'temp')) : Directory.systemTemp;
   Future<Directory> credentials() async =>
       Directory(p.join((await support()).path, 'credentials'));
+
+  Future<Directory> screenshots() async {
+    if (portable) return _portableDirectory(['userdata', 'screenshots']);
+    final configuredHome = Platform.environment['HOME'];
+    final home = configuredHome != null && p.isAbsolute(configuredHome)
+        ? configuredHome
+        : (await getApplicationDocumentsDirectory()).parent.path;
+    final pictures = await desktopPicturesDirectory(home);
+    return Directory(p.join(pictures.path, 'ReelNest 截图'))
+        .create(recursive: true);
+  }
 
   Future<Directory> library() async {
     if (portable) return _portableDirectory(['userdata', 'library']);

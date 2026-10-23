@@ -38,13 +38,15 @@ final sourceChangesProvider = StreamProvider<int>((ref) {
 });
 
 final sourcesProvider = FutureProvider<List<MediaSource>>((ref) {
-  ref.watch(sourceChangesProvider);
+  final sources = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
   return ref.watch(sourceRepositoryProvider).sources();
 });
 
 // Navigation needs source configuration, not aggregate media counts.
 final sidebarSourcesProvider = FutureProvider<List<MediaSource>>((ref) {
-  ref.watch(sourceChangesProvider);
+  final sources = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => sources.configurationRevision));
   return ref.watch(sourceRepositoryProvider).sources(includeCounts: false);
 });
 

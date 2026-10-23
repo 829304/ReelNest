@@ -62,6 +62,18 @@ class SourceRepository {
   Completer<void>? _maintenanceDone;
   final _changes = StreamController<void>.broadcast();
   int _contentRevision = 0;
+  int _globalContentRevision = 0;
+  int _configurationRevision = 0;
+  final _sourceContentRevisions = <String, int>{};
+  int get globalContentRevision => _globalContentRevision;
+  int get configurationRevision => _configurationRevision;
+  (int, int) sourceContentRevision(String id) =>
+      (_globalContentRevision, _sourceContentRevisions[id] ?? 0);
+  (int, int, int) sourceViewRevision(String id) => (
+    _globalContentRevision,
+    _sourceContentRevisions[id] ?? 0,
+    libraryPreferenceRevision(id),
+  );
   final _libraryPreferenceRevisions = <String, int>{};
   int get contentRevision => _contentRevision;
   int libraryPreferenceRevision(String sourceId) =>
@@ -78,14 +90,23 @@ class SourceRepository {
   String _locationKey(String location) =>
       Platform.isWindows ? location.toLowerCase() : location;
 
-  void _changed() {
+  void _changed({Iterable<String>? sourceIds, bool configuration = true}) {
     if (_closed) return;
     _contentRevision++;
+    if (configuration) _configurationRevision++;
+    if (sourceIds == null) {
+      // Unclassified external mutations retain conservative invalidation.
+      _globalContentRevision++;
+    } else {
+      for (final id in sourceIds.toSet()) {
+        _sourceContentRevisions[id] = (_sourceContentRevisions[id] ?? 0) + 1;
+      }
+    }
     _changes.add(null);
   }
 
-  /// Keep legacy listeners (home, detail, sidebar) up to date, while allowing
-  /// library snapshots to reuse metadata for preference-only transactions.
+  /// Keep legacy listeners notified; scoped consumers can reuse unrelated
+  /// sources and metadata for preference-only transactions.
   void libraryPreferencesChanged(Iterable<String> sourceIds) {
     if (_closed) return;
     for (final id in sourceIds.toSet()) {
@@ -95,7 +116,8 @@ class SourceRepository {
   }
 
   /// Publish connector-owned trace mutations through the same browse refresh.
-  void traceChanged() => _changed();
+  void traceChanged({Iterable<String>? sourceIds}) =>
+      _changed(sourceIds: sourceIds, configuration: sourceIds == null);
 
   Future<void> setRemoteFavorite(MediaIdentity identity, bool favorite) async {
     final item = await media(identity);
@@ -108,7 +130,7 @@ class SourceRepository {
         identity.localId,
       ],
     );
-    _changed();
+    _changed(sourceIds: [identity.sourceId], configuration: false);
   }
 
   Future<List<MediaSource>> sources({bool includeCounts = true}) =>
@@ -263,7 +285,7 @@ class SourceRepository {
         ],
       );
     });
-    _changed();
+    _changed(sourceIds: [id]);
     return source(id);
   }
 
@@ -389,7 +411,7 @@ class SourceRepository {
         ],
       );
     });
-    _changed();
+    _changed(sourceIds: [id]);
     return source(id);
   }
 
@@ -433,7 +455,7 @@ class SourceRepository {
         ],
       );
     });
-    _changed();
+    _changed(sourceIds: [id]);
   }
 
   /// Removes this application's index only, never files in the selected folder.
@@ -443,7 +465,7 @@ class SourceRepository {
       _requireIdle(id);
       await database.customStatement('DELETE FROM sources WHERE id = ?', [id]);
     });
-    _changed();
+    _changed(sourceIds: [id]);
   }
 
   /// Validation runs outside SQL transactions. Gate mutations/scans until the
@@ -501,7 +523,12 @@ class SourceRepository {
           );
         }
       });
-      if (removed > 0) _changed();
+      if (removed > 0) {
+        _changed(
+          sourceIds: requested.map((id) => id.sourceId),
+          configuration: false,
+        );
+      }
       return (removed: removed, retained: requested.length - removed);
     } finally {
       _indexMaintenance = false;
@@ -560,7 +587,12 @@ class SourceRepository {
         }
         return count;
       });
-      if (removed > 0) _changed();
+      if (removed > 0) {
+        _changed(
+          sourceIds: requested.map((id) => id.sourceId),
+          configuration: false,
+        );
+      }
       return removed;
     } finally {
       _indexMaintenance = false;
@@ -872,7 +904,7 @@ class SourceRepository {
       cancellation.check();
       added = true;
     });
-    if (added) _changed();
+    if (added) _changed(sourceIds: [expected.id], configuration: false);
   }
 
   /// Remote sync is a snapshot transaction, not a filesystem scan. Failed or
@@ -967,7 +999,7 @@ class SourceRepository {
         'DELETE FROM scan_stage WHERE run_id = ?',
         [runId],
       );
-      _changed();
+      _changed(sourceIds: [id]);
     }
   }
 
@@ -1070,7 +1102,7 @@ class SourceRepository {
         );
       } finally {
         // Failed and cancelled runs can contain successfully committed files.
-        _changed();
+        _changed(sourceIds: [id]);
       }
     }
   }

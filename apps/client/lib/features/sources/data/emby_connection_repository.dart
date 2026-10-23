@@ -499,7 +499,7 @@ class EmbyConnectionRepository {
       } else {
         await playback.markWatched(ids, played);
       }
-      sources.traceChanged();
+      sources.traceChanged(sourceIds: [sourceId]);
       var failed = 0;
       if (source.options.remoteTraceSyncMode ==
           RemoteTraceSyncMode.bidirectional) {

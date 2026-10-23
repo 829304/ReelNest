@@ -1,11 +1,16 @@
 # ReelNest 文档
 
-更新时间：2026-10-21。
+更新时间：2026-10-22。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
+- 首页按来源刷新与偏好快照复用（2026-10-22）：96 项相关回归、130 项变更路径回归通过（有重叠）；10,003 媒体夹具访问计数确认构建偏好覆盖时不遍历基底媒体列表。仍读取来源全部偏好行，保留未知范围全局通知及原推荐行为。analyze、Windows Release、23:52 五秒 smoke 通过；真实大库交互、长期 CPU/内存及 macOS/Linux 原生性能仍待。详见[优化记录](SCOPED_REFRESH_PERFORMANCE_2026-10-22.zh-CN.md)和[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-22-首页按来源刷新与偏好快照复用)。
+- 首页搜索性能优化（2026-10-22）：已解码搜索文档通过有界 LRU 复用并在 DB 写入/范围变化时失效；Emby 过期搜索实际终止 isolate。91 项相关测试通过，阈值最终调整后 16 项、analyze、Windows Release 和 23:40 五秒 smoke 通过。持久搜索 isolate 未实现；真实大库可见 UI 与 macOS/Linux 性能仍待验收。详见[优化记录](SEARCH_PERFORMANCE_2026-10-22.zh-CN.md)及[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-22-首页搜索复用与-emby-过期任务取消)。
+- 视频播放器音频均衡器已实现，Windows 自动化验证通过：后端 17 项、UI 14 项、显式 native 的全量 873 passed / 1 skipped；Windows Profile GPU/SW 实际功能用例通过，353 Dart 文件格式检查 0 改动、analyze clean。Windows Release 41.2 秒成功，14:57:45 +08:00 五秒 smoke 正常响应并关闭、退出码 0。真实设备听感、真实 Emby、macOS/Linux 原生和原版 UI 视觉仍待。详见[阶段计划与验证边界](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)及[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-22-视频播放器音频均衡器已实现windows-自动化验证通过跨平台真实设备验收待)。
+- 播放器截图已实现、Windows 自动化验证通过：显式启用 native 的全量测试 859 passed / 1 skipped，analyze clean、348 个 Dart 文件格式检查 0 改动；Windows Profile GPU/SW 截图及 viewport 功能用例通过，Release 40.5 秒成功、五秒 smoke 通过。macOS/Linux 原生实机、真实用户 Emby 及原版 UI 视觉逐项验收仍待；Windows callback 修复只针对观测到的 resize 竞态。详见[阶段与最终证据](NEXT_STAGE.zh-CN.md#2026-10-22-播放器截图阶段已实现windows-自动化验证通过)、[数据字典](DATA_DICTIONARY.zh-CN.md#player_preferences)和[播放器实现记录](PLAYER_PRECISION_BACKEND.zh-CN.md#2026-10-22-播放器截图实现与验证)。
+- 2026-10-22 Windows 播放器窗口与 IME 修复：非迷你窗口 chrome 从 y=0 起高 54px，标题区及右侧拖拽带可拖动、窗口按钮保持独立；Windows inactive/hidden/paused 时释放 TextField 焦点，恢复后重连当前 IME。61 项关键回归、analyze、Windows Release 43.7 秒和 09:28:12 +08:00 五秒 smoke 通过。输入法处理仅限 Windows；详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-22-windows-播放器窗口-chrome-拖拽与-ime-焦点修复)及[播放器 UI 验证](PLAYER_PRECISION_BACKEND.zh-CN.md#2026-10-22-windows-播放器窗口-chrome-拖拽与-ime-焦点修复)。
 - Emby 媒体库性能优化（2026-10-21）：排序内复用标题解析；后续演员作品批量读取和想看/评分偏好增量覆盖也已实现。排序功能回归分批 64+19 项，增量读取相关回归 80 项通过；增量批次全量为 838 passed / 10 按配置跳过。两个批次均有独立 Windows Release/smoke 证据。Flutter test 排序基准仅反映函数耗时，不代表整页或真实 Emby 性能。持久搜索 isolate、真实大库可见 UI 和 macOS/Linux 原生性能仍待。详见[排序性能检查](PERFORMANCE_REVIEW_2026-10-21.zh-CN.md)、[增量读取记录](LIBRARY_INCREMENTAL_READS_2026-10-21.zh-CN.md)和[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-21-emby-媒体库排序性能优化)。
 - 前端 P1-G 全局弹层与反馈表面统一：新增公共 toast/inline notice 与确认弹窗，普通页面反馈和确认样式统一并迁移来源、设置、健康及 Emby 批量移除；播放器专用深色 UI 保持独立，业务流程和按钮语义不变。关键回归 110 项、本批全量 834 项通过/9 项既有条件跳过；另有 2026-10-21 统一提交前最终工作区复验，全量 843 passed / 0 skipped（9 项 native 均执行）、analyze clean、339 个 Dart 文件 format 0 changed、diff-check clean。该复验未重建；最新 Windows Release 仍为 36.6 秒，16:20:50 +08:00 五秒 smoke 通过。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-g全局弹层与反馈表面统一)。
 - 前端 P1-F 仪表盘与任务中心视觉收口：新增共享 dashboard surfaces，统一健康页状态/分区、4/2/1 列概览卡和扫描/分析/离线缓存任务表面；不新增检测规则、后台任务或 schema 变化。最后定向复验 25/25、targeted analyze clean；全量 832 passed / 9 skipped、全项目 analyze 仍通过。最终 Windows Release 36.6 秒及 2026-10-21 15:23:53 +08:00 五秒 smoke 通过，1088×720 明/暗主题健康页截图人工复核通过。真实 Emby、实体键鼠、高 DPI、macOS/Linux 原生目视仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-f仪表盘与任务中心视觉收口)和[健康评分/仪表盘](HEALTH_SCORE.zh-CN.md#2026-10-21-p1-f仪表盘与任务中心视觉收口)。
@@ -82,6 +87,8 @@
 | [首页 H1 实现记录](HOME_H1.zh-CN.md) | 跨来源统计、续播/历史、想看/收藏、最近剧集、分页与刷新 |
 | [首页 H2 推荐实现记录](HOME_H2_RECOMMENDATIONS.zh-CN.md) | 每日推荐、剧集推荐、高分精选、封面配色和后台计算 |
 | [首页跨来源视频搜索](HOME_SEARCH.zh-CN.md) | 搜索字段、分组、可取消后台匹配、来源隔离及详情返回 |
+| [首页搜索性能优化（2026-10-22）](SEARCH_PERFORMANCE_2026-10-22.zh-CN.md) | 已解码搜索文档有界 LRU、数据库写入/范围失效、Emby 过期 worker 终止及验证边界 |
+| [首页按来源刷新与偏好快照优化（2026-10-22）](SCOPED_REFRESH_PERFORMANCE_2026-10-22.zh-CN.md) | 按来源刷新、不可变内容快照上的偏好覆盖、全局通知兼容与回归边界 |
 | [首页运行状态](HOME_RUNTIME_STATUS.zh-CN.md) | 来源、基础健康和任务摘要，读取不触发扫描，检测范围与验证记录 |
 | [视频健康评分](HEALTH_SCORE.zh-CN.md) | 原版首页/仪表盘公式、本地/Emby 视频范围、重复/详情缺口、忽略恢复与验证 |
 | [首页编排](HOME_LAYOUT_EDITOR.zh-CN.md) | 原版编辑入口、拖动/隐藏/恢复、串行持久化与失败重试、桌面组件验证 |

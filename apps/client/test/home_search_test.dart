@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:io';
 
+import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +18,8 @@ import 'package:reelnest/features/home/domain/home_snapshot.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/storage/library_database.dart';
+
+import 'support/query_counter.dart';
 
 class _DelayedSearch extends HomeRepository {
   _DelayedSearch(super.sources);
@@ -49,6 +53,7 @@ int Function() _cancellationWork(SendPort ready) =>
 void main() {
   late SourceRepository sources;
   late HomeRepository home;
+  late QueryCounter counter;
   late MediaSource local, remote;
   Future<MediaSource> add(
     String id, {
@@ -140,8 +145,9 @@ void main() {
   );
 
   setUp(() async {
+    counter = QueryCounter();
     sources = SourceRepository(
-      database: LibraryDatabase(NativeDatabase.memory()),
+      database: LibraryDatabase(NativeDatabase.memory().interceptWith(counter)),
       adapters: {},
     );
     home = HomeRepository(sources);
@@ -149,6 +155,159 @@ void main() {
     remote = await add('remote', kind: 'emby', scanned: false);
   });
   tearDown(() => sources.close());
+
+  test(
+    'queries reuse decoded documents, writes and deletion invalidate them',
+    () async {
+      await seed(
+        local,
+        'film',
+        title: '北京故事',
+        detail: {
+          'Id': 'film',
+          'People': [
+            {'Name': 'Actor Original', 'Type': 'Actor'},
+          ],
+        },
+      );
+      counter.reads.clear();
+      final first = await search(local, '北京');
+      expect(await search(local, 'bjgs'), hasLength(1));
+      final actor = await search(local, 'Actor Original');
+      expect(identical(first.single, actor.single), isTrue);
+      expect(
+        counter.reads.where((r) => r.sql.contains('d.value AS details')),
+        hasLength(1),
+      );
+      await sources.database.customStatement(
+        'UPDATE remote_media_details SET value=?',
+        [
+          jsonEncode(
+            EmbyDetail.fromServer({
+              'Id': 'film',
+              'People': [
+                {'Name': 'New Actor', 'Type': 'Actor'},
+              ],
+            }, 'film').toJson(),
+          ),
+        ],
+      );
+      expect(await search(local, 'Actor Original'), isEmpty);
+      expect(await search(local, 'New Actor'), hasLength(1));
+      expect(
+        counter.reads.where((r) => r.sql.contains('d.value AS details')),
+        hasLength(2),
+      );
+      await sources.database.customStatement(
+        "DELETE FROM media WHERE local_id='film'",
+      );
+      expect(await search(local, '北京'), isEmpty);
+    },
+  );
+
+  test(
+    'search cache evicts least recently used source after four sources',
+    () async {
+      final values = [
+        local,
+        remote,
+        await add('third'),
+        await add('fourth'),
+        await add('fifth'),
+      ];
+      for (final source in values) {
+        await seed(source, 'film', title: 'Story');
+      }
+      counter.reads.clear();
+      for (final source in values) {
+        expect(await search(source, 'Story'), hasLength(1));
+      }
+      await search(values.last, 'story');
+      expect(
+        counter.reads.where((r) => r.sql.contains('d.value AS details')),
+        hasLength(5),
+      );
+      await search(local, 'Story');
+      expect(
+        counter.reads.where((r) => r.sql.contains('d.value AS details')),
+        hasLength(6),
+      );
+    },
+  );
+
+  test(
+    'commits from another SQLite connection invalidate cached search documents',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'reelnest-search-',
+      );
+      final file = File('${directory.path}/library.sqlite');
+      final firstDb = LibraryDatabase(NativeDatabase(file));
+      final otherDb = LibraryDatabase(NativeDatabase(file));
+      final repo = SourceRepository(database: firstDb, adapters: {});
+      addTearDown(() async {
+        await otherDb.close();
+        await repo.close();
+        await directory.delete(recursive: true);
+      });
+      await repo.add(
+        sourceId: 'external',
+        kind: MediaSourceKind.emby,
+        name: 'External',
+        location: 'emby://fixture/external',
+      );
+      await firstDb.customStatement(
+        "INSERT INTO media(source_id,local_id,title,type,bytes,modified,identity_kind) VALUES('external','film','Before','movie',0,0,'fixture')",
+      );
+      await otherDb.customSelect('SELECT 1').get();
+      final source = await repo.source('external', includeCounts: false);
+      final repository = HomeRepository(repo);
+      Future<List<HomeVideo>> query(String q) => repository.search(
+        source.id,
+        q,
+        scope: homeSearchScope(source),
+        cancellation: ScanCancellation(),
+      );
+      expect(await query('Before'), hasLength(1));
+      await otherDb.customStatement(
+        "UPDATE media SET title='After' WHERE local_id='film'",
+      );
+      expect(await query('Before'), isEmpty);
+      expect(await query('After'), hasLength(1));
+    },
+  );
+
+  test('large decoded index is reused across query workers', () async {
+    await sources.database.customStatement('''WITH RECURSIVE n(i) AS
+      (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<2000)
+      INSERT INTO media(source_id,local_id,title,type,bytes,modified,identity_kind)
+      SELECT 'local','film'||i,'Movie '||i,'movie',0,1,'fixture' FROM n''');
+    counter.reads.clear();
+    expect(await search(local, 'Movie'), hasLength(2000));
+    expect(await search(local, 'Movie 2000'), hasLength(1));
+    expect(await search(local, 'no match'), isEmpty);
+    final reads = counter.reads.where(
+      (r) => r.sql.contains('d.value AS details'),
+    );
+    expect(reads, hasLength(1));
+    expect(reads.single.rows, 2000);
+  });
+
+  test('oversized search documents are searchable but not retained', () async {
+    await seed(
+      local,
+      'large',
+      title: 'Large',
+      overview: 'x' * (8 * 1024 * 1024 + 1),
+    );
+    counter.reads.clear();
+    expect(await search(local, 'Large'), hasLength(1));
+    expect(await search(local, 'Large'), hasLength(1));
+    expect(
+      counter.reads.where((r) => r.sql.contains('d.value AS details')),
+      hasLength(2),
+    );
+  });
 
   test(
     'Chinese, original title, English initials, pinyin, year and overview',

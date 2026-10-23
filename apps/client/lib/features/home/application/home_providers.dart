@@ -30,7 +30,8 @@ class HomePlaybackRevisions extends Notifier<Map<String, int>> {
 }
 
 final homeThresholdProvider = FutureProvider.autoDispose<double>((ref) {
-  ref.watch(sourceChangesProvider);
+  final sources = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => sources.globalContentRevision));
   return PlayerPreferencesRepository(
     ref.watch(sourceRepositoryProvider).database,
   ).watchedThreshold;
@@ -39,7 +40,12 @@ final homeThresholdProvider = FutureProvider.autoDispose<double>((ref) {
 typedef HomeQuery = ({String sourceId, HomeCollection collection, int offset});
 final homeVideoPageProvider = FutureProvider.autoDispose
     .family<HomeVideoPage, HomeQuery>((ref, query) async {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select(
+          (_) => sources.sourceViewRevision(query.sourceId),
+        ),
+      );
       ref.watch(
         homePlaybackRevisionsProvider.select(
           (values) => values[query.sourceId],
@@ -58,7 +64,10 @@ final homeVideoPageProvider = FutureProvider.autoDispose
     });
 final homeSourceStatsProvider = FutureProvider.autoDispose
     .family<HomeStats, String>((ref, id) async {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select((_) => sources.sourceViewRevision(id)),
+      );
       ref.watch(homePlaybackRevisionsProvider.select((values) => values[id]));
       final threshold = await ref.watch(homeThresholdProvider.future);
       if (!ref.mounted) throw const ScanCancelled();
@@ -111,7 +120,10 @@ class HomeDate extends Notifier<DateTime> with WidgetsBindingObserver {
 
 final homeRecommendationCandidatesProvider = FutureProvider.autoDispose
     .family<List<HomeVideo>, String>((ref, id) {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select((_) => sources.sourceViewRevision(id)),
+      );
       ref.watch(homePlaybackRevisionsProvider.select((values) => values[id]));
       return ref.watch(homeRepositoryProvider).recommendationCandidates(id);
     });
@@ -121,7 +133,8 @@ final homeOfflineIDsProvider = FutureProvider.autoDispose<Set<MediaIdentity>>((
 ) {
   final cached = ref.watch(embyCachedVideosProvider).value ?? [];
   if (cached.isEmpty) return <MediaIdentity>{};
-  ref.watch(sourceChangesProvider);
+  final repository = ref.watch(sourceRepositoryProvider);
+  ref.watch(sourceChangesProvider.select((_) => repository.contentRevision));
   return ref
       .watch(homeRepositoryProvider)
       .offlineParents(cached.map((c) => c.identity).toSet());

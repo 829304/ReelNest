@@ -151,6 +151,8 @@ void main() {
     await preferences.subtitleStyle;
     await preferences.timing;
     await preferences.displaySettings;
+    await preferences.screenshotMode;
+    await preferences.equalizerSettings;
     await preferences.renderSettings;
     await preferences.performanceSettings;
     await preferences.sharpenMode;

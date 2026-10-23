@@ -230,9 +230,15 @@ void main() {
             home: Scaffold(
               body: SizedBox(
                 width: 720,
-                child: PlayerBasicSettings(
-                  session: session,
-                  palette: const PlayerPalette(),
+                child: Scrollbar(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('marker-skip-settings-scroll'),
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                    child: PlayerBasicSettings(
+                      session: session,
+                      palette: const PlayerPalette(),
+                    ),
+                  ),
                 ),
               ),
             ),

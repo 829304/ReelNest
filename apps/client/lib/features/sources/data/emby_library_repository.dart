@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
 
@@ -18,11 +19,20 @@ class EmbyVideoSnapshot {
     required List<EmbyLibrary> libraries,
     required List<VideoLibraryEntry> entries,
   }) : libraries = List.unmodifiable(libraries),
-       entries = List.unmodifiable(entries) {
+       entries = List.unmodifiable(entries),
+       _base = null,
+       _overrides = const {} {
     // Built once with the snapshot (in the worker for large libraries), rather
     // than traversing the entire library for each card entering the viewport.
     for (final entry in this.entries) {
+      _positions[entry.item.identity] = _byIdentity.length;
       _byIdentity[entry.item.identity] = entry;
+      if (entry.watchlist ||
+          entry.userRating !=
+              RemoteRatingPolicy.seedUserRating(entry.item.remote?.rating) ||
+          entry.createdAt != entry.item.modified.toUtc()) {
+        _preferenceCandidates.add(entry.item.identity);
+      }
       final parent = entry.item.parentId;
       if (parent != null) {
         _children
@@ -35,36 +45,103 @@ class EmbyVideoSnapshot {
     }
     _children.updateAll((_, children) => List.unmodifiable(children));
   }
+  EmbyVideoSnapshot._preferences(
+    EmbyVideoSnapshot base,
+    Map<MediaIdentity, VideoLibraryEntry> overrides,
+  ) : _base = base,
+      _overrides = Map.unmodifiable(overrides),
+      source = base.source,
+      libraries = base.libraries,
+      entries = _PreferenceEntries(base.entries, Map.unmodifiable(overrides));
+
+  final EmbyVideoSnapshot? _base;
+  final Map<MediaIdentity, VideoLibraryEntry> _overrides;
+  EmbyVideoSnapshot get _root => _base ?? this;
+  final _preferenceCandidates = <MediaIdentity>{};
   final MediaSource source;
   final List<EmbyLibrary> libraries;
   final List<VideoLibraryEntry> entries;
+  final _positions = <MediaIdentity, int>{};
   final _byIdentity = <MediaIdentity, VideoLibraryEntry>{};
   final _children = <MediaIdentity, List<VideoLibraryEntry>>{};
   final _scopes = <EmbyVideoDestination, List<VideoLibraryEntry>>{};
-  VideoLibraryEntry? entryFor(MediaIdentity identity) => _byIdentity[identity];
-  List<VideoLibraryEntry> childrenOf(MediaIdentity identity) =>
-      _children[identity] ?? const [];
-  List<VideoLibraryEntry> scope(EmbyVideoDestination destination) =>
-      _scopes.putIfAbsent(
-        destination,
-        () => List.unmodifiable(
-          entries.where((e) {
-            if (e.item.identity.sourceId != destination.sourceId ||
-                e.item.parentId != null ||
-                e.item.displayType == 'music') {
-              return false;
-            }
-            if (destination.libraryId != null) {
-              return e.item.remote?.libraryId == destination.libraryId;
-            }
-            return switch (destination.section) {
-              EmbyVideoSection.videos => true,
-              EmbyVideoSection.watchlist => e.watchlist,
-              EmbyVideoSection.favorites => e.item.remote?.favorite == true,
-            };
-          }),
-        ),
-      );
+  VideoLibraryEntry? entryFor(MediaIdentity identity) =>
+      _overrides[identity] ?? _root._byIdentity[identity];
+  List<VideoLibraryEntry> childrenOf(MediaIdentity identity) => _base == null
+      ? _children[identity] ?? const []
+      : _PreferenceEntries(_root.childrenOf(identity), _overrides);
+  List<VideoLibraryEntry> scope(EmbyVideoDestination destination) {
+    if (_base != null) {
+      return _scopes.putIfAbsent(destination, () {
+        if (destination.libraryId == null &&
+            destination.section == EmbyVideoSection.watchlist) {
+          final candidates = {
+            ..._root._preferenceCandidates,
+            ..._overrides.keys,
+          };
+          // Preserve the original snapshot order, including title ties.
+          final result =
+              candidates
+                  .map(entryFor)
+                  .whereType<VideoLibraryEntry>()
+                  .where(
+                    (e) =>
+                        e.watchlist &&
+                        e.item.parentId == null &&
+                        e.item.displayType != 'music' &&
+                        e.item.identity.sourceId == destination.sourceId,
+                  )
+                  .toList()
+                ..sort(
+                  (a, b) => _root._positions[a.item.identity]!.compareTo(
+                    _root._positions[b.item.identity]!,
+                  ),
+                );
+          return List.unmodifiable(result);
+        }
+        return _PreferenceEntries(_root.scope(destination), _overrides);
+      });
+    }
+    return _scopes.putIfAbsent(
+      destination,
+      () => List.unmodifiable(
+        entries.where((e) {
+          if (e.item.identity.sourceId != destination.sourceId ||
+              e.item.parentId != null ||
+              e.item.displayType == 'music') {
+            return false;
+          }
+          if (destination.libraryId != null) {
+            return e.item.remote?.libraryId == destination.libraryId;
+          }
+          return switch (destination.section) {
+            EmbyVideoSection.videos => true,
+            EmbyVideoSection.watchlist => e.watchlist,
+            EmbyVideoSection.favorites => e.item.remote?.favorite == true,
+          };
+        }),
+      ),
+    );
+  }
+}
+
+class _PreferenceEntries extends ListBase<VideoLibraryEntry> {
+  _PreferenceEntries(this.base, this.overrides);
+  final List<VideoLibraryEntry> base;
+  final Map<MediaIdentity, VideoLibraryEntry> overrides;
+  @override
+  int get length => base.length;
+  @override
+  set length(int value) => throw UnsupportedError("Immutable snapshot");
+  @override
+  VideoLibraryEntry operator [](int index) {
+    final entry = base[index];
+    return overrides[entry.item.identity] ?? entry;
+  }
+
+  @override
+  void operator []=(int index, VideoLibraryEntry value) =>
+      throw UnsupportedError("Immutable snapshot");
 }
 
 class EmbyLibraryRepository {
@@ -285,8 +362,16 @@ class EmbyLibraryRepository {
         )
         .get();
     final byId = {for (final row in rows) row.read<String>('local_id'): row};
-    var changed = false;
-    final entries = base.entries.map((entry) {
+    // Always rebase on content, never chain overlays or traverse all episodes.
+    final root = base._root;
+    final candidates = {
+      ...root._preferenceCandidates,
+      for (final id in byId.keys) (sourceId: root.source.id, localId: id),
+    };
+    final overrides = <MediaIdentity, VideoLibraryEntry>{};
+    for (final id in candidates) {
+      final entry = root.entryFor(id);
+      if (entry == null) continue;
       final row = byId[entry.item.identity.localId];
       final watchlist = row?.read<int>('watchlist') == 1;
       final rating = row == null
@@ -301,10 +386,9 @@ class EmbyLibraryRepository {
       if (watchlist == entry.watchlist &&
           rating == entry.userRating &&
           createdAt == entry.createdAt) {
-        return entry;
+        continue;
       }
-      changed = true;
-      return VideoLibraryEntry(
+      overrides[id] = VideoLibraryEntry(
         item: entry.item,
         record: entry.record,
         createdAt: createdAt,
@@ -314,14 +398,10 @@ class EmbyLibraryRepository {
         reportedProgress: entry.reportedProgress,
         episodePlayback: entry.episodePlayback,
       );
-    }).toList();
-    return changed
-        ? EmbyVideoSnapshot(
-            source: base.source,
-            libraries: base.libraries,
-            entries: entries,
-          )
-        : base;
+    }
+    return overrides.isEmpty
+        ? root
+        : EmbyVideoSnapshot._preferences(root, overrides);
   }
 
   Future<int> removeFromLibrary(Iterable<MediaIdentity> ids) async {

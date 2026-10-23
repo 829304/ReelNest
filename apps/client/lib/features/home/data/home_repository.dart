@@ -16,7 +16,40 @@ import '../domain/home_search.dart';
 import 'home_search_worker.dart';
 
 class HomeRepository {
-  const HomeRepository(this.sources);
+  HomeRepository(this.sources);
+  // Only decoded search documents are retained, never database/worker handles.
+  final _searchIndexes = <String, _CachedSearchIndex>{};
+  static const _maxSearchDocuments = 50000;
+  static const _maxSearchCharacters = 8 * 1024 * 1024;
+
+  Future<(int, int)> _searchRevision() async {
+    final row = await sources.database
+        .customSelect(
+          'SELECT total_changes() AS local_revision, data_version AS external_revision FROM pragma_data_version',
+        )
+        .getSingle();
+    return (
+      row.read<int>('local_revision'),
+      row.read<int>('external_revision'),
+    );
+  }
+
+  void _retainSearchIndex(String id, _CachedSearchIndex index) {
+    _searchIndexes.remove(id);
+    if (index.documents.length > _maxSearchDocuments ||
+        index.characters > _maxSearchCharacters) {
+      return;
+    }
+    _searchIndexes[id] = index;
+    while (_searchIndexes.length > 4 ||
+        _searchIndexes.values.fold(0, (n, e) => n + e.documents.length) >
+            _maxSearchDocuments ||
+        _searchIndexes.values.fold(0, (n, e) => n + e.characters) >
+            _maxSearchCharacters) {
+      _searchIndexes.remove(_searchIndexes.keys.first);
+    }
+  }
+
   final SourceRepository sources;
 
   static bool accepts(MediaSource source) =>
@@ -104,25 +137,39 @@ class HomeRepository {
     final source = await sources.source(sourceId, includeCounts: false);
     cancellation.check();
     if (!accepts(source) || homeSearchScope(source) != scope) return [];
-    final rows = await sources.database.customSelect('''$_scope
-      SELECT scope.*, d.value AS details FROM scope
-      LEFT JOIN remote_media_details d USING(source_id,local_id)
-      ORDER BY local_id
-    ''', variables: _variables(source)).get();
+    // total_changes observes this connection's writes, data_version observes
+    // other connections (including the player window). Do not rely only on
+    // UI notifications: detail caching and direct writes must expire the index.
+    final revision = await _searchRevision();
+    _searchIndexes.removeWhere((_, value) => value.revision != revision);
+    var index = _searchIndexes[sourceId];
+    if (index == null || index.scope != scope) {
+      final rows = await sources.database.customSelect('''$_scope
+        SELECT scope.*, d.value AS details FROM scope
+        LEFT JOIN remote_media_details d USING(source_id,local_id)
+        ORDER BY local_id
+      ''', variables: _variables(source)).get();
+      cancellation.check();
+      final data = rows.map((r) => r.data).toList();
+      final documents = data.length > 180
+          ? await runHomeSearchWorker(_indexWork(data, source), cancellation)
+          : _buildSearchIndex(data, source);
+      index = _CachedSearchIndex(scope, revision, documents, data.length > 180);
+    }
     cancellation.check();
-    final data = rows.map((r) => r.data).toList();
-    final results = data.length > 180
-        ? await runHomeSearchWorker(
-            () => _searchVideos(data, source, query),
-            cancellation,
-          )
-        : _searchVideos(data, source, query);
+    final documents = index.documents;
+    // A single series can contain thousands of episode search fields. Preserve
+    // the original row-based worker threshold after projecting to root items.
+    final results = index.useWorker
+        ? await runHomeSearchWorker(_filterWork(documents, query), cancellation)
+        : _filterSearchIndex(documents, query);
     cancellation.check();
-    // Provider disposal drops obsolete queries; this also guards direct calls
-    // that race source removal/reconnection or a library-selection change.
     final current = await sources.source(sourceId, includeCounts: false);
+    final latest = await _searchRevision();
     cancellation.check();
-    return homeSearchScope(current) == scope ? results : [];
+    if (homeSearchScope(current) != scope || latest != revision) return [];
+    _retainSearchIndex(sourceId, index);
+    return results;
   }
 
   /// Original includesCachedVideo: a series is offline-ready if at least one
@@ -464,10 +511,9 @@ HomeStats _stats(List<Map<String, dynamic>> rows) {
   );
 }
 
-List<HomeVideo> _searchVideos(
+List<_SearchDocument> _buildSearchIndex(
   List<Map<String, dynamic>> rows,
   MediaSource source,
-  String query,
 ) {
   List<String?> terms(IndexedMedia item) => [
     item.title,
@@ -495,7 +541,7 @@ List<HomeVideo> _searchVideos(
       ]);
     }
   }
-  final results = <HomeVideo>[];
+  final results = <_SearchDocument>[];
   for (var n = 0; n < rows.length; n++) {
     final item = decoded[n];
     if (item.type == 'episode' || item.displayType == 'music') continue;
@@ -526,9 +572,46 @@ List<HomeVideo> _searchVideos(
         extra.technical.resolution,
       ]);
     }
-    if (LibrarySearchMatcher.matches(query, fields)) {
-      results.add(_recommendationVideo(rows[n], source));
-    }
+    results.add((
+      video: _recommendationVideo(rows[n], source),
+      fields: List.unmodifiable(fields),
+    ));
   }
   return List.unmodifiable(results);
 }
+
+typedef _SearchDocument = ({HomeVideo video, List<String?> fields});
+
+class _CachedSearchIndex {
+  _CachedSearchIndex(this.scope, this.revision, this.documents, this.useWorker)
+    : characters = documents.fold(
+        0,
+        (n, document) =>
+            n + document.fields.fold(0, (n, field) => n + (field?.length ?? 0)),
+      );
+  final String scope;
+  final (int, int) revision;
+  final List<_SearchDocument> documents;
+  final bool useWorker;
+  final int characters;
+}
+
+// Factories keep repository, cancellation tokens and cache maps out of workers.
+List<_SearchDocument> Function() _indexWork(
+  List<Map<String, dynamic>> rows,
+  MediaSource source,
+) =>
+    () => _buildSearchIndex(rows, source);
+List<HomeVideo> Function() _filterWork(
+  List<_SearchDocument> documents,
+  String query,
+) =>
+    () => _filterSearchIndex(documents, query);
+List<HomeVideo> _filterSearchIndex(
+  List<_SearchDocument> documents,
+  String query,
+) => List.unmodifiable(
+  documents
+      .where((doc) => LibrarySearchMatcher.matches(query, doc.fields))
+      .map((doc) => doc.video),
+);

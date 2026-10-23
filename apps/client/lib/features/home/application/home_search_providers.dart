@@ -13,7 +13,12 @@ typedef HomeSearchKey = ({String query, String scope});
 
 final homeSearchSourceProvider = FutureProvider.autoDispose
     .family<List<HomeVideo>, HomeSearchQuery>((ref, key) {
-      ref.watch(sourceChangesProvider);
+      final sources = ref.watch(sourceRepositoryProvider);
+      ref.watch(
+        sourceChangesProvider.select(
+          (_) => sources.sourceViewRevision(key.sourceId),
+        ),
+      );
       final cancellation = ScanCancellation();
       ref.onDispose(cancellation.cancel);
       return ref

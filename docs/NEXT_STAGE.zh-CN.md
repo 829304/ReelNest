@@ -1,6 +1,55 @@
 # 当前阶段与历史实施记录
-本轮按原版 `VideoColorAdjustments.swift`、`VideoColorAdjustmentPolicy.swift`、`PlayerView.swift` 迁移亮度、对比度、饱和度、伽马、色相；范围 -100…100、默认 0、半值远离 0 取整、每步 ±5、单项重置。全局 JSON 偏好 `global.videoColorAdjustments`，无 schema，本地/Emby 共用；串行最新值合并、原生应用与保存、失败回滚告警及初始化非致命作为验收契约。实现细节及边界见[画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md)。
-更新：2026-10-21。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+当前摘要：播放器截图已实现并通过 Windows 自动化验证；视频播放器均衡器已实现，Windows 自动化、Release 与 smoke 通过。真实设备听感/Emby、macOS/Linux 原生及原版 UI 视觉验收仍待；详细证据见[截图阶段](NEXT_STAGE.zh-CN.md#2026-10-22-播放器截图阶段已实现windows-自动化验证通过)与[视频均衡器阶段](NEXT_STAGE.zh-CN.md#2026-10-22-视频播放器音频均衡器已实现windows-自动化验证通过跨平台真实设备验收待)。
+更新：2026-10-22。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-22 播放器截图阶段（已实现，Windows 自动化验证通过）
+
+- 范围：沿用原版截图模式 `subtitles`（带字幕，默认）、`video`（纯视频）、`window`（窗口所见）；保存 PNG，文件名包含影片标题与时间，并提示保存成功或失败。本地与 Emby 视频共用；截图不得暂停/跳转播放或修改播放设置。
+- 来源依据：只读参考 `MediaLib/Sources/MediaLib/Views/PlayerView.swift` 的截图入口/模式选择与反馈、`MediaLib/Sources/MediaLib/App/MpvPlayerController.swift` 的捕获/文件保存，以及 `MediaLib/Sources/MediaLibCore/Models/AppSettings.swift` 的模式枚举及默认值。原版目录为系统 Pictures 下的 `MediaLIB 截图`，不直接沿用该路径或旧品牌。
+- 交互与偏好：播放画面右键“保存当前画面”或按无修饰 `S`（沿用原版默认快捷键）；播放器设置“截图内容”可选带字幕（默认）、纯视频、窗口所见。领域枚举 `VideoScreenshotMode` 以 `subtitles` / `video` / `window` 表示，全局偏好 `global.videoScreenshotMode` 存储 enum `name`，默认 `subtitles`。`Session` 提供 `screenshotMode`、`canCaptureFrame`、`capturingFrame`、`setScreenshotMode`、`captureCurrentFrame`；成功返回 PNG 绝对路径，失败提供 `VideoScreenshotFailure` 安全展示消息。成功反馈只显示文件名；未知错误使用固定安全提示。
+- 图像语义：`subtitles` 与 `video` 分别采用当前 mpv `subtitles`/`video` 截图模式；`window` 仅捕获视频渲染区域（含字幕与黑边，不含 Flutter 控制栏/HUD），对应原版 `renderView` 兜底语义。不得改变字幕选择/可见性、播放状态或 seek，不另开解码器。GPU、软件渲染均须验证三种模式；不可静默退化。
+- 保存路径：Windows 为 `resolvedExecutable.parent/userdata/screenshots/`，逐层校验真实路径且不得回退到外部目录；macOS 为用户 Pictures 下 `ReelNest 截图/`；Linux 优先 `XDG_PICTURES_DIR/ReelNest 截图/`，未设置时回落到 `HOME/Pictures/ReelNest 截图/`。PNG 文件名包含影片标题与时间；重名不覆盖、原子发布、失败清理未完成文件并限制 PNG 尺寸。macOS/Linux 路径实现和单测已接入，但未做原生实机验收；不宣称移动端支持。
+- 自动化验证：store/session 新增 11 项、UI 两文件 31 项回归通过。全量 `flutter test --no-pub --reporter expanded` 显式启用 `REELNEST_MPV_PATH` 执行 native：**859 passed / 1 skipped**，45 秒；唯一跳过为可选排序性能基准。`dart analyze lib test integration_test` 无问题；348 个 Dart 文件格式检查 0 改动；`git diff --check` clean。
+- Windows Profile：最终 `integration_test/video_screenshot_test.dart` 中 GPU/SW 两种 renderer 的两项实际功能用例通过（runner 汇总 3 项含 tearDown，13 秒），覆盖三模式、字幕有/无、PNG 像素/尺寸、黑边且不含 HUD、图像变换、播放/暂停状态不变、每种渲染路径 8 次旋转/resize 截图循环，以及 loopback Range HTTP 播放截图不增加请求。最终 native 运行已包含 raw 格式 `bgr0`/`bgra` 校验。既有 `video_viewport_test.dart` 的 GPU/SW 两项实际功能用例通过（汇总 3 项，2 秒）。
+- Windows texture callback 修复：截图调试发现既有 `media_kit_video` resize 期间 texture callback 注册竞态；可变 `texture_id_` 重注册时被 `map.at` 访问，Profile 本机曾两次崩溃。minidump 与 SDK PDB 定位至 `flutter::ExternalTextureD3d::PopulateTexture` / `std::terminate`。项目自有 `windows/media_kit_viewport.cmake` 生成源码已修复：callback 持有独立注册 ID，旧 ID 撤回与新 descriptor/ID 发布共用 mutex，旧 callback/缺失记录返回 null；GPU/SW 均覆盖，最终旋转/resize 循环验证通过。该证据不代表所有历史崩溃均已定位；排查工具与 dump 摘要只在 ignored `apps/client/build/screenshot-diagnostics`，不进入发行内容，Pub 缓存未改。
+- Windows 发布验证：Release 构建 **40.5 秒成功**，EXE 为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。2026-10-22 14:33:44.0518851 +08:00 五秒 smoke：`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。
+- 验收边界：本地和 Emby 代码路径共用，但未使用真实用户 Emby 服务器验收；macOS/Linux 尚无原生实机验收；原版 UI 视觉逐项对照仍待完成。以上不改变既有 IME/chrome 历史记录。
+
+## 2026-10-22 视频播放器音频均衡器（已实现，Windows 自动化验证通过；跨平台/真实设备验收待）
+
+用户已授权将视频播放器 5 段均衡器作为下一阶段迁移，非音乐模块功能。已先阅读原版 `VideoAudioFilterPolicy.swift`、`AppSettings.swift` 中 `MusicEqualizerPreset`、`PlayerView.swift` 均衡器设置和 `VideoAudioFilterPolicyTests.swift`。保持原版 8 个预设、5 个频点及增益值，算法使用 FFmpeg `lavfi` `firequalizer`，不得换成 biquad；默认 disabled + flat，disabled/flat 不挂载本功能拥有的音频滤镜，关闭时保留预设。详细状态/引擎契约与验收清单见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。
+
+持久化使用单一 `global.videoEqualizerSettings` JSON key，落在现有 `player_preferences`，无 schema 变化；当前播放器批量偏好 key 数从 26 增至 27，历史快照不回溯修改。状态更新须串行合并最新值，应用/保存失败回滚并提示；初始化应用失败非致命并提示。引擎只管理 `@reelnest-equalizer` owned lavfi，保留其他 `af`/`vf`、变调保护、音量/增强、音轨、输出设备和同步，不主动 seek、unpause 或 reopen。
+
+后端 `video_equalizer_test.dart` 13 项 + `playback_read_performance_test.dart` 4 项，共 17 项通过；设置偏好完整 getter 的 27 次 SQL 已合并为 1 次快照读取。UI `player_basic_settings_test.dart` 与 `player_marker_skip_ui_test.dart` 共 14 项通过。新增均衡器行后的首次 UI 全量出现 18 px 溢出，原因是测试夹具缺少实际设置页滚动容器；前端工程师按产品结构补入 `Scrollbar` + `SingleChildScrollView`，原断言保留。产品实际父容器已有滚动，无产品降级。
+
+全量 `flutter test --no-pub --reporter expanded` 显式设置 `REELNEST_MPV_PATH`：**873 passed / 1 skipped**（45 秒；唯一跳过为可选 sort benchmark），包含 native PCM 1 项实测所有五频与 8 个预设。`dart analyze lib test integration_test` clean，353 个 Dart 文件 format 0 changed，`git diff --check` clean。native 用当前 pinned DLL `ao=pcm` 输出 48 kHz / 16-bit / mono 五频 WAV，以 flat 为基准测试 7 个非 flat 预设，实测误差均在原版增益 ±0.8 dB 内；不是属性读回，未更换运行时。
+
+Windows Profile `integration_test/video_equalizer_test.dart` GPU/SW 各 1 项实际功能用例通过（runner 汇总 3 项含 tearDown；用例 4 秒，Profile 构建 24.2 秒）。覆盖本地与 loopback Range HTTP 视频、8 预设轮换、暂停时 `time-pos` ±0.02 秒、保留 aid/sid/secondary/subvisibility、speed、pitch correction、volume/boost、audio delay/device、hwdec、vf 和 foreign af；播放时调整均衡器/倍速/变调仍无 error 且保持播放；已完全缓存 HTTP 片段切换设置不增加请求。Profile harness 首次因 mount 前设置 `ao` 等 controller 初始化值而挂起；将设置移至 mount 后解决，属于测试顺序调整，不是生产故障修复。
+
+Windows Release 构建 **41.2 秒成功**；`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 **2026-10-22 14:57:45.2163649 +08:00** 通过，`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。产物为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`。
+
+阶段状态：已实现，Windows 自动化验证通过；真实设备听感、真实用户 Emby、macOS/Linux 原生和原版 UI 视觉逐项验收仍待。完整证据及边界见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。
+
+## 2026-10-22 首页搜索复用与 Emby 过期任务取消
+
+首页搜索仓库新增有界 LRU，复用已解码搜索文档；通过 SQLite `total_changes()` / `data_version` 检测写入并失效，范围变化也会使对应缓存失效。Emby 过期搜索现在实际终止 worker isolate，而非仅丢弃 Future 结果。没有实现持久搜索 isolate；180 ms 输入防抖及过滤/排序规则不变。
+
+91 项搜索相关测试通过；最后调整后台匹配阈值后，两个搜索测试文件 16 项复验通过，analyze clean，Windows Release 构建成功。2026-10-22 23:40（UTC+8）五秒 smoke 正常响应、正常关闭、退出码 0。未宣称真实大库可见 UI 或 macOS/Linux 性能已验收；详细范围、缓存上限及测试证据见[搜索性能优化记录](SEARCH_PERFORMANCE_2026-10-22.zh-CN.md)。
+
+## 2026-10-22 首页按来源刷新与偏好快照复用
+
+首页和侧栏更新按来源刷新；偏好更新通过复用不可变内容快照、索引和偏好覆盖避免遍历全部媒体/分集以重建覆盖层，并保留未知范围通知的全局刷新和原推荐行为。当前仍读取该来源全部偏好行；不能表述为只查询发生变化的单条偏好。
+
+96 项相关回归与 130 项变更路径回归通过，两组有重叠，不相加为独立测试数。10,003 条媒体夹具使用列表访问计数，验证构建偏好覆盖层时未遍历基底媒体列表；该结果不代表后续筛选/渲染不访问列表，也不是整页耗时倍率。analyze clean，Windows Release 构建成功；2026-10-22 23:52（UTC+8）五秒 smoke 正常响应、正常关闭、退出码 0。真实大库交互、长期 CPU/内存及 macOS/Linux 原生性能仍待实机验收，详见[按来源刷新与偏好快照优化](SCOPED_REFRESH_PERFORMANCE_2026-10-22.zh-CN.md)。
+
+## 2026-10-22 Windows 播放器窗口 chrome 拖拽与 IME 焦点修复
+
+非迷你播放器窗口顶部 chrome 从距顶 17px、38px 高调整为从窗口 y=0 开始、高 54px；整个标题区和右侧额外 14px 区域可拖动，窗口按钮保持独立点击区域，修复顶部拖拽范围及命中不便。实现位于 `apps/client/lib/features/playback/presentation/video_player_page.dart`。
+
+Flutter 3.47.6 / Windows 11 10.0.26200 下观察到的 CJK IME 失焦恢复问题与 [Flutter issue #190042](https://github.com/flutter/flutter/issues/190042) 所述情形相符。`ReelNestApp` 在 Windows 窗口 inactive、hidden 或 paused 时主动取消当前 `TextField` 焦点，断开旧 text client；窗口恢复后用户再次点击搜索框时，以当前输入法重新连接。该处理仅针对 Windows，不改变 macOS/Linux 行为，代码位于 `apps/client/lib/app/reelnest_app.dart`。此处记录症状与环境相符，不据此断言已证明 Flutter 上游问题的底层根因。
+
+回归覆盖 `app_test` 的 inactive 时释放 TextField 焦点，以及 `playback_test` 的 chrome y=0/高 54px。`flutter analyze` clean；`app_test.dart`、`playback_test.dart`、`home_ui_test.dart` 合计 **61 passed**。Windows Release **43.7 秒成功**；2026-10-22 09:28:12 +08:00 五秒 hidden smoke 窗口响应、正常关闭、`ExitCode=0` 均通过。该批变更不涉及播放业务行为。
 
 ## 2026-10-21 Emby 媒体库排序性能优化
 
