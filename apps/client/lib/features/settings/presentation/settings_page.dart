@@ -5,7 +5,9 @@ import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../health/presentation/ignored_health_settings.dart';
+import '../../metadata/presentation/tmdb_settings_panel.dart';
 import '../application/appearance_controller.dart';
+import 'online_subtitle_settings.dart';
 import 'watched_settings.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -24,6 +26,10 @@ class SettingsPage extends ConsumerWidget {
       ),
       children: [
         const WatchedSettings(),
+        const SizedBox(height: 28),
+        const TmdbSettingsPanel(),
+        const SizedBox(height: 28),
+        const OnlineSubtitleSettings(),
         const SizedBox(height: 28),
         const IgnoredHealthSettings(),
         const SizedBox(height: 28),

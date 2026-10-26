@@ -53,7 +53,7 @@ class HomeRepository {
   final SourceRepository sources;
 
   static bool accepts(MediaSource source) =>
-      (source.kind.isFileSource || source.kind == MediaSourceKind.emby) &&
+      (source.kind.isFileSource || source.kind.isEmbyCompatible) &&
       !{
         SourceMediaType.privateCollection,
         SourceMediaType.photo,
@@ -72,7 +72,8 @@ class HomeRepository {
       COALESCE(p.created_at,m.modified) AS created_at,
       p.user_rating, COALESCE(p.watchlist,0) AS watchlist,
       COALESCE(json_extract(r.value,'\$.favorite'), f.value = 'true',0) AS favorite,
-      MAX(COALESCE(json_extract(r.value,'\$.rating'),0),COALESCE(p.user_rating * 2,0)) AS score,
+      COALESCE(json_extract(r.value,'\$.rating'),json_extract(lm.value,'\$.candidate.rating'),json_extract(lt.value,'\$.candidate.rating')) AS metadata_rating,
+      MAX(COALESCE(json_extract(r.value,'\$.rating'),json_extract(lm.value,'\$.candidate.rating'),json_extract(lt.value,'\$.candidate.rating'),0),COALESCE(p.user_rating * 2,0)) AS score,
       COALESCE(s.position_ms,json_extract(r.value,'\$.positionMs'),0) AS position_ms,
       COALESCE(s.duration_ms,json_extract(r.value,'\$.durationMs'),0) AS duration_ms,
       CASE WHEN t.key IS NULL THEN json_extract(r.value,'\$.playedPercentage') / 100.0 END AS reported_progress,
@@ -81,6 +82,8 @@ class HomeRepository {
         ELSE CAST(ROUND((julianday(json_extract(r.value,'\$.lastPlayedAt')) - 2440587.5) * 86400000) AS INTEGER) END AS last_played_at
     FROM media m
     LEFT JOIN remote_media_metadata r USING(source_id,local_id)
+    LEFT JOIN local_movie_metadata lm USING(source_id,local_id)
+    LEFT JOIN local_series_metadata lt USING(source_id,local_id)
     LEFT JOIN media_activity a USING(source_id,local_id)
     LEFT JOIN media_library_preferences p USING(source_id,local_id)
     LEFT JOIN playback_states s USING(source_id,local_id)
@@ -92,7 +95,7 @@ class HomeRepository {
   )''';
 
   List<Variable> _variables(MediaSource source) {
-    final selected = source.kind == MediaSourceKind.emby
+    final selected = source.kind.isEmbyCompatible
         ? jsonEncode(source.options.selectedEmbyLibraryIDs)
         : '[]';
     return [
@@ -134,42 +137,57 @@ class HomeRepository {
   }) async {
     cancellation.check();
     if (query.trim().isEmpty) return [];
-    final source = await sources.source(sourceId, includeCounts: false);
-    cancellation.check();
-    if (!accepts(source) || homeSearchScope(source) != scope) return [];
-    // total_changes observes this connection's writes, data_version observes
-    // other connections (including the player window). Do not rely only on
-    // UI notifications: detail caching and direct writes must expire the index.
-    final revision = await _searchRevision();
-    _searchIndexes.removeWhere((_, value) => value.revision != revision);
-    var index = _searchIndexes[sourceId];
-    if (index == null || index.scope != scope) {
-      final rows = await sources.database.customSelect('''$_scope
+    // Retry a changed database snapshot; a version mismatch is not an empty
+    // search result. Bound retries so continuous writes cannot starve the UI.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      cancellation.check();
+      final source = await sources.source(sourceId, includeCounts: false);
+      cancellation.check();
+      if (!accepts(source) || homeSearchScope(source) != scope) return [];
+      // total_changes observes this connection's writes, data_version observes
+      // other connections (including the player window). Do not rely only on
+      // UI notifications: detail caching and direct writes must expire the index.
+      final revision = await _searchRevision();
+      _searchIndexes.removeWhere((_, value) => value.revision != revision);
+      var index = _searchIndexes[sourceId];
+      if (index == null || index.scope != scope) {
+        final rows = await sources.database.customSelect('''$_scope
         SELECT scope.*, d.value AS details FROM scope
         LEFT JOIN remote_media_details d USING(source_id,local_id)
         ORDER BY local_id
       ''', variables: _variables(source)).get();
+        cancellation.check();
+        final data = rows.map((r) => r.data).toList();
+        final documents = data.length > 180
+            ? await runHomeSearchWorker(_indexWork(data, source), cancellation)
+            : _buildSearchIndex(data, source);
+        index = _CachedSearchIndex(
+          scope,
+          revision,
+          documents,
+          data.length > 180,
+        );
+      }
       cancellation.check();
-      final data = rows.map((r) => r.data).toList();
-      final documents = data.length > 180
-          ? await runHomeSearchWorker(_indexWork(data, source), cancellation)
-          : _buildSearchIndex(data, source);
-      index = _CachedSearchIndex(scope, revision, documents, data.length > 180);
+      final documents = index.documents;
+      // A single series can contain thousands of episode search fields. Preserve
+      // the original row-based worker threshold after projecting to root items.
+      final results = index.useWorker
+          ? await runHomeSearchWorker(
+              _filterWork(documents, query),
+              cancellation,
+            )
+          : _filterSearchIndex(documents, query);
+      cancellation.check();
+      final current = await sources.source(sourceId, includeCounts: false);
+      final latest = await _searchRevision();
+      cancellation.check();
+      if (!accepts(current) || homeSearchScope(current) != scope) return [];
+      if (latest != revision) continue;
+      _retainSearchIndex(sourceId, index);
+      return results;
     }
-    cancellation.check();
-    final documents = index.documents;
-    // A single series can contain thousands of episode search fields. Preserve
-    // the original row-based worker threshold after projecting to root items.
-    final results = index.useWorker
-        ? await runHomeSearchWorker(_filterWork(documents, query), cancellation)
-        : _filterSearchIndex(documents, query);
-    cancellation.check();
-    final current = await sources.source(sourceId, includeCounts: false);
-    final latest = await _searchRevision();
-    cancellation.check();
-    if (homeSearchScope(current) != scope || latest != revision) return [];
-    _retainSearchIndex(sourceId, index);
-    return results;
+    throw const SourceFailure('媒体索引正在更新，请稍后重试搜索。');
   }
 
   /// Original includesCachedVideo: a series is offline-ready if at least one
@@ -323,6 +341,7 @@ class HomeRepository {
           HomeVideo(
             source: source,
             favorite: row.read<int>('favorite') == 1,
+            metadataRating: row.readNullable<double>('metadata_rating'),
             entry: VideoLibraryEntry(
               item: item,
               reportedProgress: row.readNullable<double>('reported_progress'),
@@ -435,7 +454,7 @@ class HomeRepository {
   }
 
   Future<bool> needsSeed(MediaSource source) async =>
-      source.kind == MediaSourceKind.emby &&
+      source.kind.isEmbyCompatible &&
       source.lastScan == null &&
       (await sources.database.customSelect('''$_scope
         SELECT 1 FROM scope WHERE parent_id IS NULL LIMIT 1
@@ -463,6 +482,7 @@ HomeVideo _recommendationVideo(Map<String, dynamic> row, MediaSource source) {
   return HomeVideo(
     source: source,
     favorite: row['favorite'] == 1,
+    metadataRating: (row['metadata_rating'] as num?)?.toDouble(),
     entry: VideoLibraryEntry(
       item: item,
       reportedProgress: (row['reported_progress'] as num?)?.toDouble(),
@@ -523,7 +543,7 @@ List<_SearchDocument> _buildSearchIndex(
     item.remote?.artist,
     item.remote?.album,
     item.remote?.externalId,
-    if (source.kind == MediaSourceKind.emby) 'Emby',
+    if (source.kind.isEmbyCompatible) source.kind.label,
     ...?item.remote?.genres,
     item.remote?.videoCodec,
     item.remote?.audioCodec,

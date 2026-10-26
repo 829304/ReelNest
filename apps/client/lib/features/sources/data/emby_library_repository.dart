@@ -218,8 +218,8 @@ class EmbyLibraryRepository {
   Future<EmbyVideoSnapshot> snapshot(String sourceId) async {
     final data = await sources.database.transaction(() async {
       final source = await sources.source(sourceId);
-      if (source.kind != MediaSourceKind.emby) {
-        throw const SourceFailure('此来源不是 Emby。');
+      if (!source.kind.isEmbyCompatible) {
+        throw const SourceFailure('此来源不是远程媒体库。');
       }
       final rows = await sources.database
           .customSelect(
@@ -265,9 +265,11 @@ class EmbyLibraryRepository {
     if (ids.isEmpty) return [];
     final sourceId = ids.first.sourceId;
     if (ids.any((id) => id.sourceId != sourceId) ||
-        (await sources.source(sourceId, includeCounts: false)).kind !=
-            MediaSourceKind.emby) {
-      throw const SourceFailure('请选择同一 Emby 来源的内容。');
+        !(await sources.source(
+          sourceId,
+          includeCounts: false,
+        )).kind.isEmbyCompatible) {
+      throw const SourceFailure('请选择同一远程媒体库来源的内容。');
     }
     final items = await sources.indexedSelection(
       sourceId,
@@ -475,7 +477,7 @@ EmbyVideoSnapshot _buildSnapshot(_SnapshotData data) {
     item.overview,
     item.year?.toString(),
     item.remote?.externalId,
-    'Emby',
+    source.kind.label,
     item.remote?.genres.join(', '),
     item.remote?.videoCodec,
     item.remote?.audioCodec,

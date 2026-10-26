@@ -681,6 +681,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('单集'), buttons: 2);
       await tester.pumpAndSettle();
+      expect(find.text('外部打开'), findsOneWidget);
       expect(find.text('自动缓存系列'), findsOneWidget);
       await tester.tap(find.text('删除本系列播放记录'));
       await tester.pumpAndSettle();

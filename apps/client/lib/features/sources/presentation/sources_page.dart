@@ -18,6 +18,7 @@ import '../application/source_providers.dart';
 import 'add_source_dialog.dart';
 import 'emby_sheets.dart';
 import '../application/emby_providers.dart';
+import 'media_server_brand_mark.dart';
 import 'source_page_sections.dart';
 import 'source_settings_sheet.dart';
 import 'source_alias_dialog.dart';
@@ -74,12 +75,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
       builder: (_) => const SourceKindSheet(),
     );
     if (kind == null || !mounted) return;
-    if (kind == MediaSourceKind.emby) {
+    if (kind.isEmbyCompatible) {
       final added = await showDialog<MediaSource>(
         context: context,
         barrierDismissible: false,
-        builder: (_) =>
-            EmbyConnectionSheet(repository: ref.read(embyConnectionProvider)),
+        builder: (_) => EmbyConnectionSheet(
+          repository: ref.read(embyConnectionProvider),
+          kind: kind,
+        ),
       );
       if (mounted) {
         ref.invalidate(sourceReachabilityProvider);
@@ -141,7 +144,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   });
 
   Future<void> _settings(MediaSource source) async {
-    if (source.kind == MediaSourceKind.emby) {
+    if (source.kind.isEmbyCompatible) {
       final scopeChanged = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -185,7 +188,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (confirmed == true && mounted) {
       await _perform(
-        () => source.kind == MediaSourceKind.emby
+        () => source.kind.isEmbyCompatible
             ? ref.read(embyConnectionProvider).remove(source.id)
             : ref.read(sourceRepositoryProvider).remove(source.id),
       );
@@ -228,7 +231,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                       !(sources.asData?.value.any(
                             (s) =>
                                 (s.kind.isFileSource ||
-                                s.kind == MediaSourceKind.emby),
+                                s.kind.isEmbyCompatible),
                           ) ??
                           false)
                   ? null
@@ -336,8 +339,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
         : Color(dark ? 0xFFFFB84D : 0xFFD98A00);
     final accent = !connected
         ? statusColor
-        : source.kind == MediaSourceKind.emby
-        ? const Color(0xFF21CFA7)
+        : source.kind.isEmbyCompatible
+        ? mediaServerBrandColor(source.kind)
         : palette.selectedTint;
     final compactButtonStyle = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
@@ -403,7 +406,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                           _SourceBadge(
                             label: source.kind.label,
                             color: accent,
-                            icon: source.kind == MediaSourceKind.emby
+                            icon: source.kind.isEmbyCompatible
                                 ? SourceGlyph.dashboard
                                 : SourceGlyph.drive,
                           ),
@@ -423,8 +426,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                       const SizedBox(height: 5),
                       Text(
                         source.lastScan == null
-                            ? '${source.itemCount} 项 · ${source.kind == MediaSourceKind.emby ? '尚未完成同步' : '尚未完成扫描'}'
-                            : '${source.itemCount} 项 · 上次完整${source.kind == MediaSourceKind.emby ? '同步' : '扫描'} ${source.lastScan!.toLocal().toString().split('.').first}',
+                            ? '${source.itemCount} 项 · ${source.kind.isEmbyCompatible ? '尚未完成同步' : '尚未完成扫描'}'
+                            : '${source.itemCount} 项 · 上次完整${source.kind.isEmbyCompatible ? '同步' : '扫描'} ${source.lastScan!.toLocal().toString().split('.').first}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: secondaryTextStyle,
@@ -441,7 +444,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                 fraction: scan.progress.totalFiles > 0
                     ? scan.progress.fraction
                     : null,
-                label: source.kind == MediaSourceKind.emby
+                label: source.kind.isEmbyCompatible
                     ? scan.progress.phase == SourceScanPhase.persisting
                           ? '正在入库 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个媒体条目'
                           : '已读取 ${scan.progress.processedFiles} 个媒体条目'
@@ -480,7 +483,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                     ),
                     onPressed:
                         !source.kind.isFileSource &&
-                            source.kind != MediaSourceKind.emby
+                            !source.kind.isEmbyCompatible
                         ? null
                         : () => context.go('/sources/${source.id}'),
                     icon: const Icon(Icons.video_library_outlined, size: 15),
@@ -499,10 +502,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                     ),
                     onPressed:
                         _busy ||
-                            (source.kind == MediaSourceKind.emby &&
-                                scan.busy) ||
+                            (source.kind.isEmbyCompatible && scan.busy) ||
                             (!source.kind.isFileSource &&
-                                source.kind != MediaSourceKind.emby) ||
+                                !source.kind.isEmbyCompatible) ||
                             source.mediaType ==
                                 SourceMediaType.privateCollection
                         ? null
@@ -520,16 +522,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                               isScanning ||
                               !connected ||
                               (!source.kind.isFileSource &&
-                                  source.kind != MediaSourceKind.emby)
+                                  !source.kind.isEmbyCompatible)
                         ? null
                         : () => ref
                               .read(sourceScansProvider.notifier)
                               .scan(source.id),
                     child: Text(
                       scan.busy
-                          ? (source.kind == MediaSourceKind.emby
-                                ? '取消同步'
-                                : '取消扫描')
+                          ? (source.kind.isEmbyCompatible ? '取消同步' : '取消扫描')
                           : source.kind.isFileSource
                           ? '重新扫描'
                           : '同步媒体',
@@ -549,7 +549,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                         : () => _relocate(source),
                     child: const Text('重新定位'),
                   ),
-                  if (source.kind == MediaSourceKind.emby) ...[
+                  if (source.kind.isEmbyCompatible) ...[
                     const SizedBox(width: 8),
                     TextButton(
                       style: compactButtonStyle.copyWith(
@@ -704,14 +704,8 @@ class _SourceAvatar extends StatelessWidget {
               size: 25,
               color: Colors.white,
             )
-          : source.kind == MediaSourceKind.emby
-          ? Image.asset(
-              'assets/brands/emby.png',
-              width: 29,
-              height: 29,
-              fit: BoxFit.contain,
-              excludeFromSemantics: true,
-            )
+          : source.kind.isEmbyCompatible
+          ? MediaServerBrandMark(kind: source.kind, size: 29)
           : const SourceLineIcon(
               SourceGlyph.drive,
               size: 25,

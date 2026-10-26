@@ -708,6 +708,7 @@ Future<void> showPlayerPrecisionMenu(
   required PlayerPalette palette,
   required PlayerNotice onNotice,
   required VoidCallback onOpenPlaybackInfo,
+  Future<void> Function()? onOpenExternal,
 }) => showGeneralDialog<void>(
   context: context,
   barrierDismissible: true,
@@ -720,6 +721,7 @@ Future<void> showPlayerPrecisionMenu(
     palette: palette,
     onNotice: onNotice,
     onOpenPlaybackInfo: onOpenPlaybackInfo,
+    onOpenExternal: onOpenExternal,
   ),
 );
 
@@ -730,6 +732,7 @@ class _PlayerPrecisionMenu extends StatelessWidget {
     required this.palette,
     required this.onNotice,
     required this.onOpenPlaybackInfo,
+    this.onOpenExternal,
   });
 
   final Offset position;
@@ -737,6 +740,7 @@ class _PlayerPrecisionMenu extends StatelessWidget {
   final PlayerPalette palette;
   final PlayerNotice onNotice;
   final VoidCallback onOpenPlaybackInfo;
+  final Future<void> Function()? onOpenExternal;
 
   bool get _canControl =>
       !session.loading &&
@@ -777,7 +781,7 @@ class _PlayerPrecisionMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final screen = MediaQuery.sizeOf(context);
     const width = 286.0;
-    const estimatedHeight = 398.0;
+    final estimatedHeight = onOpenExternal == null ? 398.0 : 432.0;
     final maxHeight = math.max(120.0, screen.height - 24);
     final visibleHeight = math.min(estimatedHeight, maxHeight);
     final left = position.dx.clamp(12, screen.width - width - 12).toDouble();
@@ -849,6 +853,18 @@ class _PlayerPrecisionMenu extends StatelessWidget {
                                   onOpenPlaybackInfo();
                                 },
                               ),
+                              if (onOpenExternal != null)
+                                _item(
+                                  key: const ValueKey(
+                                    'open-with-system-player',
+                                  ),
+                                  icon: Icons.open_in_new_rounded,
+                                  title: '用系统播放器打开',
+                                  onTap: () async {
+                                    Navigator.of(context).pop();
+                                    await onOpenExternal!();
+                                  },
+                                ),
                               Divider(height: 11, color: palette.divider),
                               _section('循环'),
                               _item(

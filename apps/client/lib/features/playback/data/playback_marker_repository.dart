@@ -4,28 +4,49 @@ import '../../../domain/media_source.dart';
 import '../../../storage/library_database.dart';
 import '../domain/playback_marker.dart';
 import '../domain/intro_outro_candidates.dart';
+import '../domain/transient_playback_target.dart';
 
 class PlaybackMarkerRepository {
   PlaybackMarkerRepository(this.database);
   final LibraryDatabase database;
+  final _transient = <String, PlaybackMarker>{};
+  void clearTransient() => _transient.clear();
+  Future<T> _transaction<T>(MediaIdentity identity, Future<T> Function() run) =>
+      isTransientPlayback(identity) ? run() : database.transaction(run);
 
   Future<List<PlaybackMarker>> read(
     MediaIdentity identity, {
     bool includingRejected = false,
-  }) async =>
-      (await database
-              .customSelect(
-                'SELECT * FROM playback_markers WHERE source_id=? AND local_id=? '
-                "${includingRejected ? '' : "AND review_status!='rejected' "}"
-                'ORDER BY start_us,created_at,id',
-                variables: [
-                  Variable(identity.sourceId),
-                  Variable(identity.localId),
-                ],
-              )
-              .get())
-          .map(_map)
-          .toList();
+  }) async {
+    if (isTransientPlayback(identity)) {
+      return _transient.values
+          .where(
+            (m) =>
+                m.identity == identity &&
+                (includingRejected ||
+                    m.review != PlaybackMarkerReview.rejected),
+          )
+          .toList()
+        ..sort((a, b) {
+          var order = a.start.compareTo(b.start);
+          if (order == 0) order = a.createdAt.compareTo(b.createdAt);
+          return order == 0 ? a.id.compareTo(b.id) : order;
+        });
+    }
+    return (await database
+            .customSelect(
+              'SELECT * FROM playback_markers WHERE source_id=? AND local_id=? '
+              "${includingRejected ? '' : "AND review_status!='rejected' "}"
+              'ORDER BY start_us,created_at,id',
+              variables: [
+                Variable(identity.sourceId),
+                Variable(identity.localId),
+              ],
+            )
+            .get())
+        .map(_map)
+        .toList();
+  }
 
   /// Re-read and insert in the same transaction. A concurrent review cannot be
   /// overwritten with pending status; rejected IDs also remain in this input.
@@ -33,7 +54,7 @@ class PlaybackMarkerRepository {
     MediaIdentity identity, {
     required Duration duration,
     ScanCancellation? cancellation,
-  }) => database.transaction(() async {
+  }) => _transaction(identity, () async {
     cancellation?.check();
     final existing = await read(identity, includingRejected: true);
     cancellation?.check();
@@ -56,21 +77,54 @@ class PlaybackMarkerRepository {
     MediaIdentity identity,
     String id, {
     required bool accepted,
-  }) => database.customStatement(
-    "UPDATE playback_markers SET review_status=?,updated_at=? "
-    "WHERE source_id=? AND local_id=? AND id=? AND origin='automatic' "
-    "AND review_status='pending'",
-    [
-      accepted ? 'accepted' : 'rejected',
-      DateTime.now().toUtc().millisecondsSinceEpoch,
-      identity.sourceId,
-      identity.localId,
-      id,
-    ],
-  );
+  }) async {
+    if (isTransientPlayback(identity)) {
+      final previous = _transient[id];
+      if (previous == null ||
+          previous.identity != identity ||
+          !previous.isPendingReview) {
+        return;
+      }
+      await save(
+        PlaybackMarker(
+          id: previous.id,
+          identity: identity,
+          kind: previous.kind,
+          title: previous.title,
+          start: previous.start,
+          end: previous.end,
+          origin: previous.origin,
+          review: accepted
+              ? PlaybackMarkerReview.accepted
+              : PlaybackMarkerReview.rejected,
+          detectorIdentifier: previous.detectorIdentifier,
+          confidence: previous.confidence,
+          createdAt: previous.createdAt,
+        ),
+      );
+      return;
+    }
+    await database.customStatement(
+      "UPDATE playback_markers SET review_status=?,updated_at=? "
+      "WHERE source_id=? AND local_id=? AND id=? AND origin='automatic' "
+      "AND review_status='pending'",
+      [
+        accepted ? 'accepted' : 'rejected',
+        DateTime.now().toUtc().millisecondsSinceEpoch,
+        identity.sourceId,
+        identity.localId,
+        id,
+      ],
+    );
+  }
 
-  Future<void> save(PlaybackMarker marker) => database.customStatement(
-    '''
+  Future<void> save(PlaybackMarker marker) async {
+    if (isTransientPlayback(marker.identity)) {
+      _transient[marker.id] = marker;
+      return;
+    }
+    await database.customStatement(
+      '''
     INSERT INTO playback_markers(source_id,local_id,id,kind,title,start_us,end_us,
       origin,review_status,detector_identifier,confidence,created_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -80,28 +134,39 @@ class PlaybackMarkerRepository {
       detector_identifier=excluded.detector_identifier,confidence=excluded.confidence,
       updated_at=excluded.updated_at
   ''',
-    [
-      marker.identity.sourceId,
-      marker.identity.localId,
-      marker.id,
-      marker.kind.name,
-      marker.title,
-      marker.start.inMicroseconds,
-      marker.end?.inMicroseconds,
-      marker.origin.name,
-      marker.review.name,
-      marker.detectorIdentifier,
-      marker.confidence,
-      marker.createdAt.millisecondsSinceEpoch,
-      DateTime.now().toUtc().millisecondsSinceEpoch,
-    ],
-  );
+      [
+        marker.identity.sourceId,
+        marker.identity.localId,
+        marker.id,
+        marker.kind.name,
+        marker.title,
+        marker.start.inMicroseconds,
+        marker.end?.inMicroseconds,
+        marker.origin.name,
+        marker.review.name,
+        marker.detectorIdentifier,
+        marker.confidence,
+        marker.createdAt.millisecondsSinceEpoch,
+        DateTime.now().toUtc().millisecondsSinceEpoch,
+      ],
+    );
+  }
 
-  Future<void> deleteManual(MediaIdentity identity, String id) =>
-      database.customStatement(
-        "DELETE FROM playback_markers WHERE source_id=? AND local_id=? AND id=? AND origin='manual'",
-        [identity.sourceId, identity.localId, id],
+  Future<void> deleteManual(MediaIdentity identity, String id) async {
+    if (isTransientPlayback(identity)) {
+      _transient.removeWhere(
+        (key, m) =>
+            key == id &&
+            m.identity == identity &&
+            m.origin == PlaybackMarkerOrigin.manual,
       );
+      return;
+    }
+    await database.customStatement(
+      "DELETE FROM playback_markers WHERE source_id=? AND local_id=? AND id=? AND origin='manual'",
+      [identity.sourceId, identity.localId, id],
+    );
+  }
 
   /// PlayerView.setMarkerBoundary: edit one manual range without replacing
   /// embedded/automatic markers. Read and save together for concurrent windows.
@@ -110,7 +175,7 @@ class PlaybackMarkerRepository {
     PlaybackMarkerKind kind, {
     required bool isStart,
     required Duration at,
-  }) => database.transaction(() async {
+  }) => _transaction(identity, () async {
     if (kind != PlaybackMarkerKind.intro &&
         kind != PlaybackMarkerKind.credits) {
       throw ArgumentError('Not a range marker');
@@ -151,7 +216,7 @@ class PlaybackMarkerRepository {
   Future<void> replaceEmbedded(
     MediaIdentity identity,
     List<PlaybackMarker> chapters,
-  ) => database.transaction(() async {
+  ) => _transaction(identity, () async {
     if (chapters.any(
       (m) =>
           m.identity != identity ||
@@ -184,10 +249,19 @@ class PlaybackMarkerRepository {
         ).every((same) => same)) {
       return;
     }
-    await database.customStatement(
-      "DELETE FROM playback_markers WHERE source_id=? AND local_id=? AND kind='chapter' AND origin='embedded'",
-      [identity.sourceId, identity.localId],
-    );
+    if (isTransientPlayback(identity)) {
+      _transient.removeWhere(
+        (_, m) =>
+            m.identity == identity &&
+            m.kind == PlaybackMarkerKind.chapter &&
+            m.origin == PlaybackMarkerOrigin.embedded,
+      );
+    } else {
+      await database.customStatement(
+        "DELETE FROM playback_markers WHERE source_id=? AND local_id=? AND kind='chapter' AND origin='embedded'",
+        [identity.sourceId, identity.localId],
+      );
+    }
     for (final chapter in chapters) {
       await save(chapter);
     }

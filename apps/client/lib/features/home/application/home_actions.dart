@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../domain/media_source.dart';
 import '../../../ui/widgets/app_feedback.dart';
 
 import '../../playback/application/playback_providers.dart';
@@ -41,7 +40,7 @@ Future<void> homeVideoAction(
     if (!context.mounted) return;
     switch (action) {
       case 'play':
-        if (item.isSeries && video.source.kind == MediaSourceKind.emby) {
+        if (item.isSeries && video.source.kind.isEmbyCompatible) {
           await prepareEmbySeries(ref, [id]);
           if (!context.mounted) return;
         }
@@ -61,7 +60,7 @@ Future<void> homeVideoAction(
             .read(videoPreferencesRepositoryProvider)
             .setWatchlist(id, !video.entry.watchlist);
       case 'favorite':
-        if (video.source.kind == MediaSourceKind.emby) {
+        if (video.source.kind.isEmbyCompatible) {
           await ref
               .read(embyConnectionProvider)
               .setFavorite(id, !video.favorite);
@@ -71,7 +70,7 @@ Future<void> homeVideoAction(
               .setLocalFavorite(id, !video.favorite);
         }
       case 'clear':
-        if (video.source.kind == MediaSourceKind.emby) {
+        if (video.source.kind.isEmbyCompatible) {
           final failed = await ref
               .read(embyConnectionProvider)
               .markPlayed([id], false, clearHistory: true);

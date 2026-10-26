@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/domain/video_frame_preview.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/player/playback_diagnostics.dart';
 import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
@@ -103,6 +105,102 @@ void main() {
       expect(text, isNot(contains('sensitive')));
     },
   );
+
+  test(
+    'preview failures are deduplicated and never log private decoder details',
+    () async {
+      var succeeds = false;
+      final player = session = PlaybackSession(
+        sources: sources,
+        records: PlaybackRepository(sources.database),
+        diagnostics: diagnostics,
+        createEngine: _FailureEngine.new,
+        previewGenerator: (_, _, _) async {
+          if (succeeds) return Uint8List.fromList([1]);
+          throw StateError(
+            'https://private.invalid/video?api_key=secret-token',
+          );
+        },
+      );
+      await player.open(video);
+      for (final seconds in [10, 30]) {
+        expect(
+          await player.requestPreview(
+            time: Duration(seconds: seconds),
+            duration: const Duration(seconds: 100),
+            coarse: false,
+          ),
+          isNull,
+        );
+      }
+      succeeds = true;
+      for (final seconds in [50, 70]) {
+        expect(
+          await player.requestPreview(
+            time: Duration(seconds: seconds),
+            duration: const Duration(seconds: 100),
+            coarse: false,
+          ),
+          isNotNull,
+        );
+      }
+      expect(player.error, isNull);
+      expect(player.controlError, isNull);
+      await diagnostics.flush();
+      final text = await File(
+        p.join(sandbox.path, 'logs/playback-111-222.jsonl'),
+      ).readAsString();
+      expect('preview_unavailable'.allMatches(text).length, 1);
+      expect('preview_generated'.allMatches(text).length, 1);
+      expect('preview_started'.allMatches(text).length, 4);
+      expect('preview_finished'.allMatches(text).length, 4);
+      expect(text, contains('preview_exception'));
+      for (final secret in [
+        'private.invalid',
+        'secret-token',
+        'private-film',
+        sandbox.path,
+      ]) {
+        expect(text, isNot(contains(secret)));
+      }
+    },
+  );
+
+  test('cancelled preview attempts are observable and diagnostic volume is bounded', () async {
+    var calls = 0;
+    final player = session = PlaybackSession(
+      sources: sources,
+      records: PlaybackRepository(sources.database),
+      diagnostics: diagnostics,
+      createEngine: _FailureEngine.new,
+      previewGenerator: (_, _, cancellation) async {
+        calls++;
+        await cancellation.whenCancelled;
+        return null;
+      },
+    );
+    await player.open(video);
+    for (var i = 0; i < 12; i++) {
+      final cancellation = VideoPreviewCancellation();
+      final pending = player.requestPreview(
+        time: Duration(seconds: i * 20),
+        duration: const Duration(seconds: 500),
+        coarse: false,
+        cancellation: cancellation,
+      );
+      cancellation.cancel();
+      expect(await pending, isNull);
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(calls, 12);
+    await diagnostics.flush();
+    final text = await File(p.join(sandbox.path, 'logs/playback-111-222.jsonl'))
+        .readAsString();
+    expect('preview_started'.allMatches(text).length, 8);
+    expect('preview_cancelled'.allMatches(text).length, 8);
+    expect(text, isNot(contains('preview_unavailable')));
+    expect(player.error, isNull);
+  });
 
   test(
     'surface failure is diagnosed separately and releases committed engine',

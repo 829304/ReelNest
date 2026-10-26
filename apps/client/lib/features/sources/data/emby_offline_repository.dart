@@ -140,7 +140,7 @@ class EmbyOfflineRepository {
     String? qualityId,
   }) => _serial(() async {
     final source = await sources.source(item.identity.sourceId);
-    if (source.kind != MediaSourceKind.emby) {
+    if (!source.kind.isEmbyCompatible) {
       throw const SourceFailure('这个系列没有可缓存的远程剧集。');
     }
     final series = item.isSeries

@@ -104,12 +104,12 @@ class EmbyBrowseRepository {
       );
       cancellation.check();
       if (total != null && page.total != null && total != page.total) {
-        throw const SourceFailure('Emby 剧集在分页期间发生变化，请重试。');
+        throw const SourceFailure('远程媒体库剧集在分页期间发生变化，请重试。');
       }
       total ??= page.total;
       final ids = page.items.map((i) => i.id).toSet();
       if (page.items.isNotEmpty && ids.difference(seen).isEmpty) {
-        throw const SourceFailure('Emby 剧集分页没有返回新条目，请重试。');
+        throw const SourceFailure('远程媒体库剧集分页没有返回新条目，请重试。');
       }
       final items = <IndexedMedia>[];
       for (final dto in page.items) {
@@ -117,21 +117,21 @@ class EmbyBrowseRepository {
         if (item == null ||
             item.type != 'episode' ||
             item.parentId != identity.localId) {
-          throw const SourceFailure('Emby 返回了其他系列的剧集，请重试。');
+          throw const SourceFailure('远程媒体库 返回了其他系列的剧集，请重试。');
         }
         items.add(item);
       }
       final next = start + page.items.length;
       final done = page.items.isEmpty || (total != null && next >= total);
       if (done && total != null && {...seen, ...ids}.length < total) {
-        throw const SourceFailure('Emby 剧集分页不完整，请重试。');
+        throw const SourceFailure('远程媒体库剧集分页不完整，请重试。');
       }
       await sources.cacheRemoteItems(source, items, cancellation: cancellation);
       seen.addAll(ids);
       if (done) return;
       start = next;
     }
-    throw const SourceFailure('Emby 剧集分页次数超出上限，请重试。');
+    throw const SourceFailure('远程媒体库剧集分页次数超出上限，请重试。');
   }
 
   Future<EmbyBrowseCursor> open(
@@ -141,8 +141,8 @@ class EmbyBrowseRepository {
     required ScanCancellation cancellation,
   }) async {
     final source = await sources.source(sourceId, includeCounts: false);
-    if (source.kind != MediaSourceKind.emby) {
-      throw const SourceFailure('此来源不是 Emby。');
+    if (!source.kind.isEmbyCompatible) {
+      throw const SourceFailure('此来源不是远程媒体库。');
     }
     final views = await catalog(sourceId, cancellation);
     final selected = source.options.selectedEmbyLibraryIDs.toSet();
@@ -194,7 +194,7 @@ class EmbyBrowseCursor {
   Future<List<IndexedMedia>> next() async {
     while (hasMore) {
       cancellation.check();
-      if (_pages >= 10000) throw const SourceFailure('Emby 分页次数超出上限，请重试。');
+      if (_pages >= 10000) throw const SourceFailure('远程媒体库分页次数超出上限，请重试。');
       final library = libraries[_library];
       final page = await repository.connections.browsePage(
         source.id,
@@ -205,18 +205,18 @@ class EmbyBrowseCursor {
       );
       cancellation.check();
       if (_total != null && page.total != null && _total != page.total) {
-        throw const SourceFailure('Emby 媒体库在分页期间发生变化，请刷新后重试。');
+        throw const SourceFailure('远程媒体库在分页期间发生变化，请刷新后重试。');
       }
       final ids = page.items.map((i) => i.id).toSet();
       if (page.items.isNotEmpty && ids.difference(_pageSeen).isEmpty) {
-        throw const SourceFailure('Emby 分页没有返回新条目，请重试。');
+        throw const SourceFailure('远程媒体库分页没有返回新条目，请重试。');
       }
       final expected = page.total ?? _total;
       final nextOffset = _start + page.items.length;
       if (page.items.isEmpty &&
           expected != null &&
           _pageSeen.length < expected) {
-        throw const SourceFailure('Emby 分页提前结束，请重试。');
+        throw const SourceFailure('远程媒体库分页提前结束，请重试。');
       }
       final mapper = EmbyItemMapper(source.id, DateTime.now().toUtc());
       final mapped = <String, IndexedMedia>{};
@@ -238,7 +238,7 @@ class EmbyBrowseCursor {
       if (done &&
           expected != null &&
           {..._pageSeen, ...ids}.length < expected) {
-        throw const SourceFailure('Emby 分页条目重复或缺失，请刷新后重试。');
+        throw const SourceFailure('远程媒体库分页条目重复或缺失，请刷新后重试。');
       }
       final values = mapped.values.toList()
         ..sort(

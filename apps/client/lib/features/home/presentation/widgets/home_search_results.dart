@@ -97,7 +97,7 @@ class HomeSearchResults extends ConsumerWidget {
             padding: const EdgeInsets.only(top: 12),
             child: _SearchNotice(
               icon: Icons.info_outline_rounded,
-              message: 'Emby 显示已载入范围内的搜索结果；完整同步后将补齐。',
+              message: '远程媒体库显示已载入范围内的搜索结果；完整同步后将补齐。',
             ),
           ),
         ),

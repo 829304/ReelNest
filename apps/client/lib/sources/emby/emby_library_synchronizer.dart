@@ -54,7 +54,7 @@ class EmbyLibrarySynchronizer {
         if (declaredTotal != null &&
             result.total != null &&
             declaredTotal != result.total) {
-          throw const SourceFailure('Emby 库在分页期间发生变化，已保留原索引，请重新同步。');
+          throw const SourceFailure('远程媒体库在分页期间发生变化，已保留原索引，请重新同步。');
         }
         declaredTotal ??= result.total;
         var added = 0;
@@ -81,22 +81,22 @@ class EmbyLibrarySynchronizer {
         final next = start + result.items.length;
         if (result.items.isEmpty) {
           if (declaredTotal != null && seen.length < declaredTotal) {
-            throw const SourceFailure('Emby 分页提前结束，已保留原索引，请重试同步。');
+            throw const SourceFailure('远程媒体库分页提前结束，已保留原索引，请重试同步。');
           }
           break;
         }
         // A repeated/truncated result is never treated as a complete snapshot.
         if (added == 0) {
-          throw const SourceFailure('Emby 分页没有继续返回新条目，已保留原索引。');
+          throw const SourceFailure('远程媒体库分页没有继续返回新条目，已保留原索引。');
         }
         if (declaredTotal != null && next >= declaredTotal) {
           if (seen.length < declaredTotal) {
-            throw const SourceFailure('Emby 分页条目重复或缺失，已保留原索引。');
+            throw const SourceFailure('远程媒体库分页条目重复或缺失，已保留原索引。');
           }
           break;
         }
         if (index >= maxPages) {
-          throw const SourceFailure('Emby 分页次数超出上限，已保留原索引。');
+          throw const SourceFailure('远程媒体库分页次数超出上限，已保留原索引。');
         }
         start = next;
       }
@@ -113,7 +113,7 @@ class EmbyLibrarySynchronizer {
       if (item.parentId != null &&
           (!items.containsKey(item.parentId) ||
               !items[item.parentId]!.isSeries)) {
-        throw const SourceFailure('Emby 剧集缺少可用的系列信息，已保留原索引。');
+        throw const SourceFailure('远程媒体库剧集缺少可用的系列信息，已保留原索引。');
       }
     }
     cancellation.check();

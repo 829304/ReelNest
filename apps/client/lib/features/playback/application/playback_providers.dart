@@ -8,6 +8,11 @@ import '../../../domain/media_source.dart';
 import '../../sources/application/source_providers.dart';
 import '../data/playback_repository.dart';
 import '../domain/playback_record.dart';
+import '../domain/transient_playback_target.dart';
+import '../domain/external_player_settings.dart';
+import '../data/external_player_settings_repository.dart';
+import 'external_playback_service.dart';
+import 'external_playback_providers.dart';
 
 final playbackRepositoryProvider = Provider<PlaybackRepository>(
   (ref) => PlaybackRepository(ref.watch(sourceRepositoryProvider).database),
@@ -22,9 +27,45 @@ abstract interface class PlaybackLauncher {
   Future<void> open(MediaIdentity identity);
 }
 
+abstract interface class PlaybackTargetLauncher implements PlaybackLauncher {
+  Future<void> openTransient(TransientPlaybackTarget target);
+}
+
 final playbackLauncherProvider = Provider<PlaybackLauncher>(
-  (_) => DesktopPlaybackLauncher(),
+  (ref) => PreferredPlaybackLauncher(
+    builtIn: DesktopPlaybackLauncher(),
+    settings: ref.watch(externalPlayerSettingsRepositoryProvider),
+    external: ref.watch(externalPlaybackServiceProvider),
+  ),
 );
+
+class PreferredPlaybackLauncher implements PlaybackTargetLauncher {
+  PreferredPlaybackLauncher({
+    required this.builtIn,
+    required this.settings,
+    required this.external,
+  });
+  final PlaybackTargetLauncher builtIn;
+  final ExternalPlayerSettingsRepository settings;
+  final ExternalPlaybackLauncher external;
+  @override
+  Future<void> open(MediaIdentity identity) async {
+    if ((await settings.load()).mode == ExternalPlayerMode.external) {
+      await external.openLibrary(identity);
+    } else {
+      await builtIn.open(identity);
+    }
+  }
+
+  @override
+  Future<void> openTransient(TransientPlaybackTarget target) async {
+    if ((await settings.load()).mode == ExternalPlayerMode.external) {
+      await external.openTransient(target);
+    } else {
+      await builtIn.openTransient(target);
+    }
+  }
+}
 
 /// A batch in the main engine can change markers while a player is already
 /// open. Send only source identities; its session re-reads its own current item.
@@ -48,7 +89,7 @@ Future<void> notifyPlayerMarkerChanges(Set<String> sourceIds) async {
 
 /// Main and player windows have separate engines. Keep one video window and
 /// send only media identity; paths and access checks are resolved afresh there.
-class DesktopPlaybackLauncher implements PlaybackLauncher {
+class DesktopPlaybackLauncher implements PlaybackTargetLauncher {
   Future<void> _operations = Future.value();
   @override
   Future<void> open(MediaIdentity identity) {
@@ -57,13 +98,26 @@ class DesktopPlaybackLauncher implements PlaybackLauncher {
     return next;
   }
 
-  Future<void> _open(MediaIdentity identity) async {
+  @override
+  Future<void> openTransient(TransientPlaybackTarget target) {
+    final next = _operations.then(
+      (_) => _open(target.identity, transient: target),
+    );
+    _operations = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> _open(
+    MediaIdentity identity, {
+    TransientPlaybackTarget? transient,
+  }) async {
     final current = await WindowController.fromCurrentEngine();
     final payload = {
       'type': 'player',
       'sourceId': identity.sourceId,
       'localId': identity.localId,
       'mainWindowId': current.windowId,
+      if (transient != null) 'transient': transient.toJson(),
     };
     for (final window in await WindowController.getAll()) {
       if (window.arguments.isEmpty) continue;

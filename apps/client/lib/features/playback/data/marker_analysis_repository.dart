@@ -59,7 +59,7 @@ class MarkerAnalysisRepository {
   }) => sources.database.transaction(() async {
     final source = await sources.source(root.sourceId, includeCounts: false);
     final item = await sources.media(root);
-    if ((!source.kind.isFileSource && source.kind != MediaSourceKind.emby) ||
+    if ((!source.kind.isFileSource && !source.kind.isEmbyCompatible) ||
         {
           SourceMediaType.music,
           SourceMediaType.photo,
@@ -73,7 +73,7 @@ class MarkerAnalysisRepository {
         )
         .getSingleOrNull();
     final selected = source.options.selectedEmbyLibraryIDs;
-    final scoped = source.kind == MediaSourceKind.emby && selected.isNotEmpty;
+    final scoped = source.kind.isEmbyCompatible && selected.isNotEmpty;
     final rows = await sources.database
         .customSelect(
           '$_projection WHERE m.source_id=? AND m.${children == null ? 'local_id' : 'parent_id'}=? '

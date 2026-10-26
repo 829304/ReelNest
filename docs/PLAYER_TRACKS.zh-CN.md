@@ -114,6 +114,6 @@ Windows/Linux 使用平台候选族名实现对原版字体选项的本机适配
 
 原生场景还覆盖自动目录、手动文件、双字幕、快慢、增强、系统默认输出，以及不存在/无效字幕拒绝后继续播放。样本为静音 PCM：可证明真实解码和切换，不能证明不同编码、听感、设备插拔或音画同步均已验收。
 
-在线字幕搜索/下载、其余完整播放设置与快捷键映射、标记、迷你窗口、截图等原功能继续待迁移。视频播放器均衡器/预设已实现并通过 Windows 自动化验证，非音乐播放器功能；真实设备听感、真实 Emby、macOS/Linux 原生及原版 UI 视觉验收仍待，详见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。字幕样式/同步子集正在当前批次补齐，不能据此宣称完整播放设置完成。队列/相邻单集/播完行为已接入，最新状态以 [播放器实现盘点](PLAYER_STATUS.zh-CN.md) 为准。当前只实现字幕面板本地部分，没有在线占位按钮。SF Symbols 跨平台轮廓、系统字体/材质、弹层箭头与原版像素对照仍待验收，不能称 UI 一比一完成。队列、相邻项和播完行为已在后续批次接通，见 [队列说明](PLAYER_QUEUE.zh-CN.md)；本地闭环之后仍优先 Emby。
+在线字幕搜索/下载现已实现并冻结：全量 **924 passed / 1 optional benchmark skipped**，包含 data 26/session 7/UI 6 共 39 项；Windows Profile GPU/SW 本机 fixture 两例通过实际 mpv，但不等同公共服务 live。Windows Release/smoke 已通过；macOS/Linux 原生、真实 Emby 在线/离线字幕及原版 UI 视觉验收仍待。离页保存最终行为及证据见[在线字幕计划](ONLINE_SUBTITLES_PLAN.zh-CN.md)：dispose 失败不承诺 toast/阻止导航，下次进入显示实际持久化值；初次读取失败不把空默认值写回，saved/saving 交错不会漏存。不得把原版远程影片下载 guard 导致的无响应当成预期行为。视频播放器均衡器/预设已实现并通过 Windows 自动化验证，非音乐播放器功能；真实设备听感、Emby 场景、macOS/Linux 原生及原版 UI 视觉验收仍待，详见[视频均衡器计划](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)。字幕样式/同步子集已实现，但不等于完整播放设置。自定义快捷键已获批并排在线字幕之后，范围见[快捷键计划](PLAYER_SHORTCUTS_PLAN.zh-CN.md)；鼠标/触控板另列后续。队列/相邻单集/播完行为已接入，最新状态以[播放器实现盘点](PLAYER_STATUS.zh-CN.md)为准。SF Symbols 跨平台轮廓、系统字体/材质、弹层箭头与原版像素对照仍待验收，不能称 UI 一比一完成。队列、相邻项和播完行为见[队列说明](PLAYER_QUEUE.zh-CN.md)；功能优先级以[统一实现盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)为准。
 
 构建、启动与已知日志限制见 [当日测试报告](TEST_REPORT_2026-10-09.zh-CN.md)。

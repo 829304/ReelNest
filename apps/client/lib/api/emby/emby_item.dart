@@ -8,13 +8,13 @@ class EmbyItemPage {
     final raw = json['Items'];
     final total = json['TotalRecordCount'];
     if (raw is! List || (total != null && (total is! int || total < 0))) {
-      throw const SourceFailure('Emby 媒体分页响应无效，已保留原索引。');
+      throw const SourceFailure('远程媒体库 媒体分页响应无效，已保留原索引。');
     }
     return EmbyItemPage(
       List.unmodifiable(
         raw.map((v) {
           if (v is! Map<String, dynamic>) {
-            throw const SourceFailure('Emby 媒体条目无效。');
+            throw const SourceFailure('远程媒体库 媒体条目无效。');
           }
           return EmbyItem.fromJson(v);
         }),
@@ -31,13 +31,13 @@ class EmbyItem {
     for (final key in ['Id', 'Name', 'Type']) {
       if (json[key] is! String ||
           (key != 'Name' && (json[key] as String).trim().isEmpty)) {
-        throw const SourceFailure('Emby 媒体条目缺少有效的标识或类型。');
+        throw const SourceFailure('远程媒体库 媒体条目缺少有效的标识或类型。');
       }
     }
     // Validate optional structures before any index replacement can commit.
     for (final key in ['UserData', 'ImageTags']) {
       if (json[key] != null && json[key] is! Map<String, dynamic>) {
-        throw const SourceFailure('Emby 媒体元数据无效。');
+        throw const SourceFailure('远程媒体库 媒体元数据无效。');
       }
     }
     for (final key in [
@@ -47,7 +47,7 @@ class EmbyItem {
       'BackdropImageTags',
     ]) {
       if (json[key] != null && json[key] is! List) {
-        throw const SourceFailure('Emby 媒体元数据无效。');
+        throw const SourceFailure('远程媒体库 媒体元数据无效。');
       }
     }
     return EmbyItem._(Map.unmodifiable(json));

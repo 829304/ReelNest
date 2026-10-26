@@ -146,7 +146,7 @@ class EmbyDetail {
     String expectedId, {
     String? mediaSourceId,
   }) {
-    if (dto['Id'] != expectedId) throw const SourceFailure('Emby 详情条目标识不匹配。');
+    if (dto['Id'] != expectedId) throw const SourceFailure('远程媒体库详情条目标识不匹配。');
     for (final field in [
       'People',
       'BackdropImageTags',
@@ -157,12 +157,12 @@ class EmbyDetail {
       'MediaSources',
     ]) {
       if (dto[field] != null && dto[field] is! List) {
-        throw const SourceFailure('Emby 详情响应无效。');
+        throw const SourceFailure('远程媒体库详情响应无效。');
       }
     }
     for (final field in ['ImageTags', 'ProviderIds']) {
       if (dto[field] != null && dto[field] is! Map) {
-        throw const SourceFailure('Emby 详情响应无效。');
+        throw const SourceFailure('远程媒体库详情响应无效。');
       }
     }
     final people = <EmbyPerson>[];

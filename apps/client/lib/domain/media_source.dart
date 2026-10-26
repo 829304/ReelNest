@@ -13,6 +13,9 @@ enum MediaSourceKind {
 
   const MediaSourceKind(this.label);
   final String label;
+
+  /// Shared MediaBrowser protocol; provider identity and branding stay distinct.
+  bool get isEmbyCompatible => this == emby || this == jellyfin;
   bool get isFileSource => switch (this) {
     localFolder || removableDrive || mountedNas => true,
     _ => false,

@@ -19,15 +19,17 @@ class HomeVideo {
     required this.source,
     required this.entry,
     this.favorite = false,
+    this.metadataRating,
   });
   final MediaSource source;
   final VideoLibraryEntry entry;
   final bool favorite;
+  final double? metadataRating;
   IndexedMedia get item => entry.item;
   DateTime get recency =>
       entry.record.lastPlayedAt ?? item.updatedAt ?? entry.createdAt;
   double get score {
-    final provider = item.remote?.rating ?? 0;
+    final provider = metadataRating ?? item.remote?.rating ?? 0;
     final user = (entry.userRating ?? 0) * 2;
     return provider > user ? provider : user;
   }

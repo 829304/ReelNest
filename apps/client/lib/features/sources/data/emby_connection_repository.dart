@@ -108,11 +108,17 @@ class EmbyConnectionRepository {
       if (raw == null) {
         throw const EmbyFailure(EmbyError.authentication, '未找到此来源的登录凭据，请重新认证。');
       }
-      return _Credential.decode(raw);
+      final credential = _Credential.decode(raw);
+      final source = await sources.source(id, includeCounts: false);
+      if (!source.kind.isEmbyCompatible ||
+          source.kind != credential.session.kind) {
+        throw const SourceFailure('登录凭据与媒体源类型不一致，请重新认证。');
+      }
+      return credential;
     } on SourceFailure {
       rethrow;
     } catch (_) {
-      throw const SourceFailure('无法读取 Emby 登录凭据，请重新认证或检查安全存储。');
+      throw const SourceFailure('无法读取远程媒体库登录凭据，请重新认证或检查安全存储。');
     }
   }
 
@@ -120,25 +126,27 @@ class EmbyConnectionRepository {
     try {
       await stores(id).write(value.encode());
     } catch (_) {
-      throw const SourceFailure('Emby 登录凭据保存失败，请检查系统安全存储。');
+      throw const SourceFailure('远程媒体库登录凭据保存失败，请检查系统安全存储。');
     }
   }
 
-  String _configKey(String id) => 'connector.emby.$id';
+  Future<String> _configKey(String id) async =>
+      'connector.${(await sources.source(id, includeCounts: false)).kind.name}.$id';
   Future<EmbySession> _configuration(String id) async {
     final row = await sources.database
         .customSelect(
           'SELECT value FROM player_preferences WHERE key = ?',
-          variables: [Variable(_configKey(id))],
+          variables: [Variable(await _configKey(id))],
         )
         .getSingleOrNull();
-    if (row == null) throw const SourceFailure('Emby 连接配置缺失，请重新添加媒体源。');
+    if (row == null) throw const SourceFailure('远程媒体库连接配置缺失，请重新添加媒体源。');
     final data = jsonDecode(row.read<String>('value')) as Map<String, dynamic>;
     return EmbySession(
       server: embyServerUri(data['server'] as String),
       username: data['username'] as String,
       userId: data['userId'] as String,
       token: '',
+      kind: (await sources.source(id, includeCounts: false)).kind,
     );
   }
 
@@ -147,9 +155,16 @@ class EmbyConnectionRepository {
     String username,
     String password, {
     SourceOptions? options,
+    MediaSourceKind kind = MediaSourceKind.emby,
   }) => _serial('connect', () async {
+    if (!kind.isEmbyCompatible) throw const SourceFailure('此媒体服务器类型尚未接入。');
     final api = await client;
-    final session = await api.authenticate(server, username, password);
+    final session = await api.authenticate(
+      server,
+      username,
+      password,
+      kind: kind,
+    );
     final views = await api.libraries(session);
     _check();
     final id = newEmbyIdentity();
@@ -159,10 +174,10 @@ class EmbyConnectionRepository {
       return await sources.database.transaction(() async {
         final source = await sources.add(
           sourceId: id,
-          kind: MediaSourceKind.emby,
-          name: 'Emby 媒体库',
+          kind: kind,
+          name: '${kind.label} 媒体库',
           location: Uri(
-            scheme: 'emby',
+            scheme: kind.name,
             host: session.server.host,
             path: '/$id',
           ).toString(),
@@ -180,7 +195,7 @@ class EmbyConnectionRepository {
           ..remove('token');
         await sources.database.customStatement(
           'INSERT INTO player_preferences(key, value) VALUES(?, ?)',
-          [_configKey(id), jsonEncode(config)],
+          [await _configKey(id), jsonEncode(config)],
         );
         await EmbyLibraryRepository(sources).replaceViews(source.id, views);
         return source;
@@ -201,8 +216,9 @@ class EmbyConnectionRepository {
     ScanCancellation? cancellation,
   }) async {
     cancellation?.check();
-    final credential = await _load(id);
-    final api = await client;
+    final credential = await _cancellable(cancellation, () => _load(id));
+    final api = await _cancellable(cancellation, () => client);
+    cancellation?.check();
     try {
       final result = await action(api, credential.session);
       _check();
@@ -214,6 +230,7 @@ class EmbyConnectionRepository {
         credential.session.server.toString(),
         credential.session.username,
         credential.password,
+        kind: credential.session.kind,
         cancellation: cancellation,
       );
       if (refreshed.userId != credential.session.userId) {
@@ -234,6 +251,23 @@ class EmbyConnectionRepository {
 
   /// Foreground browsing must not queue behind a full-library HTTP request.
   /// Only credential refresh is serialized; ordinary reads do not mutate auth.
+  Future<T> _cancellable<T>(
+    ScanCancellation? cancellation,
+    Future<T> Function() work,
+  ) async {
+    if (cancellation == null) return work();
+    cancellation.check();
+    final cancelled = Completer<T>();
+    final unlisten = cancellation.listen(
+      () => cancelled.completeError(const ScanCancelled()),
+    );
+    try {
+      return await Future.any([Future.sync(work), cancelled.future]);
+    } finally {
+      unlisten();
+    }
+  }
+
   Future<T> _foreground<T>(
     String id,
     Future<T> Function(EmbyClient, EmbySession) action, {
@@ -241,9 +275,10 @@ class EmbyConnectionRepository {
   }) async {
     _check();
     cancellation?.check();
-    await _requireSource(id);
-    final credential = await _load(id);
-    final api = await client;
+    await _cancellable(cancellation, () => _requireSource(id));
+    final credential = await _cancellable(cancellation, () => _load(id));
+    final api = await _cancellable(cancellation, () => client);
+    cancellation?.check();
     try {
       final result = await action(api, credential.session);
       cancellation?.check();
@@ -252,11 +287,14 @@ class EmbyConnectionRepository {
       return result;
     } on EmbyFailure catch (error) {
       if (error.kind != EmbyError.authentication) rethrow;
-      return _serial(id, () async {
-        cancellation?.check();
-        await _requireSource(id);
-        return _authenticated(id, action, cancellation: cancellation);
-      });
+      return _cancellable(
+        cancellation,
+        () => _serial(id, () async {
+          cancellation?.check();
+          await _requireSource(id);
+          return _authenticated(id, action, cancellation: cancellation);
+        }),
+      );
     }
   }
 
@@ -610,7 +648,7 @@ class EmbyConnectionRepository {
     await _serial<void>(item.identity.sourceId, () async {
       cancellation.check(); // An expired queued operation must never run later.
       final source = await sources.source(item.identity.sourceId);
-      if (source.kind != MediaSourceKind.emby ||
+      if (!source.kind.isEmbyCompatible ||
           source.options.remoteTraceSyncMode !=
               RemoteTraceSyncMode.bidirectional) {
         return;
@@ -637,20 +675,22 @@ class EmbyConnectionRepository {
       playbackReportTimeout,
       onTimeout: () {
         cancellation.cancel();
-        throw const EmbyFailure(EmbyError.network, 'Emby 播放状态同步超时。');
+        throw const EmbyFailure(EmbyError.network, '远程媒体库播放状态同步超时。');
       },
     );
   }
 
   Future<void> _requireSource(String id) async {
-    if ((await sources.source(id, includeCounts: false)).kind !=
-        MediaSourceKind.emby) {
-      throw const SourceFailure('该来源不是 Emby。');
+    if (!(await sources.source(
+      id,
+      includeCounts: false,
+    )).kind.isEmbyCompatible) {
+      throw const SourceFailure('该来源不是受支持的媒体服务器。');
     }
   }
 
   Future<bool> isReachable(MediaSource source) async {
-    if (source.kind != MediaSourceKind.emby) return false;
+    if (!source.kind.isEmbyCompatible) return false;
     try {
       await session(source.id);
       return true;
@@ -696,6 +736,7 @@ class EmbyConnectionRepository {
           old.server.toString(),
           username,
           password,
+          kind: old.kind,
         );
         if (refreshed.userId != old.userId) {
           throw const EmbyFailure(
@@ -709,6 +750,7 @@ class EmbyConnectionRepository {
       });
   Future<void> remove(String id) => _idle(id, () async {
     await _requireSource(id);
+    final configKey = await _configKey(id);
     final old = await stores(id).read();
     try {
       await stores(id).clear();
@@ -720,7 +762,7 @@ class EmbyConnectionRepository {
         await sources.remove(id);
         await sources.database.customStatement(
           'DELETE FROM player_preferences WHERE key = ?',
-          [_configKey(id)],
+          [configKey],
         );
       });
     } catch (_) {

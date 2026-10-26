@@ -30,7 +30,8 @@ class PlayerPlaybackInfoOverlay extends StatefulWidget {
 }
 
 class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
-  late Future<MediaSource> _source;
+  late Future<MediaSource?> _source;
+  MediaIdentity? _sourceIdentity;
   late final VideoStatsSampler _statsSampler;
   VideoEngine? _statsEngine;
   Object? _statsResourceKey;
@@ -38,7 +39,7 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
   @override
   void initState() {
     super.initState();
-    _source = _loadSource();
+    _syncSource();
     _statsSampler = VideoStatsSampler();
     widget.session.addListener(_handleSessionChange);
     _syncStatsBinding();
@@ -50,7 +51,8 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
     if (oldWidget.session == widget.session) return;
     oldWidget.session.removeListener(_handleSessionChange);
     widget.session.addListener(_handleSessionChange);
-    _source = _loadSource();
+    _sourceIdentity = null;
+    _syncSource();
     _syncStatsBinding();
   }
 
@@ -61,12 +63,26 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
     super.dispose();
   }
 
-  Future<MediaSource> _loadSource() => widget.session.sources.source(
-    widget.session.item!.identity.sourceId,
-    includeCounts: false,
-  );
+  Future<MediaSource?> _loadSource() {
+    final item = widget.session.item;
+    if (item == null || widget.session.transient) return Future.value();
+    return widget.session.sources.source(
+      item.identity.sourceId,
+      includeCounts: false,
+    );
+  }
 
-  void _handleSessionChange() => _syncStatsBinding();
+  void _handleSessionChange() {
+    _syncSource();
+    _syncStatsBinding();
+  }
+
+  void _syncSource() {
+    final identity = widget.session.item?.identity;
+    if (_sourceIdentity == identity && _sourceIdentity != null) return;
+    _sourceIdentity = identity;
+    _source = _loadSource();
+  }
 
   void _syncStatsBinding() {
     final session = widget.session;
@@ -276,18 +292,27 @@ class _PlayerPlaybackInfoOverlayState extends State<PlayerPlaybackInfoOverlay> {
     );
   }
 
-  Widget _sourceRow() => FutureBuilder<MediaSource>(
-    future: _source,
-    builder: (context, snapshot) {
-      final source = snapshot.data;
-      final value = snapshot.hasError
-          ? '未知来源'
-          : source == null
-          ? '正在读取…'
-          : '${source.name} · ${source.kind.label}';
-      return _row('来源', Icons.source_outlined, value);
-    },
-  );
+  Widget _sourceRow() {
+    if (widget.session.transient) {
+      return _row(
+        '来源',
+        Icons.source_outlined,
+        widget.session.filePath == null ? '网络串流' : '临时文件',
+      );
+    }
+    return FutureBuilder<MediaSource?>(
+      future: _source,
+      builder: (context, snapshot) {
+        final source = snapshot.data;
+        final value = snapshot.hasError
+            ? '未知来源'
+            : source == null
+            ? '正在读取…'
+            : '${source.name} · ${source.kind.label}';
+        return _row('来源', Icons.source_outlined, value);
+      },
+    );
+  }
 
   Widget _row(String title, IconData icon, String value) => Row(
     spacing: 10,

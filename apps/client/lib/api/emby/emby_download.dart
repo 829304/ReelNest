@@ -65,8 +65,13 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
         // Preserve the current credential only for this authenticated origin.
         uri = next.replace(
           queryParameters: {
-            ...next.queryParameters,
-            'api_key': resource.queryParameters['api_key']!,
+            for (final entry in next.queryParameters.entries)
+              if (!{'api_key', 'apikey'}.contains(entry.key.toLowerCase()))
+                entry.key: entry.value,
+            if (resource.queryParameters['ApiKey'] case final String token)
+              'ApiKey': token,
+            if (resource.queryParameters['api_key'] case final String token)
+              'api_key': token,
           },
         );
         continue;

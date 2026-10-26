@@ -14,6 +14,9 @@ import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
+import 'package:reelnest/features/playback/data/online_subtitle_service.dart';
+import 'package:reelnest/features/playback/domain/online_subtitle.dart';
 import 'package:reelnest/features/playback/data/video_screenshot_store.dart';
 import 'package:reelnest/features/playback/domain/playback_record.dart';
 import 'package:reelnest/features/playback/domain/video_screenshot.dart';
@@ -21,8 +24,19 @@ import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/player/video_screenshot_engine.dart';
+import 'package:reelnest/player/video_engine.dart';
 
 import 'support/fake_video_engine.dart';
+import 'support/fake_online_subtitle_settings.dart';
+
+class _EmptySubtitleService extends OnlineSubtitleService {
+  @override
+  Future<OnlineSubtitleSearch> search(
+    OnlineSubtitleQuery query,
+    OnlineSubtitleSettings settings,
+    ScanCancellation cancellation,
+  ) async => const OnlineSubtitleSearch([], []);
+}
 
 void main() {
   late Directory sandbox;
@@ -58,6 +72,10 @@ void main() {
     session = PlaybackSession(
       sources: sources,
       records: records,
+      onlineSubtitleSettings: FakeOnlineSubtitleSettingsRepository(
+        PlayerPreferencesRepository(sources.database),
+      ),
+      onlineSubtitleService: _EmptySubtitleService(),
       createEngine: () {
         final engine = _ScreenshotFakeVideoEngine();
         engines.add(engine);
@@ -363,6 +381,71 @@ void main() {
       expect(session.error, contains('操作失败'));
     },
   );
+
+  testWidgets('unknown duration keeps transport enabled but seek disabled', (
+    tester,
+  ) async {
+    Future<void> waitUntil(bool Function() done) async {
+      for (var i = 0; i < 150; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        if (done()) return;
+      }
+      fail('Unknown-duration player UI did not settle');
+    }
+
+    Future<void> finish(Future<void> future) async {
+      var done = false;
+      future.then((_) => done = true);
+      await waitUntil(() => done);
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoPlayerPage(
+          identity: film,
+          session: session,
+          closeWindow: () async {},
+          setFullscreen: (_) async {},
+        ),
+      ),
+    );
+    await waitUntil(() => !session.loading && session.engine != null);
+    final engine = engines.single;
+    engine.value = VideoClock(
+      position: const Duration(seconds: 8),
+      playing: false,
+      volume: engine.value.volume,
+      rate: engine.value.rate,
+    );
+    engine.events.add(engine.value);
+    await tester.pump();
+
+    final playButton = find.descendant(
+      of: find.byTooltip('播放/暂停'),
+      matching: find.byType(IconButton),
+    );
+    expect(tester.widget<IconButton>(playButton).onPressed, isNotNull);
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const ValueKey('video-timeline')))
+          .onChanged,
+      isNull,
+    );
+    await tester.tap(playButton);
+    await waitUntil(() => session.clock.playing);
+    expect(session.clock.playing, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    await finish(session.close(discardProgress: true));
+    await tester.pump();
+    await tester.runAsync(() async {
+      session.dispose();
+      await sources.close();
+    });
+    resourcesClosed = true;
+  });
 
   testWidgets(
     'player controls and keyboard operate the session and close saves progress',
@@ -673,14 +756,16 @@ void main() {
         expect(find.byTooltip('关闭播放器'), findsOneWidget);
       }
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await tester.pump();
+      await waitUntil(
+        () => session.clock.position == const Duration(seconds: 5),
+      );
       expect(session.clock.position, const Duration(seconds: 5));
       await tester.tap(find.byTooltip('播放/暂停'));
       await finish(session.save());
       await tester.pump();
       expect(session.clock.playing, isFalse);
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
-      await tester.pump();
+      await waitUntil(() => session.clock.playing);
       expect(session.clock.playing, isTrue);
       final slider = find.byKey(const ValueKey('video-timeline'));
       await tester.tapAt(tester.getCenter(slider));

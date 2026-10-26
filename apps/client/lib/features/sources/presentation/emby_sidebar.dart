@@ -12,6 +12,7 @@ import '../application/emby_library_providers.dart';
 import '../application/source_providers.dart';
 import '../application/emby_providers.dart';
 import '../domain/emby_library.dart';
+import 'media_server_brand_mark.dart';
 import 'source_alias_dialog.dart';
 
 class EmbySidebar extends ConsumerStatefulWidget {
@@ -94,9 +95,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
       ),
       data: (values) => Column(
         children: [
-          for (final source in values.where(
-            (s) => s.kind == MediaSourceKind.emby,
-          ))
+          for (final source in values.where((s) => s.kind.isEmbyCompatible))
             _group(source),
         ],
       ),
@@ -169,11 +168,9 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
               active: sourceSelected,
               icon: Padding(
                 padding: const EdgeInsets.all(3),
-                child: Image.asset(
-                  'assets/brands/emby.png',
-                  key: ValueKey('emby-source-logo-${source.id}'),
-                  fit: BoxFit.contain,
-                  excludeFromSemantics: true,
+                child: MediaServerBrandMark(
+                  key: ValueKey('${source.kind.name}-source-logo-${source.id}'),
+                  kind: source.kind,
                 ),
               ),
             ),

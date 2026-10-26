@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
+import '../../../domain/media_source.dart';
+
 /// Original ArtworkDecodeCoordinator: FIFO permits, three native decodes.
 class ArtworkDecodeQueue {
   ArtworkDecodeQueue({this.maximum = 3}) : assert(maximum > 0);
@@ -8,16 +10,30 @@ class ArtworkDecodeQueue {
   int _active = 0;
   bool _closed = false;
   final _waiting = Queue<Completer<void>>();
-  Future<T> run<T>(Future<T> Function() work) async {
+  Future<T> run<T>(
+    Future<T> Function() work, {
+    ScanCancellation? cancellation,
+  }) async {
+    cancellation?.check();
     if (_closed) throw StateError('Artwork decoder closed');
     if (_active < maximum) {
       _active++;
     } else {
       final waiter = Completer<void>();
       _waiting.add(waiter);
-      await waiter.future;
+      final unlisten = cancellation?.listen(() {
+        if (_waiting.remove(waiter)) {
+          waiter.completeError(const ScanCancelled());
+        }
+      });
+      try {
+        await waiter.future;
+      } finally {
+        unlisten?.call();
+      }
     }
     try {
+      cancellation?.check();
       if (_closed) throw StateError('Artwork decoder closed');
       return await work();
     } finally {

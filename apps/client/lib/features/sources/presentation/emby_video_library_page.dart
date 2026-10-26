@@ -345,6 +345,12 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
   @override
   Widget build(BuildContext context) {
     final destination = widget.destination;
+    final source = ref
+        .watch(sourcesProvider)
+        .value
+        ?.where((value) => value.id == destination.sourceId)
+        .firstOrNull;
+    final brand = source?.kind.label ?? '远程媒体库';
     final snapshot = ref.watch(embyVideoSnapshotProvider(destination.sourceId));
     final data = snapshot.value;
     final settings = _settings;
@@ -460,6 +466,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                       busy: busy,
                       palette: palette,
                       sourceId: destination.sourceId,
+                      brand: brand,
                     ),
                   ),
                   if (data != null && settings != null)
@@ -547,7 +554,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                         palette,
                         icon: Icons.cloud_off_rounded,
                         title: sourceErrorMessage(snapshot.error!),
-                        message: '无法读取这个 Emby 媒体库，请检查连接后重试。',
+                        message: '无法读取这个 $brand 媒体库，请检查连接后重试。',
                         actionLabel: '重试',
                         onAction: () => ref.invalidate(
                           embyVideoContentProvider(destination.sourceId),
@@ -571,7 +578,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                         palette,
                         icon: Icons.folder_off_outlined,
                         title: '此媒体库已移除或未在同步范围内。',
-                        message: '可以返回媒体源管理，重新选择需要同步的 Emby 媒体库。',
+                        message: '可以返回媒体源管理，重新选择需要同步的 $brand 媒体库。',
                       ),
                     )
                   else
@@ -841,6 +848,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     required bool busy,
     required SourceSheetPalette palette,
     required String sourceId,
+    required String brand,
   }) {
     final search = TextField(
       controller: _search,
@@ -954,7 +962,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                '浏览与管理 Emby 视频内容',
+                '浏览与管理 $brand 视频内容',
                 style: TextStyle(
                   color: palette.secondary,
                   fontSize: 12.5,

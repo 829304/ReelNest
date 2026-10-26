@@ -1,11 +1,19 @@
 # ReelNest 文档
 
-更新时间：2026-10-22。
+更新时间：2026-10-26。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
+- Jellyfin 基础闭环已实现并交付 Windows Release/smoke；共享协议 255/255、同步/界面组 61/61、Emby 基线 37/37、UI 2/2 和 Windows Native 真实 mpv 业务用例通过。本批未运行全量 Flutter 测试；真实服务器、macOS/Linux 和人工视觉验收仍待。详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。
+- TMDB 本地电影元数据：最终定向合并复跑 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）；全量为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不能记为全量通过。Windows Delivery Release 与五秒 smoke 通过；随后缓存关闭取消专项46项通过、Windows Release/smoke 通过，该次未复现此前约4.9秒任务状态。真实公服、macOS/Linux 与精确视觉验收待。详见[专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+- 本地剧集 TMDB 手动匹配实现与 Windows 验证完成：后端102/102、前端12/12，Windows Profile 原生、Release/smoke 通过；本批未跑全量，真实公服、macOS/Linux 与人工精确视觉验收待。详见[剧集元数据计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+- [2026-10-23 统一实现状态盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)：当前已接入/未实现能力、平台与来源验收边界及建议路线；本轮未重跑测试或构建。
+- 在线字幕已冻结并通过最终自动化与 Windows Release/smoke：924 passed / 1 optional benchmark skipped，含专项 39 项；Windows Profile GPU/SW 本机 HTTP fixture 集成两例通过。macOS/Linux 实机、真实 Emby 在线/离线字幕、公开源 live 与可见 UI/原版视觉验收仍待。详见[在线字幕计划与验收模板](ONLINE_SUBTITLES_PLAN.zh-CN.md)。Podnapisi 本机 DNS 暂不可用，不代表无搜索结果；OpenSubtitles live 因暂无测试 API Key 未执行。
+- 自定义播放器快捷键代码、自动化及 Windows Release/smoke 验证通过（2026-10-24）：domain 覆盖 59 个动作；最终串行全量 941 passed / 1 optional benchmark skipped，五个定向测试文件 60 passed / 13 秒（包含新增 17 项）；Windows Profile GPU/SW 实际 mpv fixture integration 两例通过。`dart analyze` clean、374 个 Dart 文件 format 0 changed、diff-check clean。Windows Release 79.9 秒成功，五秒 smoke 正常响应并关闭、退出码 0；macOS/Linux、精确视觉、实体键盘和真实 Emby 验收仍待。`openExternal` 随外部播放模块后补；范围见[迁移计划](PLAYER_SHORTCUTS_PLAN.zh-CN.md)。
+- 视频系统外部播放器 Windows 自动化、Release/smoke 验证通过：最终文件专项 23 项，全量 991 passed / 2 条件跳过，analyze clean、397 个 Dart 文件 format 0 changes；专项与全量数字不累计相加。Windows Profile 跨 engine、Release 49.1 秒及五秒 smoke（窗口响应、正常关闭、ExitCode 0）通过。真实 Emby/VLC/系统默认关联、崩溃后 lease 回收及 macOS/Linux 实机验收待完成。详见[专项计划](PLAYER_EXTERNAL_PLAYBACK_PLAN.zh-CN.md)。
+- 本地文件/网络 URL 临时视频播放与拖入本地视频已获用户批准。稳定偏好版本全量 968 passed / 1 optional benchmark skipped（5 分 14 秒），之后 Escape/Enter UI 专项 4 文件 21 项/4 秒通过，不并入全量数字。最终 analyze clean、386 个 Dart 文件格式检查通过；Windows Release 67.2 秒及五秒 smoke（响应、正常关闭、退出码 0）通过。macOS/Linux 原生、实体拖放/文件选择器、真实服务器非 HTTP 协议和精确 UI 视觉仍待实机验收。详见[专项计划](PLAYER_TEMPORARY_PLAYBACK_PLAN.zh-CN.md)。
 - 首页按来源刷新与偏好快照复用（2026-10-22）：96 项相关回归、130 项变更路径回归通过（有重叠）；10,003 媒体夹具访问计数确认构建偏好覆盖时不遍历基底媒体列表。仍读取来源全部偏好行，保留未知范围全局通知及原推荐行为。analyze、Windows Release、23:52 五秒 smoke 通过；真实大库交互、长期 CPU/内存及 macOS/Linux 原生性能仍待。详见[优化记录](SCOPED_REFRESH_PERFORMANCE_2026-10-22.zh-CN.md)和[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-22-首页按来源刷新与偏好快照复用)。
 - 首页搜索性能优化（2026-10-22）：已解码搜索文档通过有界 LRU 复用并在 DB 写入/范围变化时失效；Emby 过期搜索实际终止 isolate。91 项相关测试通过，阈值最终调整后 16 项、analyze、Windows Release 和 23:40 五秒 smoke 通过。持久搜索 isolate 未实现；真实大库可见 UI 与 macOS/Linux 性能仍待验收。详见[优化记录](SEARCH_PERFORMANCE_2026-10-22.zh-CN.md)及[当前阶段](NEXT_STAGE.zh-CN.md#2026-10-22-首页搜索复用与-emby-过期任务取消)。
 - 视频播放器音频均衡器已实现，Windows 自动化验证通过：后端 17 项、UI 14 项、显式 native 的全量 873 passed / 1 skipped；Windows Profile GPU/SW 实际功能用例通过，353 Dart 文件格式检查 0 改动、analyze clean。Windows Release 41.2 秒成功，14:57:45 +08:00 五秒 smoke 正常响应并关闭、退出码 0。真实设备听感、真实 Emby、macOS/Linux 原生和原版 UI 视觉仍待。详见[阶段计划与验证边界](PLAYER_VIDEO_EQUALIZER_PLAN.zh-CN.md)及[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-22-视频播放器音频均衡器已实现windows-自动化验证通过跨平台真实设备验收待)。
@@ -31,7 +39,7 @@
 - 播放故障诊断批次最终定向 native、analyze、格式/diff 检查通过，Windows Release 40.8 秒和五秒 smoke 通过；701/4 全量为最后三行兜底修正前结果。真实 Emby 根因仍待新版复现，macOS/Linux 原生未验收；详见[高级播放与当前批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md)。
 - 用户于 2026-10-16 明确授权新增播放器输入速率提示：代码已冻结，backend 54、UI 27、隔离 native 2 项通过，analyze、269 文件格式及 diff 检查通过；Windows Release 39.6 秒及五秒 smoke 通过。本轮未跑上一轮 701 项全量；真实 Emby、实体键鼠和 macOS/Linux/三端视觉验收仍待。详见[专项记录](PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
 - 播放器六项实时统计实现及 Windows 验证完成：原实现全量 743 passed / 6 skipped、Windows Profile texture 专项及 production Release/smoke 通过；最新整合全量 768 passed / 7 skipped。既有 `playback_stats_test` Windows Profile texture 回归报告与旧库一致，`renderPasses=false`、HTTP cache 读数可用，不切换 VO 强采。真实 Emby、实际硬解启用、转码/切画质、macOS/Linux、可见 UI/视觉及长时间性能验收仍待。详见[实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md)。
-- 当前播放器主线：片头片尾的首页/媒体库/详情检测入口、系列批量分析与任务中心已接入；最终全量 685 passed / 3 skipped、分析、Windows Release 和启动检查通过。开发前基线为 `fab5dda`；真实来源、三端实机、原版 UI 验收仍待。字幕样式/音画同步初始实现的 718/6、native 和 Windows Profile 字体验证保留为历史结果；本轮字幕连续样式更新 P2 修复后 753/6 全量通过，Windows Release/smoke 复验待补。ASS/位图、macOS/Linux、Emby 和视觉验收未覆盖。详见[字幕音轨记录](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步p2-修复全量测试通过release-待验2026-10-16)。
+- 当前播放器主线：片头片尾的首页/媒体库/详情检测入口、系列批量分析与任务中心已接入；最终全量 685 passed / 3 skipped、分析、Windows Release 和启动检查通过。开发前基线为 `fab5dda`；真实来源、三端实机、原版 UI 验收仍待。字幕样式/音画同步及其 Windows 自动化状态以[当前播放器盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)和[字幕音轨记录](PLAYER_TRACKS.zh-CN.md)为准；不要沿用旧记录中的 Windows Release/smoke“待复验”状态。ASS/位图、macOS/Linux、Emby 和视觉验收边界见专项记录。
 - 最新播放器 UI 固定深色 Chrome 色板覆盖 Dock、右键精度菜单、各设置面板及嵌套菜单，不随海报明暗变浅且不影响普通页面；右键菜单重复迷你悬浮窗入口已移除，迷你悬浮窗仅保留 Dock 按钮和 `P` 快捷键。`playback_test.dart` 20/20、7 个弹层相关测试 47/47、targeted analyze clean；Windows Release 34.5 秒及 2026-10-16 11:03:30 +08:00 五秒 smoke 通过。真实窗口/三端视觉验收未完成，见[Dock 批次记录](PLAYER_PRECISION_BACKEND.zh-CN.md#当前-ui-批次播放器控制栏-dock-重构2026-10-15)。
 - 最近完成：高级播放首批章节/书签、单片循环、A–B 与逐帧底层和 UI 接入，以及侧栏/主题整理；此前首页 H1/H2/H3、视频健康评分和来源刷新状态保护已接通。
 - 最新侧栏 hover 修复完成 45 项定向回归和 Windows Release/启动冒烟；Windows 结果不代表 macOS/Linux 原生验收，细节见[Emby 导航记录](EMBY_NAVIGATION.zh-CN.md#2026-10-14侧栏菜单悬浮点击残影修复)。
@@ -49,13 +57,14 @@
 
 ## 阅读顺序
 
-1. [项目边界与一致性要求](PROJECT_SCOPE.zh-CN.md)：产品范围、平台、品牌、数据库和验收约束。
-2. [当前阶段记录](NEXT_STAGE.zh-CN.md)：当前下一批及从早期本地来源到首页的实施时间线。
-3. [首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)：当前 H1 → H2 → H3 主线和验收条件。
-4. [项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)：代码布局、职责和依赖方向。
-5. [开发指南](DEVELOPMENT.zh-CN.md)：环境、命令、构建、CI 和原生验证边界。
-6. [原版一致性核对清单](design/ORIGINAL_PARITY_AUDIT.zh-CN.md)：源码依据、当前迁移摘要、现有偏差和历史审计。
-7. [三桌面端实现与验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md)：按平台区分自动化、原生、真实环境和 UI 对照。
+1. [2026-10-23 统一实现状态盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)：当前已接入/未实现能力、平台与来源验收边界及建议路线。
+2. [项目边界与一致性要求](PROJECT_SCOPE.zh-CN.md)：产品范围、平台、品牌、数据库和验收约束。
+3. [当前阶段记录](NEXT_STAGE.zh-CN.md)：当前下一批及从早期本地来源到首页的实施时间线。
+4. [首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)：当前 H1 → H2 → H3 主线和验收条件。
+5. [项目结构与模块设计](PROJECT_STRUCTURE.zh-CN.md)：代码布局、职责和依赖方向。
+6. [开发指南](DEVELOPMENT.zh-CN.md)：环境、命令、构建、CI 和原生验证边界。
+7. [原版一致性核对清单](design/ORIGINAL_PARITY_AUDIT.zh-CN.md)：源码依据、当前迁移摘要、现有偏差和历史审计。
+8. [三桌面端实现与验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md)：按平台区分自动化、原生、真实环境和 UI 对照。
 
 文档作者和模块负责人还应阅读[文档维护规范](DOCUMENTATION_GUIDE.zh-CN.md)；涉及持久化时阅读[数据字典](DATA_DICTIONARY.zh-CN.md)。
 
@@ -104,16 +113,33 @@
 | [媒体库进入详情的海报闪烁修复](POSTER_TRANSITION_2026-10-12.zh-CN.md) | 页面切换时的海报占位与过渡修复 |
 | [无媒体库与 NAS 的测试方案](MEDIA_TESTING.zh-CN.md) | 合成媒体、可播放样本、SMB 模拟和平台验证 |
 
+## Jellyfin
+
+| 文档 | 内容 |
+|---|---|
+| [Jellyfin 基础连接器闭环计划](JELLYFIN_PLAN.zh-CN.md) | 基础闭环及 Windows Release/smoke 已交付；共享协议 255/255、同步/界面组 61/61、Emby 基线 37/37、UI 2/2、Windows Native 真实 mpv 业务用例通过；真实服务、macOS/Linux 与人工视觉验收待 |
+
+## 公共元数据
+
+| 文档 | 内容 |
+|---|---|
+| [TMDB 本地电影元数据第一批计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md) | 实现与 Windows Delivery Release/smoke 验证完成；全量存在 1 个未收尾 native 用例，真实公服、跨平台和视觉验收待 |
+| [TMDB 本地剧集元数据手动匹配计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md) | 后端102/102、UI12/12、Windows Profile 原生与 Release/smoke 通过；本批未跑全量，真实公服、跨平台与人工视觉验收待 |
+
 ## 视频播放
 
 | 文档 | 内容 |
 |---|---|
 | [共用视频播放器实现盘点](PLAYER_STATUS.zh-CN.md) | 本地/Emby 共用播放器已实现能力、固定剩余范围及验收边界 |
 | [本地视频播放与续播](LOCAL_PLAYBACK.zh-CN.md) | 独立窗口、进度、基础控制和失败保护 |
+| [本地文件与网络 URL 临时播放计划](PLAYER_TEMPORARY_PLAYBACK_PLAN.zh-CN.md) | 开发中：全量、Escape/Enter 专项、analyze/format、Windows Release 与 smoke 通过；跨平台及真实设备验收待完成 |
 | [播放队列与播完行为](PLAYER_QUEUE.zh-CN.md) | 同系列队列、相邻项和三种结束行为 |
-| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置；P2 连续样式更新修复后全量测试通过，Windows Release/smoke 复验待补 |
+| [字幕、音轨与音量面板](PLAYER_TRACKS.zh-CN.md) | 本地/双字幕、音轨、输出和增强设置；在线字幕开发状态与最终验收见下方专项计划 |
+| [在线字幕搜索与下载计划](ONLINE_SUBTITLES_PLAN.zh-CN.md) | 实现已冻结，924/1 全量自动化及 Windows Release/smoke 通过；三桌面端实机、真实源和可见 UI 验收边界 |
 | [基础播放设置与防休眠](PLAYER_BASIC_SETTINGS.zh-CN.md) | 倍速、续播、已看阈值、音量和平台防休眠 |
 | [高级播放首批接口与验证](PLAYER_PRECISION_BACKEND.zh-CN.md) | 章节/书签、单片循环、A–B、逐帧、用户授权的输入速率提示及验证边界 |
+| [播放器自定义快捷键迁移计划](PLAYER_SHORTCUTS_PLAN.zh-CN.md) | 2026-10-24 自动化及 Windows Release/smoke 通过：941 passed / 1 optional benchmark skipped、`dart analyze`/374 文件 format/diff-check clean、Windows Profile GPU/SW 两例通过；平台/UI 实机验收待补 |
+| [系统外部播放器迁移计划](PLAYER_EXTERNAL_PLAYBACK_PLAN.zh-CN.md) | Windows 自动化/Release/smoke通过；真实 Emby/VLC/系统默认关联、崩溃回收及 macOS/Linux 实机验收待完成 |
 | [播放器实时统计计划](PLAYER_REALTIME_STATS_PLAN.zh-CN.md) | 六项统计语义、状态与隐私边界；Windows Profile texture 回归通过（`renderPasses` 当前不可用），跨平台及真实场景验收待完成 |
 | [播放器画面显示计划](PLAYER_VIDEO_DISPLAY_PLAN.zh-CN.md) | 五项显示设置的原版偏好、默认值、UI 与引擎映射、平台 native 验收边界；接线及 Windows Profile texture 阶段验证通过，Release/跨平台/真实来源验收待完成 |
 | [播放器画面色彩调整计划](PLAYER_VIDEO_COLOR_ADJUSTMENTS_PLAN.zh-CN.md) | 五项色彩调整实现及 Windows 验证完成（含 Release/smoke）；macOS/Linux 原生、真实来源与边界验收待完成 |
@@ -151,6 +177,7 @@
 | [2026-10-10 Emby 导航、画质与缓存](TEST_REPORT_2026-10-10.zh-CN.md) | Emby 视频批次及 Windows 原生场景 |
 | [2026-10-11 媒体库滚动优化](TEST_REPORT_2026-10-11.zh-CN.md) | 卡片索引、显示尺寸解码和图片校验 |
 | [数据库读取与关闭优化](DATABASE_PERFORMANCE_2026-10-11.zh-CN.md) | 后台读取、事务关闭和性能边界 |
+| [缓存关闭取消与计时（2026-10-26）](CACHE_SHUTDOWN_2026-10-26.zh-CN.md) | 缓存 dispose 取消边界、46 项回归及 Windows Release/smoke；不构成所有媒体库负载下的耗时保证 |
 | [前端性能补充检查](FRONTEND_PERFORMANCE_AUDIT_2026-10-11.zh-CN.md) | 页面和图片管线补充审计 |
 | [Emby 媒体库排序性能检查](PERFORMANCE_REVIEW_2026-10-21.zh-CN.md) | 单次排序标题解析复用、受控基准、回归证据与未实施优化候选 |
 | [播放器关闭后主界面响应检查](FRONTEND_CLOSE_AUDIT_2026-10-11.zh-CN.md) | Windows 关窗、重开和主界面响应 |

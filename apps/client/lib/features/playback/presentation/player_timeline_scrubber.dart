@@ -59,9 +59,8 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
   Duration _previewTime = Duration.zero;
   Uint8List? _previewBytes;
   int? _requestedBucket;
+  int? _pendingBucket;
   int _generation = 0;
-  DateTime? _lastFrameRequest;
-  double? _lastFrameX;
 
   bool get _visible => _hovering || _dragging;
   bool get _wantsFrame =>
@@ -94,8 +93,7 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
     _requestTimer = null;
     _generation++;
     _requestedBucket = null;
-    _lastFrameRequest = null;
-    _lastFrameX = null;
+    _pendingBucket = null;
     if (clearFrame) {
       _previewBytes = null;
       _loading = false;
@@ -149,32 +147,24 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
     final bucket = bucketMicros <= 0
         ? 0
         : (_previewTime.inMicroseconds / bucketMicros).floor();
+    // A remote frame may need seconds to decode. Pointer jitter inside the
+    // same bucket must share that in-flight request instead of cancelling and
+    // restarting it on every hover event.
+    if (bucket == _pendingBucket) return;
     if (!force && bucket == _requestedBucket) return;
-
-    final now = DateTime.now();
-    final minimumInterval = Duration(milliseconds: _coarse ? 110 : 42);
-    final minimumDistance = _coarse ? 16.0 : 9.0;
-    if (!force &&
-        _lastFrameRequest != null &&
-        now.difference(_lastFrameRequest!) < minimumInterval &&
-        _lastFrameX != null &&
-        (_previewX - _lastFrameX!).abs() < minimumDistance) {
-      return;
-    }
 
     _requestTimer?.cancel();
     _activeRequest?.cancel();
     final generation = ++_generation;
     final target = _previewTime;
     final targetBucket = bucket;
+    _pendingBucket = targetBucket;
     _requestTimer = Timer(Duration(milliseconds: _coarse ? 120 : 45), () async {
       if (!mounted || generation != _generation || !_visible) return;
       setState(() {
         _loading = true;
         _empty = false;
       });
-      _lastFrameRequest = DateTime.now();
-      _lastFrameX = _previewX;
       final cancellation = VideoPreviewCancellation();
       _activeRequest = cancellation;
       Uint8List? bytes;
@@ -191,6 +181,7 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
       if (!mounted || generation != _generation || !_visible) return;
       setState(() {
         _requestedBucket = targetBucket;
+        _pendingBucket = null;
         _previewBytes = bytes;
         _loading = false;
         _empty = bytes == null || bytes.isEmpty;
@@ -202,9 +193,9 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
   void _hidePreview() {
     setState(() => _hovering = false);
     if (!_dragging) {
-      _requestTimer?.cancel();
-      _activeRequest?.cancel();
-      _generation++;
+      // Clear the completed/pending bucket so re-entering the same point can
+      // retry an empty or cancelled result while retaining the last frame.
+      _cancelRequest(clearFrame: false);
     }
   }
 
@@ -268,9 +259,7 @@ class _PlayerTimelineScrubberState extends State<PlayerTimelineScrubber> {
                     ? (value) {
                         setState(() => _dragging = false);
                         if (!_hovering) {
-                          _requestTimer?.cancel();
-                          _activeRequest?.cancel();
-                          _generation++;
+                          _cancelRequest(clearFrame: false);
                         }
                         widget.onChangeEnd(value);
                       }

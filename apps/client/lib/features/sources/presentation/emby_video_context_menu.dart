@@ -12,6 +12,7 @@ import '../application/emby_providers.dart';
 import '../application/source_providers.dart';
 
 import 'emby_cache_actions.dart';
+import 'external_playback_actions.dart';
 import 'marker_analysis_menu.dart';
 
 /// VideoItemContextMenuItems; server titles never expose local reclassification.
@@ -79,9 +80,17 @@ class _EmbyVideoContextMenuState extends ConsumerState<EmbyVideoContextMenu> {
       String title,
       Future<void> Function() work, {
       bool selected = false,
+      IconData? icon,
+      bool requiresEntry = true,
     }) => MenuItemButton(
-      onPressed: _busy || entry == null ? null : () => unawaited(_run(work)),
-      leadingIcon: selected ? const Icon(Icons.check, size: 16) : null,
+      onPressed: _busy || (requiresEntry && entry == null)
+          ? null
+          : () => unawaited(_run(work)),
+      leadingIcon: selected
+          ? const Icon(Icons.check, size: 16)
+          : icon == null
+          ? null
+          : Icon(icon, size: 16),
       child: Text(title),
     );
     Future<void> watched(bool value, {bool clear = false}) async {
@@ -125,6 +134,12 @@ class _EmbyVideoContextMenuState extends ConsumerState<EmbyVideoContextMenu> {
             }
             await launcher.open(target);
           }),
+        action(
+          '外部打开',
+          () => openLibraryExternally(ref, item),
+          icon: Icons.open_in_new_rounded,
+          requiresEntry: false,
+        ),
         EmbyCacheActions(item: item, menuOnly: true),
         MarkerAnalysisMenuItem(identity: item.identity),
         const Divider(),

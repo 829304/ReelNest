@@ -11,6 +11,10 @@ import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/app_feedback.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
+import '../../metadata/application/tmdb_providers.dart';
+import '../../metadata/domain/tmdb_models.dart';
+import '../../metadata/presentation/tmdb_movie_detail_extras.dart';
+import '../../metadata/presentation/tmdb_movie_search_dialog.dart';
 import '../../playback/application/playback_providers.dart';
 import '../../playback/presentation/video_player_page.dart'
     show formatVideoTime;
@@ -18,6 +22,7 @@ import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
 import 'emby_media_actions.dart';
 import 'emby_video_context_menu.dart';
+import 'external_playback_actions.dart';
 import 'marker_analysis_menu.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
@@ -87,7 +92,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 _DetailPageHeader(
                   key: const ValueKey('media-detail-header'),
                   title: source?.name ?? '媒体库',
-                  remote: source?.kind == MediaSourceKind.emby,
+                  remote: source?.kind.isEmbyCompatible == true,
                   onBack: _back,
                   palette: palette,
                 ),
@@ -147,7 +152,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                         ),
                       ];
                     }
-                    final extras = source.kind == MediaSourceKind.emby
+                    final extras = source.kind.isEmbyCompatible
                         ? ref.watch(
                             embyDetailProvider((
                               identity: item.identity,
@@ -155,12 +160,28 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                             )),
                           )
                         : null;
+                    final isLocalMovie =
+                        source.kind.isFileSource &&
+                        item.type == 'movie' &&
+                        !item.isSeries &&
+                        item.parentId == null;
+                    final isLocalSeries =
+                        source.kind.isFileSource &&
+                        item.isSeries &&
+                        item.parentId == null;
+                    final localTmdb = isLocalMovie
+                        ? ref.watch(tmdbMovieMetadataProvider(item.identity))
+                        : isLocalSeries
+                        ? ref.watch(tmdbSeriesMetadataProvider(item.identity))
+                        : null;
+                    final tmdbValue = localTmdb?.value;
                     return [
                       _inset(
                         _DetailHero(
                           source: source,
                           item: item,
                           detail: extras?.asData?.value.detail,
+                          tmdb: tmdbValue,
                           // Reading metadata is not an artwork invalidation.
                           // Explicit refresh still fetches a new generation.
                           artworkRevision: _detailRefresh == 0
@@ -184,7 +205,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                             error: (_, _) => _DetailInlineNotice(
                               palette: palette,
                               icon: Icons.cloud_off_rounded,
-                              title: 'Emby 详情读取失败，基础信息和播放仍可使用。',
+                              title: '${source.kind.label} 详情读取失败，基础信息和播放仍可使用。',
                               actionLabel: '重试',
                               onAction: () => setState(() => _detailRefresh++),
                             ),
@@ -197,6 +218,37 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                             ),
                           ),
                         ),
+                      if (localTmdb?.hasError == true && tmdbValue == null)
+                        _inset(
+                          _DetailInlineNotice(
+                            palette: palette,
+                            icon: Icons.error_outline_rounded,
+                            title: localTmdb!.error is SourceFailure
+                                ? (localTmdb.error! as SourceFailure).message
+                                : isLocalSeries
+                                ? '本地剧集资料读取失败，请重新匹配。'
+                                : '本地电影资料读取失败，请重新匹配。',
+                            actionLabel: '重试',
+                            onAction: () {
+                              if (isLocalSeries) {
+                                ref.invalidate(
+                                  tmdbSeriesMetadataProvider(item.identity),
+                                );
+                              } else {
+                                ref.invalidate(
+                                  tmdbMovieMetadataProvider(item.identity),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                      if (tmdbValue case final tmdb?)
+                        _inset(
+                          TmdbDetailExtras(
+                            key: ValueKey((item.identity, tmdb.candidate.id)),
+                            metadata: tmdb,
+                          ),
+                        ),
                       if (item.isSeries)
                         ..._series(source, item)
                       else
@@ -204,6 +256,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                           source.kind.isFileSource
                               ? _LocalFileStatus(source: source, item: item)
                               : _RemoteFileStatus(
+                                  source: source,
                                   item: item,
                                   detail: extras?.asData?.value.detail,
                                 ),
@@ -224,8 +277,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    final foreground =
-        source.kind == MediaSourceKind.emby && source.lastScan == null
+    final foreground = source.kind.isEmbyCompatible && source.lastScan == null
         ? ref.watch(embySeriesEpisodesProvider(item.identity))
         : null;
     final result = ref.watch(sourceSeasonsProvider(item.identity));
@@ -285,7 +337,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 ),
                 const Spacer(),
                 Text('$count 集'),
-                if (source.kind == MediaSourceKind.emby) ...[
+                if (source.kind.isEmbyCompatible) ...[
                   const SizedBox(width: 10),
                   EmbyBatchWatchedButton(series: item.identity),
                 ],
@@ -305,7 +357,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                       _expanded.add(season.key);
                     }
                   }),
-                  actions: source.kind == MediaSourceKind.emby
+                  actions: source.kind.isEmbyCompatible
                       ? EmbyBatchWatchedButton(
                           series: item.identity,
                           oneSeason: true,
@@ -694,11 +746,13 @@ class _DetailHero extends StatelessWidget {
     required this.source,
     required this.item,
     this.detail,
+    this.tmdb,
     this.artworkRevision,
   });
   final MediaSource source;
   final IndexedMedia item;
   final EmbyDetail? detail;
+  final TmdbMetadata? tmdb;
   final int? artworkRevision;
   @override
   Widget build(BuildContext context) {
@@ -712,73 +766,83 @@ class _DetailHero extends StatelessWidget {
         icon: Icons.calendar_today_outlined,
         label: item.year?.toString() ?? '未知年份',
       ),
-      if (remote?.rating case final rating?)
+      if ((remote?.rating ?? tmdb?.candidate.rating) case final rating?)
         (icon: Icons.star_rounded, label: rating.toStringAsFixed(1)),
       if (remote?.durationMs case final duration?)
-        (icon: Icons.schedule_rounded, label: '${duration ~/ 60000} 分钟'),
+        (icon: Icons.schedule_rounded, label: '${duration ~/ 60000} 分钟')
+      else if (!item.isSeries && tmdb?.runtimeMinutes != null)
+        (icon: Icons.schedule_rounded, label: '${tmdb!.runtimeMinutes!} 分钟'),
       if ((detail?.technical.resolution ?? remote?.resolution)
           case final resolution?)
         (icon: Icons.aspect_ratio_rounded, label: resolution),
-      if (detail?.status case final status?)
+      if ((detail?.status ?? tmdb?.status) case final status?)
         (icon: Icons.podcasts_rounded, label: status),
-      if (detail?.contentRating case final contentRating?)
+      if ((detail?.contentRating ?? tmdb?.contentRating)
+          case final contentRating?)
         (icon: Icons.person_outline_rounded, label: contentRating),
+      if (tmdb?.numberOfSeasons case final seasons? when seasons > 0)
+        (icon: Icons.layers_outlined, label: '$seasons 季'),
+      if (tmdb?.numberOfEpisodes case final episodes? when episodes > 0)
+        (icon: Icons.format_list_numbered_rounded, label: '$episodes 集'),
     ];
-    final titleActions = source.kind == MediaSourceKind.emby
+    final titleActions = source.kind.isEmbyCompatible
         ? EmbyMediaActions(item: item, favoriteOnly: true)
         : source.kind.isFileSource
         ? LocalVideoActions(identity: item.identity)
         : null;
-    final artwork = MarkerAnalysisContextMenu(
-      identity: item.identity,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
+    final artworkSurface = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(13),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .24),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: AspectRatio(
+        aspectRatio: landscape ? 16 / 9 : 2 / 3,
+        child: ClipRRect(
           borderRadius: BorderRadius.circular(13),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .24),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: AspectRatio(
-          aspectRatio: landscape ? 16 / 9 : 2 / 3,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(13),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                LocalMediaArtwork(
-                  source: source,
-                  item: item,
-                  fit: BoxFit.cover,
-                  revision: artworkRevision,
-                ),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0x20FFFFFF), Color(0x00000000)],
-                    ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              LocalMediaArtwork(
+                source: source,
+                item: item,
+                fit: BoxFit.cover,
+                revision: artworkRevision,
+              ),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0x20FFFFFF), Color(0x00000000)],
                   ),
                 ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: .30),
-                      width: .85,
-                    ),
-                    borderRadius: BorderRadius.circular(13),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .30),
+                    width: .85,
                   ),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
+    final artwork = source.kind.isFileSource
+        ? LocalVideoContextMenu(item: item, child: artworkSurface)
+        : MarkerAnalysisContextMenu(
+            identity: item.identity,
+            child: artworkSurface,
+          );
     final information = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -820,7 +884,10 @@ class _DetailHero extends StatelessWidget {
         ),
         const SizedBox(height: 15),
         Text(
-          detail?.overview ?? item.overview ?? '暂无简介。',
+          detail?.overview ??
+              tmdb?.candidate.overview ??
+              item.overview ??
+              '暂无简介。',
           maxLines: 6,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -829,16 +896,25 @@ class _DetailHero extends StatelessWidget {
             height: 1.48,
           ),
         ),
-        if (remote != null && (detail?.genres ?? remote.genres).isNotEmpty) ...[
+        if ((detail?.genres ??
+                tmdb?.genres ??
+                remote?.genres ??
+                const <String>[])
+            .isNotEmpty) ...[
           const SizedBox(height: 13),
           Wrap(
             spacing: 8,
             runSpacing: 7,
-            children: (detail?.genres ?? remote.genres)
-                .map(
-                  (genre) => _DetailGenreChip(label: genre, palette: palette),
-                )
-                .toList(),
+            children:
+                (detail?.genres ??
+                        tmdb?.genres ??
+                        remote?.genres ??
+                        const <String>[])
+                    .map(
+                      (genre) =>
+                          _DetailGenreChip(label: genre, palette: palette),
+                    )
+                    .toList(),
           ),
         ],
         if (detail?.companies.isNotEmpty == true) ...[
@@ -863,6 +939,28 @@ class _DetailHero extends StatelessWidget {
             ],
           ),
         ],
+        if (tmdb?.productionCompanies.isNotEmpty == true) ...[
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.business_outlined, size: 15, color: palette.secondary),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  tmdb!.productionCompanies.take(4).join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: palette.secondary,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         if (item.type != 'music' && item.type != 'photo') ...[
           const SizedBox(height: 18),
           _DetailActionBar(
@@ -872,13 +970,25 @@ class _DetailHero extends StatelessWidget {
               _PlaybackButton(
                 item: item,
                 enabled:
-                    source.kind.isFileSource ||
-                    source.kind == MediaSourceKind.emby,
+                    source.kind.isFileSource || source.kind.isEmbyCompatible,
               ),
-              if (source.kind == MediaSourceKind.emby && !item.isSeries)
+              if (source.kind.isFileSource || source.kind.isEmbyCompatible)
+                ExternalPlaybackButton(item: item),
+              if (source.kind.isFileSource &&
+                  item.type == 'movie' &&
+                  !item.isSeries &&
+                  item.parentId == null)
+                TmdbMovieMatchButton(identity: item.identity, title: item.title)
+              else if (source.kind.isFileSource &&
+                  item.isSeries &&
+                  item.parentId == null)
+                TmdbSeriesMatchButton(
+                  identity: item.identity,
+                  title: item.title,
+                ),
+              if (source.kind.isEmbyCompatible && !item.isSeries)
                 EmbyMediaActions(item: item),
-              if (source.kind == MediaSourceKind.emby)
-                EmbyCacheActions(item: item),
+              if (source.kind.isEmbyCompatible) EmbyCacheActions(item: item),
             ],
           ),
         ],
@@ -1256,7 +1366,7 @@ class _EpisodeRow extends ConsumerWidget {
       Theme.of(context).brightness == Brightness.dark,
     );
     Future<void> play() async {
-      if (!source.kind.isFileSource && source.kind != MediaSourceKind.emby) {
+      if (!source.kind.isFileSource && !source.kind.isEmbyCompatible) {
         return;
       }
       try {
@@ -1276,8 +1386,7 @@ class _EpisodeRow extends ConsumerWidget {
     final progress = record?.progress ?? 0;
     final inProgress = !watched && progress > .015;
     final row = GestureDetector(
-      onDoubleTap:
-          source.kind.isFileSource || source.kind == MediaSourceKind.emby
+      onDoubleTap: source.kind.isFileSource || source.kind.isEmbyCompatible
           ? () {
               onSelect();
               play();
@@ -1455,7 +1564,7 @@ class _EpisodeRow extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                if (source.kind == MediaSourceKind.emby)
+                if (source.kind.isEmbyCompatible)
                   EmbyCacheActions(item: item, compact: true),
                 if (selected)
                   SourceLineIcon(
@@ -1493,10 +1602,10 @@ class _EpisodeRow extends ConsumerWidget {
         ],
       ),
     );
-    return source.kind == MediaSourceKind.emby
+    return source.kind.isEmbyCompatible
         ? EmbyVideoContextMenu(item: item, child: row)
         : source.kind.isFileSource
-        ? MarkerAnalysisContextMenu(identity: item.identity, child: row)
+        ? LocalVideoContextMenu(item: item, child: row)
         : row;
   }
 }
@@ -1572,7 +1681,12 @@ class _PlaybackButtonState extends ConsumerState<_PlaybackButton> {
 }
 
 class _RemoteFileStatus extends ConsumerWidget {
-  const _RemoteFileStatus({required this.item, this.detail});
+  const _RemoteFileStatus({
+    required this.source,
+    required this.item,
+    this.detail,
+  });
+  final MediaSource source;
   final IndexedMedia item;
   final EmbyDetail? detail;
   @override
@@ -1618,7 +1732,7 @@ class _RemoteFileStatus extends ConsumerWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Emby 流媒体 · ${item.title}',
+                  '${source.kind.label} 流媒体 · ${item.title}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

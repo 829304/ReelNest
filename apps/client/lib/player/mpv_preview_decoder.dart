@@ -27,6 +27,11 @@ Future<Uint8List?> decodeMpvPreview(MpvPreviewArguments arguments) =>
     Isolate.run(() => _decode(arguments));
 
 Future<Uint8List?> _decode(MpvPreviewArguments args) async {
+  Uint8List? unavailable(String code) {
+    args.ready.send(code);
+    return null;
+  }
+
   final control = ReceivePort();
   var cancelled = false;
   control.listen((_) {
@@ -37,7 +42,7 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
   final context = api.mpv_create();
   if (context == nullptr) {
     control.close();
-    return null;
+    return unavailable('decoder_create');
   }
   final deadline = DateTime.now().add(const Duration(seconds: 8));
   int option(String name, String value) {
@@ -109,10 +114,16 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
       'demuxer-lavf-o': 'protocol_whitelist=%13%file,http,tcp',
       if (args.format != null) 'demuxer-lavf-format': args.format!,
     }.entries) {
-      if (option(entry.key, entry.value) < 0) return null;
+      if (option(entry.key, entry.value) < 0) {
+        return unavailable('decoder_option');
+      }
     }
-    if (api.mpv_initialize(context) < 0) return null;
-    if (command(['loadfile', args.location]) < 0) return null;
+    if (api.mpv_initialize(context) < 0) {
+      return unavailable('decoder_initialize');
+    }
+    if (command(['loadfile', args.location]) < 0) {
+      return unavailable('decoder_load');
+    }
     var restarted = false;
     while (!cancelled && DateTime.now().isBefore(deadline)) {
       // Consume libmpv events on this worker, without any Flutter rendering
@@ -122,7 +133,7 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
         restarted = true;
       }
       if (event.ref.event_id == mpv.mpv_event_id.MPV_EVENT_END_FILE) {
-        return null;
+        return unavailable('decoder_end');
       }
       final pts = property('time-pos');
       if (restarted &&
@@ -135,13 +146,13 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
             w < 1 ||
             h < 1 ||
             w * h * 4 > 36 * 1024 * 1024) {
-          return null;
+          return unavailable('frame_dimensions');
         }
         final result = calloc<mpv.mpv_node>();
         try {
           if (command(['screenshot-raw', 'video'], result: result) < 0 ||
               result.ref.format != mpv.mpv_format.MPV_FORMAT_NODE_MAP) {
-            return null;
+            return unavailable('frame_capture');
           }
           final map = result.ref.u.list.ref;
           var width = 0, height = 0, stride = 0;
@@ -166,7 +177,7 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
               pixels == null ||
               pixels.ref.size < stride * height ||
               pixels.ref.size > 36 * 1024 * 1024) {
-            return null;
+            return unavailable('frame_pixels');
           }
           final source = pixels.ref.data.cast<Uint8>().asTypedList(
             pixels.ref.size,
@@ -200,7 +211,9 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
               if ((rgba[to] + rgba[to + 1] + rgba[to + 2]) / 3 < 14) dark++;
             }
           }
-          return dark / (drawWidth * drawHeight) > .90 ? null : rgba;
+          return dark / (drawWidth * drawHeight) > .90
+              ? unavailable('frame_dark')
+              : rgba;
         } finally {
           api.mpv_free_node_contents(result);
           calloc.free(result);
@@ -214,5 +227,5 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
     control.close();
     api.mpv_terminate_destroy(context);
   }
-  return null;
+  return unavailable(cancelled ? 'cancelled' : 'decoder_timeout');
 }

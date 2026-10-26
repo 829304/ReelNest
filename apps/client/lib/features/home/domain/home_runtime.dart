@@ -53,8 +53,8 @@ abstract final class HomeRuntimePolicy {
       final private = !visible(source) || task.hidesDetail;
       final kind = task.isCache
           ? '视频缓存'
-          : source.kind == MediaSourceKind.emby
-          ? 'Emby 同步'
+          : source.kind.isEmbyCompatible
+          ? '${source.kind.label} 同步'
           : '完整扫描';
       result.add(
         RuntimeTask(

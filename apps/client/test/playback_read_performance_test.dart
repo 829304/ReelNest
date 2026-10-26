@@ -153,6 +153,7 @@ void main() {
     await preferences.displaySettings;
     await preferences.screenshotMode;
     await preferences.equalizerSettings;
+    await preferences.keyboardShortcuts;
     await preferences.renderSettings;
     await preferences.performanceSettings;
     await preferences.sharpenMode;

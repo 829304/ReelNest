@@ -2,12 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../features/playback/application/playback_providers.dart';
+import '../features/playback/application/external_playback_providers.dart';
+import '../features/playback/application/external_playback_service.dart';
+import '../features/metadata/application/tmdb_providers.dart';
+import '../features/playback/domain/transient_playback_target.dart';
+import '../domain/media_source.dart';
 import '../features/playback/application/marker_analysis_providers.dart';
 import '../features/playback/presentation/player_window_app.dart';
 import '../features/sources/application/source_providers.dart';
@@ -40,6 +47,11 @@ Future<void> bootstrap() async {
   if (args['type'] == 'player') {
     runApp(
       ProviderScope(
+        overrides: [
+          externalPlaybackServiceProvider.overrideWithValue(
+            ExternalWindowPlaybackLauncher(args['mainWindowId'] as String),
+          ),
+        ],
         child: PlayerWindowApp(window: window, arguments: args),
       ),
     );
@@ -52,6 +64,30 @@ Future<void> bootstrap() async {
   await windowManager.setPreventClose(true);
   windowManager.addListener(_MainWindowClose(container));
   await window.setWindowMethodHandler((call) async {
+    if (call.method == 'openExternal') {
+      try {
+        final payload = Map<String, dynamic>.from(call.arguments as Map);
+        final launcher = container.read(externalPlaybackServiceProvider);
+        if (payload['transient'] is Map) {
+          await launcher.openTransient(
+            TransientPlaybackTarget.fromJson(
+              Map<String, dynamic>.from(payload['transient'] as Map),
+            ),
+          );
+        } else {
+          await launcher.openLibrary((
+            sourceId: payload['sourceId'] as String,
+            localId: payload['localId'] as String,
+          ));
+        }
+        return null;
+      } catch (error) {
+        throw PlatformException(
+          code: 'external_failed',
+          message: error is SourceFailure ? error.message : '外部播放器不可用，请检查设置。',
+        );
+      }
+    }
     if (call.method == 'playbackChanged') {
       refreshPlaybackViews(
         container,
@@ -113,16 +149,53 @@ class _MainWindowClose with WindowListener {
       }
       // Cancel every active producer before waiting for any one to drain. Do
       // not construct unused services just because the application is exiting.
+      await _step(trace, 'close_external_playback', () async {
+        if (container.exists(externalPlaybackServiceProvider)) {
+          final service = container.read(externalPlaybackServiceProvider);
+          if (service is ExternalPlaybackService) await service.dispose();
+        }
+      });
       await _step(
         trace,
         'close_background_tasks',
         () => Future.wait<void>([
+          if (container.exists(tmdbMovieServiceProvider))
+            _closeTask(
+              trace,
+              'metadata',
+              () => container.read(tmdbMovieServiceProvider).dispose(),
+            ),
+          if (container.exists(tmdbSeriesServiceProvider))
+            _closeTask(
+              trace,
+              'series_metadata',
+              () => container.read(tmdbSeriesServiceProvider).dispose(),
+            ),
           if (container.exists(markerAnalysisProvider))
-            Future.sync(() => container.read(markerAnalysisProvider).dispose()),
+            _closeTask(
+              trace,
+              'marker_analysis',
+              () => container.read(markerAnalysisProvider).dispose(),
+            ),
           if (container.exists(embyOfflineProvider))
-            Future.sync(() => container.read(embyOfflineProvider).dispose()),
+            _closeTask(
+              trace,
+              'offline',
+              () => container.read(embyOfflineProvider).dispose(),
+            ),
           if (container.exists(embyCacheProvider))
-            Future.sync(() => container.read(embyCacheProvider).dispose()),
+            _closeTask(
+              trace,
+              'cache',
+              () => container
+                  .read(embyCacheProvider)
+                  .dispose(
+                    onProgress: (phase, milliseconds) => trace.event(
+                      'close_cache_$phase',
+                      durationMs: milliseconds,
+                    ),
+                  ),
+            ),
         ]),
       );
       await _step(trace, 'close_database', () async {
@@ -160,6 +233,21 @@ class _MainWindowClose with WindowListener {
       // Drain the remaining owners even if one cleanup fails; a failed cache
       // cleanup must not leave the native close interception permanently on.
       trace.failure('${stage}_failed', error, stack);
+    }
+  }
+
+  Future<void> _closeTask(
+    PlaybackTrace trace,
+    String name,
+    Future<void> Function() close,
+  ) async {
+    trace.event('close_${name}_begin');
+    try {
+      await close();
+      trace.event('close_${name}_completed');
+    } catch (error, stack) {
+      trace.failure('close_${name}_failed', error, stack);
+      rethrow;
     }
   }
 }

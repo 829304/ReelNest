@@ -172,6 +172,38 @@ class LibraryDatabase extends GeneratedDatabase {
           key TEXT PRIMARY KEY, value TEXT NOT NULL
         )
       ''');
+      // Current local-movie matching module, independent of server metadata.
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS local_movie_metadata (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, value TEXT NOT NULL,
+          PRIMARY KEY(source_id,local_id),
+          FOREIGN KEY(source_id,local_id) REFERENCES media(source_id,local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS local_series_metadata (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, value TEXT NOT NULL,
+          PRIMARY KEY(source_id,local_id),
+          FOREIGN KEY(source_id,local_id) REFERENCES media(source_id,local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE TABLE IF NOT EXISTS local_episode_metadata (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL,
+          series_local_id TEXT NOT NULL, value TEXT NOT NULL,
+          PRIMARY KEY(source_id,local_id),
+          FOREIGN KEY(source_id,local_id) REFERENCES media(source_id,local_id)
+            ON DELETE CASCADE,
+          FOREIGN KEY(source_id,series_local_id)
+            REFERENCES local_series_metadata(source_id,local_id) ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
+        CREATE INDEX IF NOT EXISTS local_episode_series
+          ON local_episode_metadata(source_id,series_local_id)
+      ''');
       // This module owns one current table. Idempotent provisioning does not
       // modify existing media/source columns or add a historical upgrade chain.
       await customStatement('''

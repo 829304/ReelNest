@@ -18,6 +18,7 @@ dependencies:
   file_selector: ^1.1.0
   path: ^1.9.1
   characters: ^1.4.1
+  crypto: 3.0.7
   lpinyin: 2.0.3
   ffi: ^2.2.0
   win32: ^6.4.0
@@ -26,9 +27,11 @@ dependencies:
   media_kit_video: 2.0.1
   media_kit_libs_video: 1.0.7
   desktop_multi_window: 0.3.1
+  desktop_drop: 0.8.0
   window_manager: 0.5.1
   screen_retriever: 0.2.2
   unorm_dart: 0.3.3
+  xml: 7.0.1
 
 dev_dependencies:
   flutter_test:

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.14)
+project(external_player_probe LANGUAGES CXX)
+add_executable(external_player_probe WIN32 main.cpp)
+target_compile_features(external_player_probe PRIVATE cxx_std_17)
+target_link_libraries(external_player_probe PRIVATE shell32)

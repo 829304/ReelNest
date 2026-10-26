@@ -2,8 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:reelnest/domain/media_source.dart';
+
 /// Local protocol fixture; never contacts an external Emby account.
 class EmbyServerFixture {
+  EmbyServerFixture({this.kind = MediaSourceKind.emby});
+  final MediaSourceKind kind;
+  bool get jellyfin => kind == MediaSourceKind.jellyfin;
+  String get basePath => jellyfin ? '/proxy/jellyfin/' : '/proxy/emby/';
   bool _closing = false;
   late HttpServer server;
   int loginCount = 0, viewsCount = 0, userCount = 0;
@@ -29,7 +35,7 @@ class EmbyServerFixture {
       playbackHandler,
       streamHandler;
   Future<void> Function(HttpRequest)? override;
-  String get address => 'http://127.0.0.1:${server.port}/proxy/emby/';
+  String get address => 'http://127.0.0.1:${server.port}$basePath';
   Future<void> start() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     Future<void> respond(HttpRequest request) async {
@@ -37,15 +43,65 @@ class EmbyServerFixture {
       requests.add((
         method: request.method,
         uri: request.uri,
-        authorization: request.headers.value('X-Emby-Authorization'),
+        authorization: request.headers.value(
+          jellyfin ? HttpHeaders.authorizationHeader : 'X-Emby-Authorization',
+        ),
         body: body,
       ));
       if (override != null) {
         await override!(request);
         return;
       }
+      final authorization = request.headers.value(
+        HttpHeaders.authorizationHeader,
+      );
+      final token = jellyfin
+          ? RegExp(r'Token="([^"\r\n]+)"')
+                    .firstMatch(authorization ?? '')
+                    ?.group(1) ??
+                request.uri.queryParameters['ApiKey']
+          : request.uri.queryParameters['api_key'];
+      var route = request.uri.path;
+      if (jellyfin) {
+        if (!route.startsWith(basePath) ||
+            request.headers.value('X-Emby-Authorization') != null ||
+            request.uri.queryParameters.containsKey('api_key')) {
+          request.response.statusCode = 400;
+          await request.response.close();
+          return;
+        }
+        route = '/proxy/emby/${route.substring(basePath.length)}';
+        final needsUser =
+            route == '/proxy/emby/UserViews' ||
+            route == '/proxy/emby/Items' ||
+            route.startsWith('/proxy/emby/Items/') ||
+            route.startsWith('/proxy/emby/UserFavoriteItems/') ||
+            route.startsWith('/proxy/emby/UserPlayedItems/');
+        if (needsUser && request.uri.queryParameters['UserId'] != userId) {
+          request.response.statusCode = 400;
+          await request.response.close();
+          return;
+        }
+        route = route
+            .replaceFirst(
+              '/proxy/emby/UserViews',
+              '/proxy/emby/Users/$userId/Views',
+            )
+            .replaceFirst(
+              '/proxy/emby/Items',
+              '/proxy/emby/Users/$userId/Items',
+            )
+            .replaceFirst(
+              '/proxy/emby/UserFavoriteItems/',
+              '/proxy/emby/Users/$userId/FavoriteItems/',
+            )
+            .replaceFirst(
+              '/proxy/emby/UserPlayedItems/',
+              '/proxy/emby/Users/$userId/PlayedItems/',
+            );
+      }
       request.response.headers.contentType = ContentType.json;
-      if (request.uri.path == '/proxy/emby/Users/AuthenticateByName') {
+      if (route == '/proxy/emby/Users/AuthenticateByName') {
         loginCount++;
         request.response.statusCode = loginStatus;
         validToken = 'token-$loginCount';
@@ -59,20 +115,16 @@ class EmbyServerFixture {
                 : {'error': 'fixture'},
           ),
         );
-      } else if (request.uri.path == '/proxy/emby/Users/$userId/Views') {
+      } else if (route == '/proxy/emby/Users/$userId/Views') {
         viewsCount++;
-        if (viewsHandler != null &&
-            request.uri.queryParameters['api_key'] == validToken) {
+        if (viewsHandler != null && token == validToken) {
           await viewsHandler!(request);
           return;
         }
-        request.response.statusCode =
-            request.uri.queryParameters['api_key'] == validToken
-            ? viewsStatus
-            : 401;
+        request.response.statusCode = token == validToken ? viewsStatus : 401;
         request.response.write(jsonEncode(views));
-      } else if (request.uri.path == '/proxy/emby/Users/$userId/Items') {
-        if (request.uri.queryParameters['api_key'] != validToken) {
+      } else if (route == '/proxy/emby/Users/$userId/Items') {
+        if (token != validToken) {
           request.response.statusCode = 401;
           await request.response.close();
           return;
@@ -107,10 +159,8 @@ class EmbyServerFixture {
             if (includeTotal) 'TotalRecordCount': items.length,
           }),
         );
-      } else if (request.uri.path.startsWith(
-        '/proxy/emby/Users/$userId/Items/',
-      )) {
-        if (request.uri.queryParameters['api_key'] != validToken) {
+      } else if (route.startsWith('/proxy/emby/Users/$userId/Items/')) {
+        if (token != validToken) {
           request.response.statusCode = 401;
         } else if (detailHandler != null) {
           await detailHandler!(request);
@@ -118,13 +168,9 @@ class EmbyServerFixture {
         } else {
           request.response.write('{}');
         }
-      } else if (request.uri.path.startsWith(
-            '/proxy/emby/Users/$userId/FavoriteItems/',
-          ) ||
-          request.uri.path.startsWith(
-            '/proxy/emby/Users/$userId/PlayedItems/',
-          )) {
-        if (request.uri.queryParameters['api_key'] != validToken) {
+      } else if (route.startsWith('/proxy/emby/Users/$userId/FavoriteItems/') ||
+          route.startsWith('/proxy/emby/Users/$userId/PlayedItems/')) {
+        if (token != validToken) {
           request.response.statusCode = 401;
         } else if (userFlagHandler != null) {
           await userFlagHandler!(request);
@@ -132,13 +178,13 @@ class EmbyServerFixture {
         } else {
           request.response.statusCode = 204;
         }
-      } else if (request.uri.path.startsWith('/proxy/emby/Sessions/Playing') ||
-          request.uri.path.startsWith('/proxy/emby/Videos/') ||
-          request.uri.path.startsWith('/proxy/emby/Audio/')) {
-        if (request.uri.queryParameters['api_key'] != validToken) {
+      } else if (route.startsWith('/proxy/emby/Sessions/Playing') ||
+          route.startsWith('/proxy/emby/Videos/') ||
+          route.startsWith('/proxy/emby/Audio/')) {
+        if (token != validToken) {
           request.response.statusCode = 401;
         } else {
-          final handler = request.uri.path.contains('/Sessions/')
+          final handler = route.contains('/Sessions/')
               ? playbackHandler
               : streamHandler;
           if (handler != null) {
@@ -147,8 +193,8 @@ class EmbyServerFixture {
           }
           request.response.statusCode = 204;
         }
-      } else if (request.uri.path.contains('/Images/')) {
-        if (request.uri.queryParameters['api_key'] != validToken) {
+      } else if (route.contains('/Images/')) {
+        if (token != validToken) {
           request.response.statusCode = 401;
         } else if (artworkHandler != null) {
           await artworkHandler!(request);
@@ -161,10 +207,9 @@ class EmbyServerFixture {
             ),
           );
         }
-      } else if (request.uri.path == '/proxy/emby/Users/$userId') {
+      } else if (route == '/proxy/emby/Users/$userId') {
         userCount++;
-        request.response.statusCode =
-            request.uri.queryParameters['api_key'] == validToken ? 200 : 401;
+        request.response.statusCode = token == validToken ? 200 : 401;
         request.response.write(jsonEncode({'Id': userId}));
       } else {
         request.response.statusCode = 404;

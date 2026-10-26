@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/playback/presentation/transient_playback_controls.dart';
 import '../features/sources/presentation/emby_sidebar.dart';
 import '../ui/theme/app_palette.dart';
 import '../ui/theme/design_tokens.dart';
@@ -12,12 +13,16 @@ class DesktopShell extends StatefulWidget {
   const DesktopShell({
     required this.selectedIndex,
     required this.onSelected,
+    required this.onOpenFile,
+    required this.onOpenStream,
     required this.child,
     super.key,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final VoidCallback onOpenFile;
+  final VoidCallback onOpenStream;
   final Widget child;
 
   @override
@@ -61,7 +66,10 @@ class _DesktopShellState extends State<DesktopShell> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
                       children: [
-                        const _BrandHeader(),
+                        _BrandHeader(
+                          onOpenFile: widget.onOpenFile,
+                          onOpenStream: widget.onOpenStream,
+                        ),
                         const AppSidebarSectionHeader('媒体库'),
                         AppSidebarRow(
                           key: const ValueKey('nav-首页'),
@@ -129,7 +137,10 @@ class _DesktopShellState extends State<DesktopShell> {
 }
 
 class _BrandHeader extends StatelessWidget {
-  const _BrandHeader();
+  const _BrandHeader({required this.onOpenFile, required this.onOpenStream});
+
+  final VoidCallback onOpenFile;
+  final VoidCallback onOpenStream;
 
   @override
   Widget build(BuildContext context) {
@@ -179,6 +190,11 @@ class _BrandHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 7),
+          TransientPlaybackMenuButton(
+            onOpenFile: onOpenFile,
+            onOpenStream: onOpenStream,
           ),
         ],
       ),

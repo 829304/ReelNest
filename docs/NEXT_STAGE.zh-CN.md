@@ -1,6 +1,53 @@
 # 当前阶段与历史实施记录
-当前摘要：播放器截图已实现并通过 Windows 自动化验证；视频播放器均衡器已实现，Windows 自动化、Release 与 smoke 通过。真实设备听感/Emby、macOS/Linux 原生及原版 UI 视觉验收仍待；详细证据见[截图阶段](NEXT_STAGE.zh-CN.md#2026-10-22-播放器截图阶段已实现windows-自动化验证通过)与[视频均衡器阶段](NEXT_STAGE.zh-CN.md#2026-10-22-视频播放器音频均衡器已实现windows-自动化验证通过跨平台真实设备验收待)。
-更新：2026-10-22。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+当前摘要：截至 2026-10-26，Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集验收仍待真实 TMDB 公服、macOS/Linux 原生及人工精确视觉。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+更新：2026-10-26。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-26 Jellyfin 基础视频来源闭环（已实现；Windows Release/smoke 通过）
+
+- Jellyfin 基础视频来源闭环已实现：登录、凭据/会话恢复、选库、独立侧栏、分页浏览/搜索/详情、视频播放、音轨字幕、续播、切集与播放状态上报；共享定向回归和 Windows Release/smoke 已通过。真实服务器与平台/视觉验收边界见下文及专项计划。
+- 原版 `connectJellyfinServer` 委托共用 `connectRemoteMediaServer(provider: .jellyfin)` 和 `EmbyService`，但保留独立 provider、`kind=jellyfin`、`jellyfin://source`、凭据身份与稳定 ID 前缀。ReelNest 扩展 `kind.isEmbyCompatible` 公共协议链路，不复制整套 Emby 实现；错误文案对 provider 中性，UI 显示 Jellyfin。
+- 协议差异经官方认证源码和稳定版 OpenAPI 12.3.0 核对；数据库沿用当前初始 schema，`schemaVersion=1`，无开发中间版本迁移。共享实现保留独立 kind/provider/credential/`jellyfin://source`；完整边界见[Jellyfin 基础连接器计划](JELLYFIN_PLAN.zh-CN.md)。
+- 2026-10-26 最终交付：共享协议回归 255/255（含 Jellyfin 17 项）、同步/界面四文件组 61/61、Emby 基线 37/37、独立 UI 2/2 均通过，各组不累加；此前中断的 43 项与失败日志不作为最终通过证据。全项目 analyze clean、421 个 Dart 文件 format 0 changed、diff-check 通过；本批未运行全量 Flutter 测试。Windows Native Profile 39.0 秒构建及真实 mpv Range 流、seek、服务器字幕、stop report 业务用例通过（1 case，harness 含 teardown 共2项，exit 0）。Windows Release 44.1 秒成功；标准 EXE 为 `apps/client/build/windows/x64/runner/Release/reelnest.exe`，AOT `data/app.so` 为 2026-10-26 21:25:55 +08、12,977,032 bytes，已核验含 Jellyfin brand mark、UserViews 与 UserFavoriteItems。五秒 smoke `apps/client/build/smoke/release-startup.json` 于 21:27:44 +08 响应正常、正常关闭、ExitCode 0。真实 Jellyfin 服务、macOS/Linux 原生与人工精确视觉验收仍待；测试输入模拟不代表人类键盘/IME，AXTree 告警不代表辅助功能通过。基础共享 cache、user flag、quality 路径已有接线，内部 Emby 类名不表示未实现；本轮不宣称全部高级能力完成，详见[验收表](JELLYFIN_PLAN.zh-CN.md#当前分工与验证记录)。
+
+## 2026-10-26 TMDB 本地剧集手动匹配（实现与 Windows 验证完成；跨平台验收待）
+
+- 本地剧集 TMDB 手动匹配的后端定向 102/102、前端 12/12、Windows Profile 原生、Release/smoke 均通过；analyze clean，417 个 Dart 文件 format 0 changed。本批没有运行全量测试，最终证据与分组计数见[本地剧集 TMDB 计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+- `TmdbVideoService` 与共享 movie/tv provider 使用 `TmdbCandidate.kind` 区分类型；`local_series_metadata` 和 `local_episode_metadata` 纳入 schemaVersion 1。按既有有效季集号获取季详情（最多并发2、不逐集请求），只更新已有集 title/overview/year，保留本地身份、季集号、路径、图片与播放记录；无有效编号提示未匹配。匹配期间集合/编号变化拒绝整事务；重扫资料保护/失效关联清理和部分季失败保留按专项计划执行。
+- 本轮不含批量/NFO/在线字幕/Emby 刮削。真实 TMDB 公服、macOS/Linux 原生和人工精确视觉验收仍待；原版 Swift 没有 season endpoint，本轮季详情请求属于获批的新行为。完整范围、原版基线和验收边界见[本地剧集 TMDB 计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+
+## 2026-10-26 TMDB 本地电影元数据第一批（实现与 Windows 交付验证完成）
+
+- 用户已批准本地电影的手动元数据闭环：搜索 TMDB、用户确认候选、本地保存，并在详情展示海报/简介/演员等。本轮不含电视剧/动漫、批量或自动匹配、NFO 写回、音乐与照片。
+- 配置按原版支持 TMDB API Key 或 Read Access Token，语言默认为 `zh-CN`；Emby 继续使用服务器资料，TMDB 不作为 Emby 视频交付的前置条件。
+- 最终 TMDB 定向合并复跑 `tmdb-final-targeted.log`：client16 + service14 + UI9，共39/39通过（18秒，exit 0），含新增 series 拒绝用例。全量 `tmdb-full-final.log` 为 1034 passed / 2 conditional skip / 1 native business test unfinished，exit 1，不能记为通过；Windows Profile 原生用例与 marker skip native 独立复跑分别通过，分组计数不相加。Windows Delivery Release 构建 56.0 秒成功；app.so 为 2026-10-26 09:13:45 +08、12,911,496 bytes；五秒 smoke 正常关闭，ExitCode 0。之后缓存关闭取消专项46项通过，另一个 Windows Release 构建46.5秒、smoke于13:51:47 +08:00正常关闭；该次后台收尾199ms、数据库关闭1ms，未复现之前约4.9秒任务状态，不视为所有负载的时延保证。`dart analyze lib/test/integration_test` 无问题，413 个 Dart 文件 format 0 changed、diff-check 通过。真实 TMDB 公服凭据未使用；macOS/Linux 原生与人工精确视觉验收待。详见[专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)和[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+
+## 2026-10-24 本地文件/URL 临时视频播放与拖入（已实现，Windows 自动化/Release/smoke 通过）
+
+- 本批入口为本地视频文件选择器、网络串流输入及主桌面内容区/播放器窗口两个本地视频拖放目标；已入库视频复用身份/续播，未知本地视频与九种白名单 scheme URL 采用临时单项播放。首页文本模块重排行为保持原状。
+- 当前代码使用稳定 SHA-256 64 字符临时身份：文件基于 `file` + 规范化路径，网络流基于 `stream` + trim 后 URL；跨窗口 JSON 校验重算 ID。原始路径/URL/令牌不持久化。音轨/字幕/倍速使用原版稳定 `item.id` 偏好仓库持久化；未知媒体因无 marker 外键目标，其临时 marker 只驻留内存并在关闭时清理。还包括 `relative_id` 精确匹配、临时会话隔离、macOS scope/lease 与 entitlement 接线，以及锁定 `desktop_drop 0.8.0`；适配 SDK 3.47.6，未升级 SDK。
+- 修正后定向回归 backend 10 + UI 7 + shortcut 2，共 **19 项/2 秒通过**，日志 `apps/client/build/transient-stable-preferences-tests.log`；format 385 个 Dart 文件 0 changed、diff-check 通过。
+- Windows 原生 Profile 已通过，4 秒 exit 0，验证稳定 64 字符身份跨 engine 传递；日志 `apps/client/build/transient-native.log`。稳定偏好版本完整 Flutter 回归 968 passed / 1 optional benchmark skipped（5 分 14 秒，exit 0）。随后补入 NetworkStreamPromptSheet 闲置状态 Escape 取消、opening 状态不可取消及 Enter 提交，4 个 UI 文件 21 项/4 秒通过，日志 `apps/client/build/transient-final-ui-tests.log`；19 项及 21 项专项均包含 `transient_playback_shortcut_test.dart`，Windows `Ctrl+Shift+O` 与 macOS `Meta+Shift+O` 合成键盘自动化通过，不把补充用例并入全量数字。最终 `dart analyze lib test integration_test` clean、386 个 Dart 文件 format 0 changed、diff-check 通过。Windows Release 67.2 秒成功，日志 `apps/client/build/transient-release-final.log`；`app.so` 为 2026-10-24T21:29:03.7480828+08:00、12,665,736 bytes。五秒 smoke `2026-10-24T21:30:40.8223378+08:00` 通过，隐藏窗口响应、正常关闭、退出码 0。macOS/Linux 原生、实体拖放/文件选择器、真实服务器非 HTTP 协议、实体键盘及精确 UI 视觉仍待实机验收。
+- 本批不含音乐、媒体库导入、批量播放列表、系统文件关联或外部播放器。OS 冷启动 open-files/CLI 文件事件是原版既有能力，但本批没有实现/验收，作为后续缺口单列；详见[本地文件与网络 URL 临时播放计划](PLAYER_TEMPORARY_PLAYBACK_PLAN.zh-CN.md)。
+
+## 2026-10-24 系统外部播放器（验证收尾中）
+
+- 用户已批准迁移视频系统外部播放器；本阶段仅视频，不包括音乐。最终文件专项 23 项通过（后端 15、前端 7、Windows 原生 helper 1）；Dart 全量 991 passed / 2 条件跳过，`dart analyze` 无问题，397 个 Dart 文件 format 0 changes。全量包含后端 15 项，但前端损坏恢复补丁在全量文件载入后加入，因此两组数字分别记录，不累计相加。两个跳过项为未指定 native helper 路径的条件用例和可选 benchmark。Windows Profile `integration_test/external_playback_test.dart` 已通过：33.4 秒构建、约 4 秒运行，1 个业务用例通过；真实 secondary engine 经 IPC 调用主 service/helper，验证中文及 `&` 本地路径、HTTP(S) 启动和立即失败回传，相关数据库表均为 0。helper 不联网、不播放视频，不代表真实 Emby/VLC/系统默认关联验收。Windows Release 49.1 秒成功，`Release/data/app.so` 时间为 2026-10-25 14:30:05 +08；五秒 smoke 于 2026-10-25T14:30:30.3321959+08:00 通过，窗口响应正常、正常关闭、ExitCode 0。macOS/Linux 未实机验证，真实 Emby/VLC/系统默认关联与崩溃后 lease 回收仍待验。
+- 按原版恢复视频默认播放方式 `builtIn` / `external`、系统默认或自选应用路径，以及播放器右键/显式入口和 `VideoPlayerShortcutAction.openExternal`。后端实现由用户负责，前端按原版设置和入口实现。
+- 资源范围为本地文件、挂载/网络卷文件、ReelNest 缓存文件及 Emby HTTP(S) 媒体 URL。外部服务只接受 HTTP(S)，不沿用内置播放器九种 scheme。
+- 不注册 Windows 文件关联/协议、不写注册表、不做播放进度回读；不探测外部播放器退出或播放完成。主进程服务持有媒体缓存租约及文件访问 scope、定时续租；启动失败释放资源。启动 ACK 超时按结果未知处理并保留资源至 ReelNest 退出，避免外部播放器已启动时提前释放。真实 Windows helper 仅验证 argv 传递和立即失败反馈，不代表真实播放器或系统默认关联验收。
+- macOS/Linux 目前仅有源码接入，尚未实机验证。各项证据与限制见[系统外部播放器专项计划](PLAYER_EXTERNAL_PLAYBACK_PLAN.zh-CN.md)。
+
+## 2026-10-24 时间轴预览图无图问题（已修复，Windows 自动化与 Release/smoke 通过）
+
+- 用户反馈正式版时间轴预览图无图。根因已确认并修复代码；scrubber、完整播放器 Windows Profile 原生 UI 和真实资源联合 probe 均通过。7 个定向测试文件共 **31 项全部通过（8 秒）**；变更的 2 个文件 `dart analyze` clean、format 0 changed、diff-check 通过。Windows Release 与 smoke 通过。真实 Emby 的完整连接全链路、Release 人工操作、人工精确视觉和 macOS/Linux 尚未验收。
+- 根因：scrubber 原先只在预览请求完成后记录当前 bucket；远程取帧约需 2.2 秒，同一 bucket 内约 110 ms 的鼠标微动会不断取消并重启请求，导致预览无法及时完成。
+- 修复：新增 `_pendingBucket`，同 bucket 内复用计时器/在途请求，只有切换 bucket 才取消；离开 scrubber 与拖出时统一清理 pending 状态，允许后续重试。该批针对预览请求生命周期，不改变取帧位置或原版黑场过滤语义。
+- 专项验证：7 个定向测试文件合计 **31 项全部通过（8 秒）**，覆盖 scrubber（5 项）、完整页面 UI、native decoder、proxy/queue/cache/session、脱敏诊断及生命周期取消日志限量。之前真实已登录 Emby 资源单独取帧 probe 中，MP4 HTTP Range 返回 206；300 秒位置成功生成 101,801 字节 PNG（2,183 ms）；20 秒位置返回 `frame_dark` 并按原版语义过滤（原版也会过滤黑场）。本轮另对该视频的 809 秒、806 秒位置分别直接取帧成功，生成 101,339 字节/99,161 字节 PNG，用时 2,651 ms/1,928 ms。凭据仅供内存 probe 使用，不回写。本轮变更的 2 个文件 `dart analyze` clean、format 0 changed、diff-check 通过。本批未重复运行 941 项全量测试；此前全量结果不作为本批改动后的全量验收证据。
+- 诊断：`preview_unavailable` 使用脱敏固定字段 `code`、`durationMs`、`remote`、`cached`；首张成功预览记录 `preview_generated`。同媒体同 code 最多记录一次、code 种类不超过 16；不记录 URL、token、路径或异常原文。新增有限生命周期日志 `preview_started` / `preview_cancelled` / `preview_finished`，每媒体最多记录前 8 次，用于观测正常取消路径；诊断仅增强可观测性，不作为功能验收证据。
+- 完整页面本地媒体原生 UI：`flutter drive --profile -d windows --target=integration_test/timeline_preview_test.dart` exit 0。以本地生成视频、真实 `VideoPlayerPage` 和 `MediaKitVideoEngine` 验证实际 hover/鼠标微动后取得 312×176 native PNG，`RenderImage` 可解码；预览浮层位于 slider 上方、未被裁切且绘制像素 >100，主视频保持暂停且播放进度不变。integration_test plugin 未检测到的提示为 Windows 既有环境提示；AXTree 有 engine warning，但断言通过。
+- 真实资源联合 probe：`build/preview_live_ui_test.dart --profile` exit 0。完整 `VideoPlayerPage` 与 native `MediaKitVideoEngine` 播放已保存 Emby URL，同时由预览路径读取同一真实 URL；1.5 秒鼠标微动后成功取得 312×176 PNG 并通过实际绘制像素断言，主播放保持 playing，6 秒内完成。为避免改写用户状态，session/repository 使用内存 fixture，engine.open 重定向至真实 URL，preview generator 显式读取该 URL；Release 便携 DB 只读，凭据仅在内存中，不登录、不刷新、不写用户 DB/播放记录，也不上报 Emby。因此这证明真实资源的 native 播放/预览联合路径可工作，但不是 Release 人工操作或正式 Emby 连接全链路验收。integration_test plugin 提示和 AXTree engine warning 均未影响断言。
+- Windows 发布验证：Release 构建 **40.9 秒成功**，`data/app.so` 时间为 **2026-10-24 10:46:51.1594550 +08:00**，日志 `apps/client/build/preview-followup-release.log`。`scripts/windows-smoke.ps1 -ObservationSeconds 5` 于 **2026-10-24 10:53:16.6617996 +08:00** 通过，窗口响应正常、正常关闭、退出码 0。
+- 验收边界：Windows 定向自动化、完整本地媒体 Profile UI 与受控真实资源联合 probe 通过；真实 Emby 完整连接全链路、Release 人工操作、人工精确视觉、macOS/Linux 原生验收仍待。用户尚未验证指针停留 10 秒的场景，因此没有确认新的 10 秒预览挂起问题；当前证据显示约 2 秒首次加载符合实测。不做推测性 UI 改动或扩展为加载提示功能。原版 `VideoFramePreviewGenerator.swift` 黑场过滤及 FFmpeg 前后 ±1.5 秒重试规则继续作为行为参考。
 
 ## 2026-10-22 播放器截图阶段（已实现，Windows 自动化验证通过）
 

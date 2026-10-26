@@ -11,13 +11,30 @@ import 'package:reelnest/shell/mobile_shell.dart';
 import 'package:reelnest/shell/sidebar_components.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/features/playback/application/online_subtitle_providers.dart';
+import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
+import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/settings/presentation/settings_page.dart';
 import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/ui/theme/design_tokens.dart';
 
+import 'support/fake_online_subtitle_settings.dart';
+import 'support/fake_tmdb_settings.dart';
+
 void main() {
+  Finder settingsPageScroll() => find
+      .descendant(
+        of: find.byType(SettingsPage),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        ),
+      )
+      .first;
+
   Future<void> start(WidgetTester tester, Size size) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
@@ -32,6 +49,14 @@ void main() {
       ProviderScope(
         overrides: [
           sourceRepositoryProvider.overrideWithValue(repository),
+          onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+            FakeOnlineSubtitleSettingsRepository(
+              PlayerPreferencesRepository(repository.database),
+            ),
+          ),
+          tmdbSettingsRepositoryProvider.overrideWithValue(
+            FakeTmdbSettingsRepository(repository.database),
+          ),
           credentialStoreProvider.overrideWithValue(_MemoryCredentialStore()),
           sourcesProvider.overrideWith((ref) async => <MediaSource>[]),
         ],
@@ -233,12 +258,7 @@ void main() {
 
   testWidgets('mobile appearance changes survive navigation', (tester) async {
     Future<Finder> revealAppearance() async {
-      final scrollable = find
-          .descendant(
-            of: find.byType(SettingsPage),
-            matching: find.byType(Scrollable),
-          )
-          .first;
+      final scrollable = settingsPageScroll();
       final selector = find.byKey(
         const ValueKey('settings-appearance-selector'),
       );
@@ -283,7 +303,11 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('跟随系统'), 150);
+    await tester.scrollUntilVisible(
+      find.text('跟随系统'),
+      150,
+      scrollable: settingsPageScroll(),
+    );
     expect(find.text('跟随系统'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -2,16 +2,20 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../../domain/media_source.dart';
 import '../../../player/video_engine.dart';
 import '../application/playback_session.dart';
 import '../application/playback_timeline_controller.dart';
+import '../domain/video_keyboard_shortcuts.dart';
+import '../domain/transient_playback_target.dart';
+import 'player_behavior_settings.dart';
 import 'player_precision_controls.dart';
 import 'player_playback_info.dart';
+import 'player_shortcut_router.dart';
 import 'player_timeline_scrubber.dart';
 import 'player_track_popovers.dart';
 import 'player_visuals.dart';
@@ -77,6 +81,8 @@ class VideoPlayerPage extends StatefulWidget {
     required this.closeWindow,
     required this.setFullscreen,
     this.windowCoordinator,
+    this.initialTransient,
+    this.openExternal,
     super.key,
   });
   final MediaIdentity identity;
@@ -84,6 +90,8 @@ class VideoPlayerPage extends StatefulWidget {
   final Future<void> Function() closeWindow;
   final Future<void> Function(bool) setFullscreen;
   final PlayerWindowCoordinator? windowCoordinator;
+  final TransientPlaybackTarget? initialTransient;
+  final Future<void> Function()? openExternal;
   @override
   State<VideoPlayerPage> createState() => VideoPlayerPageState();
 }
@@ -120,7 +128,11 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     super.initState();
     session.waitForSurface = _waitForSurface;
     session.closeRequests.addListener(_onEndClose);
-    unawaited(session.open(widget.identity));
+    unawaited(
+      widget.initialTransient == null
+          ? session.open(widget.identity)
+          : session.openTransient(widget.initialTransient!),
+    );
   }
 
   @override
@@ -235,15 +247,85 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     });
   }
 
-  Future<void> _changeVolume(double delta) async {
-    final next = (session.clock.volume + delta).clamp(0, 100).toDouble();
-    _showVolumeHud(next);
-    await session.volume(next);
+  Future<void> _openAdvancedSettings() async {
+    if (_popoverActive) return;
+    _hidePlaybackInfo();
+    setState(() {
+      _popoverActive = true;
+      _controls = false;
+    });
+    try {
+      await showPlayerBehaviorSettings(context, session, _palette);
+    } finally {
+      if (mounted) {
+        setState(() => _popoverActive = false);
+        _show();
+      } else {
+        _popoverActive = false;
+      }
+    }
   }
 
-  Future<void> _toggleMuteWithHud() async {
-    await session.mute();
-    if (mounted) _showVolumeHud(session.clock.volume);
+  void _handleKeyboardAction(VideoShortcutAction action) {
+    unawaited(_performKeyboardAction(action));
+  }
+
+  Future<void> _performKeyboardAction(VideoShortcutAction action) async {
+    if (_showingPlaybackInfo &&
+        (action == VideoShortcutAction.exitFullscreenOrClose ||
+            action == VideoShortcutAction.showPlaybackInfo)) {
+      _hidePlaybackInfo();
+      return;
+    }
+    switch (action) {
+      case VideoShortcutAction.exitFullscreenOrClose:
+        if (_miniMode) {
+          await _toggleMiniMode();
+        } else if (_fullscreen) {
+          await _full();
+        } else {
+          await requestClose();
+        }
+      case VideoShortcutAction.closeWindow:
+        await requestClose();
+      case VideoShortcutAction.captureFrame:
+        if (!session.canCaptureFrame || session.capturingFrame) return;
+        _show();
+        await capturePlayerFrame(session, _showNotice);
+      case VideoShortcutAction.openExternal:
+        await openExternalPlayer();
+      case VideoShortcutAction.cycleABLoopPoint:
+        await _cycleABLoop();
+      case VideoShortcutAction.clearABLoop:
+        await _clearABLoop();
+      case VideoShortcutAction.showPlaybackInfo:
+        _showPlaybackInfo();
+      case VideoShortcutAction.volumeUp:
+      case VideoShortcutAction.volumeDown:
+      case VideoShortcutAction.mute:
+        await session.performKeyboardAction(action);
+        if (mounted) _showVolumeHud(session.clock.volume);
+      case VideoShortcutAction.toggleFullscreen:
+        await _full();
+      case VideoShortcutAction.toggleControlsLock:
+        _toggleControlsLock();
+      case VideoShortcutAction.showAdvancedSettings:
+        await _openAdvancedSettings();
+      case VideoShortcutAction.toggleMiniMode:
+        await _toggleMiniMode();
+      default:
+        await session.performKeyboardAction(action);
+        if (!mounted) return;
+        if (action == VideoShortcutAction.toggleCurrentLoop &&
+            session.controlError == null) {
+          _showNotice(
+            session.precision.value.loop.loopCurrentItem
+                ? '已开启单片循环'
+                : '已关闭单片循环',
+          );
+        }
+        _show();
+    }
   }
 
   Future<void> _cycleABLoop() async {
@@ -278,10 +360,24 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
         palette: _palette,
         onNotice: _showNotice,
         onOpenPlaybackInfo: _showPlaybackInfo,
+        onOpenExternal: widget.openExternal == null ? null : openExternalPlayer,
       );
     } finally {
       _popoverActive = false;
       if (mounted) _show();
+    }
+  }
+
+  Future<void> openExternalPlayer() async {
+    final openExternal = widget.openExternal;
+    if (openExternal == null) return;
+    try {
+      await openExternal();
+    } catch (error) {
+      if (!mounted) return;
+      _showNotice(
+        error is SourceFailure ? error.message : '外部播放器不可用，请检查设置后重试。',
+      );
     }
   }
 
@@ -620,7 +716,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
 
   bool _showNetworkSpeed(VideoClock value) => shouldShowPlayerNetworkSpeed(
     miniMode: _miniMode,
-    remoteMedia: session.item?.remote != null,
+    remoteMedia: session.item?.remote != null || session.httpStream,
     localFile: session.filePath != null,
     loading: session.loading,
     hasError: session.error != null,
@@ -781,8 +877,15 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
               ),
               const SizedBox(height: 16),
               FilledButton.tonalIcon(
+                key: ValueKey(
+                  widget.openExternal == null
+                      ? 'retry-built-in-playback'
+                      : 'open-error-with-system-player',
+                ),
                 onPressed: () => unawaited(
-                  session.open(session.item?.identity ?? widget.identity),
+                  widget.openExternal == null
+                      ? session.open(session.item?.identity ?? widget.identity)
+                      : openExternalPlayer(),
                 ),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(92, 32),
@@ -795,8 +898,13 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                     width: .8,
                   ),
                 ),
-                icon: const Icon(Icons.refresh_rounded, size: 17),
-                label: const Text('重试'),
+                icon: Icon(
+                  widget.openExternal == null
+                      ? Icons.refresh_rounded
+                      : Icons.open_in_new_rounded,
+                  size: 17,
+                ),
+                label: Text(widget.openExternal == null ? '重试' : '用外部播放器打开'),
               ),
             ],
           ),
@@ -1092,70 +1200,12 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   @override
-  Widget build(BuildContext context) => CallbackShortcuts(
-    bindings: {
-      const SingleActivator(LogicalKeyboardKey.space): () {
-        _show();
-        unawaited(session.toggle());
-      },
-      const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
-        _show();
-        unawaited(session.skip(-1));
-      },
-      const SingleActivator(LogicalKeyboardKey.arrowRight): () {
-        _show();
-        unawaited(session.skip(1));
-      },
-      const SingleActivator(LogicalKeyboardKey.keyF): () => unawaited(_full()),
-      const SingleActivator(LogicalKeyboardKey.keyP): () =>
-          unawaited(_toggleMiniMode()),
-      const SingleActivator(LogicalKeyboardKey.arrowUp): () {
-        unawaited(_changeVolume(5.5));
-      },
-      const SingleActivator(LogicalKeyboardKey.arrowDown): () {
-        unawaited(_changeVolume(-5.5));
-      },
-      const SingleActivator(LogicalKeyboardKey.keyM): () {
-        unawaited(_toggleMuteWithHud());
-      },
-      const SingleActivator(LogicalKeyboardKey.keyS): () {
-        if (!session.canCaptureFrame || session.capturingFrame) return;
-        _show();
-        unawaited(capturePlayerFrame(session, _showNotice));
-      },
-      const SingleActivator(LogicalKeyboardKey.keyI): () {
-        if (_showingPlaybackInfo) {
-          _hidePlaybackInfo();
-        } else {
-          _showPlaybackInfo();
-        }
-      },
-      const SingleActivator(LogicalKeyboardKey.keyB): () =>
-          unawaited(_cycleABLoop()),
-      const SingleActivator(LogicalKeyboardKey.keyB, shift: true): () =>
-          unawaited(_clearABLoop()),
-      const SingleActivator(LogicalKeyboardKey.comma): () {
-        _show();
-        unawaited(session.stepFrame(backward: true));
-      },
-      const SingleActivator(LogicalKeyboardKey.period): () {
-        _show();
-        unawaited(session.stepFrame());
-      },
-      const SingleActivator(LogicalKeyboardKey.home): () {
-        _show();
-        unawaited(session.seek(Duration.zero));
-      },
-      const SingleActivator(LogicalKeyboardKey.escape): () {
-        if (_showingPlaybackInfo) {
-          _hidePlaybackInfo();
-        } else if (_miniMode) {
-          unawaited(_toggleMiniMode());
-        } else {
-          unawaited(_fullscreen ? _full() : requestClose());
-        }
-      },
-    },
+  Widget build(BuildContext context) => PlayerShortcutRouter(
+    session: session,
+    enabled: !_closing,
+    onAction: _handleKeyboardAction,
+    onSeekForwardHold: (holding) =>
+        unawaited(session.setKeyboardSeekForwardHold(holding)),
     child: TooltipTheme(
       key: const ValueKey('player-tooltip-theme'),
       data: playerTooltipTheme,
@@ -1326,10 +1376,9 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     final compact = MediaQuery.sizeOf(context).width < 760;
     final leadingWidth = compact ? 180.0 : 216.0;
     final trailingWidth = widget.windowCoordinator == null ? 106.0 : 143.0;
-    final can =
-        !session.loading &&
-        session.error == null &&
-        value.duration > Duration.zero;
+    final transportReady =
+        !session.loading && session.error == null && session.engine != null;
+    final canSeek = transportReady && value.duration > Duration.zero;
     final duration = value.duration.inMilliseconds.toDouble();
     final position = (_scrub ?? value.position.inMilliseconds.toDouble()).clamp(
       0.0,
@@ -1490,7 +1539,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                 child: PlayerTimelineScrubber(
                                   duration: value.duration,
                                   position: position,
-                                  enabled: can,
+                                  enabled: canSeek,
                                   mode:
                                       session.options.videoScrubberPreviewMode,
                                   palette: _palette,
@@ -1549,7 +1598,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       alpha: .64,
                                     ),
                                   ),
-                                  onPressed: can
+                                  onPressed: canSeek
                                       ? () => unawaited(
                                           session.changeOptions(
                                             (options) => options.copyWith(
@@ -1601,7 +1650,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                         width: compact ? 32 : 60,
                                         height: 32,
                                         child: _PlayerDockActionSurface(
-                                          enabled: can,
+                                          enabled: transportReady,
                                           selected:
                                               _activePanel ==
                                               PlayerPanel.quality,
@@ -1617,7 +1666,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                                       BorderRadius.circular(14),
                                                 ),
                                               ),
-                                              onPressed: can
+                                              onPressed: transportReady
                                                   ? () => unawaited(
                                                       _panel(
                                                         PlayerPanel.quality,
@@ -1665,7 +1714,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                         PlayerSymbol.episodes,
                                         PlayerPanel.episodes,
                                         _episodeButton,
-                                        can,
+                                        transportReady,
                                       ),
                                       const SizedBox(width: 5),
                                     ],
@@ -1674,7 +1723,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       PlayerSymbol.subtitle,
                                       PlayerPanel.subtitles,
                                       _subtitleButton,
-                                      can,
+                                      transportReady,
                                     ),
                                     const SizedBox(width: 5),
                                     _panelButton(
@@ -1682,7 +1731,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       PlayerSymbol.audio,
                                       PlayerPanel.audio,
                                       _audioButton,
-                                      can,
+                                      transportReady,
                                     ),
                                     const SizedBox(width: 5),
                                     _panelButton(
@@ -1690,7 +1739,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       PlayerSymbol.bookmark,
                                       PlayerPanel.markers,
                                       _markerButton,
-                                      can && precision.identity != null,
+                                      canSeek && precision.identity != null,
                                     ),
                                   ],
                                 ),
@@ -1703,7 +1752,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                   _dockIcon(
                                     '上一集',
                                     Icons.skip_previous,
-                                    can
+                                    transportReady
                                         ? () => unawaited(session.adjacent(-1))
                                         : null,
                                   ),
@@ -1713,7 +1762,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                     value.playing
                                         ? Icons.pause_rounded
                                         : Icons.play_arrow_rounded,
-                                    can
+                                    transportReady
                                         ? () => unawaited(session.toggle())
                                         : null,
                                     emphasized: true,
@@ -1722,7 +1771,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                   _dockIcon(
                                     '下一集',
                                     Icons.skip_next,
-                                    can
+                                    transportReady
                                         ? () => unawaited(session.adjacent(1))
                                         : null,
                                   ),
@@ -1746,7 +1795,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                           : PlayerSymbol.speaker,
                                       PlayerPanel.volume,
                                       _volumeButton,
-                                      can,
+                                      transportReady,
                                     ),
                                     const SizedBox(width: 5),
                                     _panelButton(
@@ -1754,7 +1803,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       PlayerSymbol.settings,
                                       PlayerPanel.settings,
                                       _settingsButton,
-                                      can,
+                                      transportReady,
                                     ),
                                     const SizedBox(width: 5),
                                     if (widget.windowCoordinator != null) ...[

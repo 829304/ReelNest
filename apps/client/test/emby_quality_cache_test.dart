@@ -18,6 +18,7 @@ import 'package:reelnest/features/playback/domain/playback_marker.dart';
 import 'package:reelnest/features/playback/domain/video_subtitle_settings.dart';
 import 'package:reelnest/player/video_timeline.dart';
 import 'package:reelnest/features/sources/data/emby_cache_repository.dart';
+import 'package:reelnest/features/sources/data/artwork_decode_queue.dart';
 import 'package:reelnest/features/sources/application/emby_providers.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/emby_connection_repository.dart';
@@ -230,6 +231,90 @@ void main() {
       );
     }
   });
+  test('cache shutdown cancels artwork awaiting client initialization without late requests', () async {
+    await cache.dispose();
+    final pendingClient = Completer<EmbyClient>();
+    var readCredential = false;
+    final blocked = EmbyConnectionRepository(
+      sources: sources,
+      client: pendingClient.future,
+      stores: (id) {
+        readCredential = true;
+        return stores[id]!;
+      },
+    );
+    cache = EmbyCacheRepository(
+      sources: sources,
+      connections: blocked,
+      cacheDirectory: () async => directory,
+    );
+    final outcome = expectLater(
+      cache.artwork(source.id, 'film'),
+      throwsA(isA<ScanCancelled>()),
+    );
+    await waitFor(() => readCredential);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await cache.dispose().timeout(const Duration(seconds: 1));
+    await outcome;
+    pendingClient.complete(client);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      server.requests.where((r) => r.uri.path.contains('/Images/')),
+      isEmpty,
+    );
+    blocked.dispose();
+  });
+
+  for (final diskHit in [true, false]) {
+    test(
+      'shutdown cancels queued ${diskHit ? "disk" : "downloaded"} validation without closing shared decoder',
+      () async {
+        if (diskHit) await cache.artwork(source.id, 'film');
+        await cache.dispose();
+        final queue = _ObservedDecodeQueue();
+        final gate = Completer<void>();
+        final active = queue.run(() => gate.future);
+        cache = EmbyCacheRepository(
+          sources: sources,
+          connections: connections,
+          cacheDirectory: () async => directory,
+          decodeQueue: queue,
+        );
+        final outcome = expectLater(
+          cache.artwork(source.id, 'film'),
+          throwsA(isA<ScanCancelled>()),
+        );
+        await queue.queued.future.timeout(const Duration(seconds: 3));
+        final phases = <String>[];
+        try {
+          await cache
+              .dispose(onProgress: (phase, _) => phases.add(phase))
+              .timeout(const Duration(seconds: 1));
+          await outcome;
+          expect(phases, contains('image_tasks'));
+          expect(
+            phases,
+            contains(
+              diskHit ? 'pending_disk_validate' : 'pending_network_validate',
+            ),
+          );
+          await expectLater(
+            cache.artwork(source.id, 'late'),
+            throwsA(isA<ScanCancelled>()),
+          );
+          final rows = await sources.database
+              .customSelect('SELECT * FROM artwork_disk_cache')
+              .get();
+          expect(rows.length, diskHit ? 1 : 0);
+        } finally {
+          gate.complete();
+          await active;
+        }
+        expect(await queue.run(() async => 42), 42);
+        queue.dispose();
+      },
+    );
+  }
 
   test('quality switch retains pause, volume/rate, absolute progress and failed switch keeps old decoder', () async {
     final engines = <FakeVideoEngine>[];
@@ -1486,4 +1571,19 @@ void main() {
     );
     expect(await file.readAsBytes(), video);
   });
+}
+
+class _ObservedDecodeQueue extends ArtworkDecodeQueue {
+  _ObservedDecodeQueue() : super(maximum: 1);
+  final queued = Completer<void>();
+  int calls = 0;
+  @override
+  Future<T> run<T>(
+    Future<T> Function() work, {
+    ScanCancellation? cancellation,
+  }) {
+    final result = super.run(work, cancellation: cancellation);
+    if (++calls == 2) queued.complete();
+    return result;
+  }
 }

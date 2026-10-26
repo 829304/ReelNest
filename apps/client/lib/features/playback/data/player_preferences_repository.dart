@@ -16,6 +16,7 @@ import '../domain/video_performance_settings.dart';
 import '../domain/video_render_settings.dart';
 import '../domain/video_screenshot.dart';
 import '../domain/video_equalizer_settings.dart';
+import '../domain/video_keyboard_shortcuts.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -52,6 +53,7 @@ class PlayerPreferencesRepository {
         'videoRenderSettings',
         'videoScreenshotMode',
         'videoEqualizerSettings',
+        'videoKeyboardShortcuts',
         'videoPlaybackEndAction',
         'videoLoopCurrentItem',
         'videoMarkerSkipBehavior',
@@ -113,6 +115,22 @@ class PlayerPreferencesRepository {
   }
 
   Future<String?> audio(IndexedMedia item) => _read(_key(item, 'audio'));
+  Future<VideoKeyboardShortcuts> get keyboardShortcuts async {
+    final raw = await _read('global.videoKeyboardShortcuts');
+    if (raw == null) return VideoKeyboardShortcuts();
+    try {
+      if (raw.length > 128 * 1024) return VideoKeyboardShortcuts();
+      return VideoKeyboardShortcuts.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return VideoKeyboardShortcuts();
+    }
+  }
+
+  Future<void> rememberKeyboardShortcuts(VideoKeyboardShortcuts value) =>
+      _write(
+        'global.videoKeyboardShortcuts',
+        value.overrides.isEmpty ? null : jsonEncode(value.toJson()),
+      );
   Future<String?> subtitle(IndexedMedia item) => _read(_key(item, 'sub'));
   Future<void> rememberAudio(IndexedMedia item, String? language) =>
       _write(_key(item, 'audio'), language);
@@ -159,6 +177,8 @@ class PlayerPreferencesRepository {
   ).normalized;
   Future<String> get subtitleLanguage async =>
       (await _read('global.subtitleLanguage')) ?? 'zh-CN';
+  Future<void> rememberSubtitleLanguage(String language) =>
+      _write('global.subtitleLanguage', language);
 
   Future<VideoDisplaySettings> get displaySettings async {
     Future<T> mode<T extends Enum>(

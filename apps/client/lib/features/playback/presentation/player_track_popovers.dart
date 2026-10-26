@@ -9,6 +9,7 @@ import '../../../ui/widgets/slider_overlay_scope.dart';
 import '../../../domain/media_source.dart';
 
 import '../application/playback_session.dart';
+import '../domain/online_subtitle.dart';
 import 'player_behavior_settings.dart';
 import 'player_basic_settings.dart';
 import 'player_precision_controls.dart';
@@ -96,8 +97,8 @@ Future<void> showPlayerPanel(
   },
 );
 
-/// Dimensions, spacing, headings and rows translated from the three original
-/// PlayerView popovers. Online subtitle search has its own later service port.
+/// Dimensions, spacing, headings and rows translated from the original
+/// PlayerView popovers.
 class PlayerTrackPopover extends StatefulWidget {
   const PlayerTrackPopover({
     required this.panel,
@@ -117,27 +118,80 @@ class PlayerTrackPopover extends StatefulWidget {
 class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
   double? _draftVolume;
   final _markerPanelUpdates = ValueNotifier<int>(0);
+  Object? _onlineSubtitleIdentity;
+  bool _didAutoSearchOnlineSubtitles = false;
   PlaybackSession get session => widget.session;
   PlayerPalette get palette => widget.palette;
   @override
   void initState() {
     super.initState();
+    _onlineSubtitleIdentity = session.item?.identity;
+    session.addListener(_handleSessionChange);
     _refreshServerSubtitles();
+    _scheduleOnlineSubtitleSearch();
   }
 
   @override
   void didUpdateWidget(PlayerTrackPopover oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.session != widget.session) {
+      oldWidget.session.removeListener(_handleSessionChange);
+      if (oldWidget.panel == PlayerPanel.subtitles) {
+        oldWidget.session.cancelOnlineSubtitleSearch();
+      }
+      session.addListener(_handleSessionChange);
+      _onlineSubtitleIdentity = session.item?.identity;
+      _didAutoSearchOnlineSubtitles = false;
+    } else if (oldWidget.panel == PlayerPanel.subtitles &&
+        widget.panel != PlayerPanel.subtitles) {
+      session.cancelOnlineSubtitleSearch();
+    } else if (oldWidget.panel != PlayerPanel.subtitles &&
+        widget.panel == PlayerPanel.subtitles) {
+      _didAutoSearchOnlineSubtitles = false;
+    }
     if (oldWidget.panel != widget.panel ||
         oldWidget.session != widget.session) {
       _refreshServerSubtitles();
+      _scheduleOnlineSubtitleSearch();
     }
   }
 
   @override
   void dispose() {
+    session.removeListener(_handleSessionChange);
+    if (widget.panel == PlayerPanel.subtitles) {
+      session.cancelOnlineSubtitleSearch();
+    }
     _markerPanelUpdates.dispose();
     super.dispose();
+  }
+
+  void _handleSessionChange() {
+    if (widget.panel != PlayerPanel.subtitles) return;
+    final identity = session.item?.identity;
+    if (identity != _onlineSubtitleIdentity) {
+      _onlineSubtitleIdentity = identity;
+      _didAutoSearchOnlineSubtitles = false;
+    }
+    if (!_didAutoSearchOnlineSubtitles && !session.loading) {
+      _scheduleOnlineSubtitleSearch();
+    }
+  }
+
+  void _scheduleOnlineSubtitleSearch() {
+    if (widget.panel != PlayerPanel.subtitles) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          widget.panel != PlayerPanel.subtitles ||
+          _didAutoSearchOnlineSubtitles ||
+          session.loading ||
+          session.item == null) {
+        return;
+      }
+      _didAutoSearchOnlineSubtitles = true;
+      _onlineSubtitleIdentity = session.item?.identity;
+      unawaited(session.searchOnlineSubtitles());
+    });
   }
 
   void _refreshServerSubtitles() {
@@ -699,7 +753,174 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
             () => session.selectSecondarySubtitle(track.id),
           ),
       ],
+      ..._onlineSubtitles(),
     ];
+  }
+
+  List<Widget> _onlineSubtitles() {
+    final results = session.onlineSubtitleResults.take(20).toList();
+    final noResults =
+        results.isEmpty &&
+        session.onlineSubtitleError?.startsWith('未找到字幕') == true;
+    return [
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: _divider(),
+      ),
+      Row(
+        children: [
+          Text(
+            '在线字幕',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: palette.secondary,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              '· Podnapisi${session.hasOpenSubtitlesKey ? ' · OpenSubtitles' : ''}',
+              key: const ValueKey('online-subtitle-providers'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10.5, color: palette.subdued),
+            ),
+          ),
+          const Spacer(),
+          if (session.searchingOnlineSubtitles)
+            SizedBox(
+              key: const ValueKey('online-subtitle-searching'),
+              width: 24,
+              height: 24,
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.7,
+                  color: palette.primary,
+                ),
+              ),
+            )
+          else
+            Tooltip(
+              message: '重新搜索',
+              child: InkWell(
+                key: const ValueKey('online-subtitle-refresh'),
+                onTap: () => unawaited(session.searchOnlineSubtitles()),
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: Icon(
+                    Icons.refresh_rounded,
+                    size: 15,
+                    color: palette.secondary,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      if (noResults)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            '暂无在线字幕结果',
+            key: const ValueKey('online-subtitle-empty'),
+            style: TextStyle(fontSize: 12, color: palette.subdued),
+          ),
+        )
+      else if (session.onlineSubtitleError != null)
+        PlayerInlineNotice(
+          key: const ValueKey('online-subtitle-error'),
+          message: session.onlineSubtitleError!,
+          palette: palette,
+          kind: results.isEmpty
+              ? PlayerInlineNoticeKind.error
+              : PlayerInlineNoticeKind.warning,
+        )
+      else if (!session.searchingOnlineSubtitles && results.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            '暂无在线字幕结果',
+            key: const ValueKey('online-subtitle-empty'),
+            style: TextStyle(fontSize: 12, color: palette.subdued),
+          ),
+        ),
+      for (final result in results) _onlineSubtitleRow(result),
+    ];
+  }
+
+  Widget _onlineSubtitleRow(OnlineSubtitleResult result) {
+    final downloading = session.downloadingOnlineSubtitleID == result.id;
+    final downloaded = session.downloadedOnlineSubtitlePaths.containsKey(
+      result.id,
+    );
+    final downloadBusy = session.downloadingOnlineSubtitleID != null;
+    return Semantics(
+      button: true,
+      selected: downloaded,
+      enabled: !downloadBusy,
+      label:
+          '${result.displayName}，${result.sourceName}，${result.language}，${result.downloads} 次下载',
+      child: PlayerMenuRowSurface(
+        key: ValueKey('online-subtitle-${result.id}'),
+        palette: palette,
+        selected: downloaded,
+        enabled: !downloadBusy,
+        minHeight: 42,
+        onTap: () => unawaited(session.downloadOnlineSubtitle(result)),
+        child: Row(
+          spacing: 9,
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: downloading
+                  ? Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.7,
+                        color: palette.primary,
+                      ),
+                    )
+                  : Icon(
+                      downloaded ? Icons.check_rounded : Icons.download_rounded,
+                      size: 15,
+                      color: downloaded ? palette.primary : palette.subdued,
+                    ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 2,
+                children: [
+                  Text(
+                    result.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: downloadBusy && !downloading
+                          ? palette.subdued
+                          : palette.primary,
+                    ),
+                  ),
+                  Text(
+                    '${result.sourceName} · ${result.language} · ${result.downloads} 下载',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10.5, color: palette.secondary),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _adjust(

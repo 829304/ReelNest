@@ -32,16 +32,17 @@ String _newId() {
   ).join();
 }
 
-String _embyLocation(String value) {
+String _mediaServerLocation(String value, MediaSourceKind kind) {
   final uri = Uri.tryParse(value);
   if (uri == null ||
-      uri.scheme != 'emby' ||
+      !kind.isEmbyCompatible ||
+      uri.scheme != kind.name ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
       uri.hasQuery ||
       uri.hasFragment ||
       uri.pathSegments.length != 1) {
-    throw const SourceFailure('Emby 来源标识无效。');
+    throw const SourceFailure('远程媒体源标识无效。');
   }
   return uri.toString();
 }
@@ -147,7 +148,7 @@ class SourceRepository {
       SELECT s.*, COUNT(m.local_id) AS item_count,
         COALESCE(SUM(CASE WHEN m.is_series = 0 THEN m.missing ELSE 0 END), 0) AS missing_count
       FROM sources s LEFT JOIN media m ON m.source_id = s.id
-        AND (m.is_series = 0 OR s.kind = 'emby')
+        AND (m.is_series = 0 OR s.kind IN ('emby','jellyfin'))
       ${id == null ? '' : 'WHERE s.id = ?'}
       GROUP BY s.id ORDER BY s.name COLLATE NOCASE, s.id
     '''
@@ -253,8 +254,8 @@ class SourceRepository {
     if (normalizedName.isEmpty) {
       throw const SourceFailure('请输入来源名称。');
     }
-    final root = kind == MediaSourceKind.emby
-        ? _embyLocation(location)
+    final root = kind.isEmbyCompatible
+        ? _mediaServerLocation(location, kind)
         : await _adapter(kind).validateLocation(location);
     final identity = _tracksIdentity(kind) ? await identityLookup(root) : null;
     final id = sourceId ?? _newId();
@@ -387,7 +388,7 @@ class SourceRepository {
       // cannot certify newly selected libraries, even if their next sync fails.
       // Invalidate in the settings transaction; keep media and playback intact.
       final expandsEmbyScope =
-          current.kind == MediaSourceKind.emby &&
+          current.kind.isEmbyCompatible &&
           previousLibraries.isNotEmpty &&
           (nextLibraries.isEmpty ||
               !previousLibraries.containsAll(nextLibraries));
@@ -860,7 +861,9 @@ class SourceRepository {
     var added = false;
     await database.transaction(() async {
       final current = await source(expected.id, includeCounts: false);
-      if (current.kind != MediaSourceKind.emby ||
+      if (!current.kind.isEmbyCompatible ||
+          current.kind != expected.kind ||
+          current.location != expected.location ||
           jsonEncode(current.options.toJson()) !=
               jsonEncode(expected.options.toJson()) ||
           items.any(
@@ -943,7 +946,7 @@ class SourceRepository {
     final runId = _newId();
     try {
       final current = await source(id);
-      if (current.kind != MediaSourceKind.emby) {
+      if (!current.kind.isEmbyCompatible) {
         throw const SourceFailure('此来源不支持远程同步。');
       }
       final snapshot = await fetch(current, cancellation);
@@ -956,8 +959,10 @@ class SourceRepository {
       await database.transaction(() async {
         cancellation.check();
         final latest = await source(id);
-        if (jsonEncode(latest.options.toJson()) !=
-            jsonEncode(current.options.toJson())) {
+        if (latest.kind != current.kind ||
+            latest.location != current.location ||
+            jsonEncode(latest.options.toJson()) !=
+                jsonEncode(current.options.toJson())) {
           throw const SourceFailure('同步期间库范围已改变，请重新同步。');
         }
         await RemoteIndexWriter(database).write(
@@ -1153,9 +1158,113 @@ class SourceRepository {
     // MediaRepository.upsert retains missing descriptive fields. The original
     // scanner uses different ID prefixes for movie/episode/albumvideo/etc.; our
     // relative file key stays stable, so a kind change explicitly resets them.
+    if (item.remote == null) {
+      // A reclassified/reparented episode must not carry a confirmed match from
+      // its old season/series. Clear only metadata owned by that association.
+      await database.customStatement(
+        '''
+      UPDATE media SET year=NULL,overview=NULL
+      WHERE source_id=? AND local_id=?
+        AND EXISTS(SELECT 1 FROM local_episode_metadata e
+          WHERE e.source_id=media.source_id AND e.local_id=media.local_id)
+        AND (identity_kind!=? OR type!=? OR parent_id IS NOT ?
+          OR season_number IS NOT ? OR episode_number IS NOT ?)
+    ''',
+        [
+          item.identity.sourceId,
+          item.identity.localId,
+          identityKind,
+          item.type,
+          item.parentId,
+          item.seasonNumber,
+          item.episodeNumber,
+        ],
+      );
+      await database.customStatement(
+        '''
+      DELETE FROM local_episode_metadata WHERE source_id=? AND local_id=?
+        AND EXISTS(SELECT 1 FROM media WHERE source_id=? AND local_id=?
+          AND (identity_kind!=? OR type!=? OR parent_id IS NOT ?
+            OR season_number IS NOT ? OR episode_number IS NOT ?))
+    ''',
+        [
+          item.identity.sourceId,
+          item.identity.localId,
+          item.identity.sourceId,
+          item.identity.localId,
+          identityKind,
+          item.type,
+          item.parentId,
+          item.seasonNumber,
+          item.episodeNumber,
+        ],
+      );
+      if (item.isSeries) {
+        // Clear episode-owned descriptions before the root FK cascades away
+        // their provenance; local episode artwork was never owned by TMDB.
+        await database.customStatement(
+          '''
+          UPDATE media SET year=NULL,overview=NULL
+          WHERE (source_id,local_id) IN (
+            SELECT e.source_id,e.local_id FROM media parent
+              CROSS JOIN local_episode_metadata e INDEXED BY local_episode_series
+            WHERE parent.source_id=? AND parent.local_id=?
+              AND (parent.identity_kind!=? OR parent.type!=? OR parent.is_series!=?)
+              AND e.source_id=parent.source_id AND e.series_local_id=parent.local_id)
+        ''',
+          [
+            item.identity.sourceId,
+            item.identity.localId,
+            identityKind,
+            item.type,
+            item.isSeries ? 1 : 0,
+          ],
+        );
+      }
+      await database.customStatement(
+        '''
+      DELETE FROM local_series_metadata WHERE source_id=? AND local_id=?
+        AND EXISTS(SELECT 1 FROM media WHERE source_id=? AND local_id=?
+          AND (identity_kind!=? OR type!=? OR is_series!=?))
+    ''',
+        [
+          item.identity.sourceId,
+          item.identity.localId,
+          item.identity.sourceId,
+          item.identity.localId,
+          identityKind,
+          item.type,
+          item.isSeries ? 1 : 0,
+        ],
+      );
+    }
+    await database.customStatement(
+      '''
+      DELETE FROM local_movie_metadata WHERE source_id=? AND local_id=?
+        AND EXISTS (SELECT 1 FROM media WHERE source_id=? AND local_id=?
+          AND (identity_kind!=? OR type!=?))
+    ''',
+      [
+        item.identity.sourceId,
+        item.identity.localId,
+        item.identity.sourceId,
+        item.identity.localId,
+        identityKind,
+        item.type,
+      ],
+    );
+    final matched = item.remote != null
+        ? '0'
+        : '(EXISTS (SELECT 1 FROM local_movie_metadata lm '
+              'WHERE lm.source_id=media.source_id AND lm.local_id=media.local_id) '
+              'OR EXISTS (SELECT 1 FROM local_series_metadata lt '
+              'WHERE lt.source_id=media.source_id AND lt.local_id=media.local_id) '
+              'OR EXISTS (SELECT 1 FROM local_episode_metadata le '
+              'WHERE le.source_id=media.source_id AND le.local_id=media.local_id))';
     String metadataValue(String column) => item.remote != null
         ? 'excluded.$column'
-        : 'CASE WHEN media.identity_kind = excluded.identity_kind '
+        : 'CASE WHEN $matched THEN media.$column '
+              'WHEN media.identity_kind = excluded.identity_kind '
               'THEN COALESCE(excluded.$column, media.$column) ELSE excluded.$column END';
     await database.customStatement(
       '''
@@ -1164,7 +1273,8 @@ class SourceRepository {
         original_title, overview, poster_path, backdrop_path, identity_kind)
       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(source_id, local_id) DO UPDATE SET
-        title = excluded.title, type = excluded.type, bytes = excluded.bytes,
+        title = CASE WHEN $matched THEN media.title ELSE excluded.title END,
+        type = excluded.type, bytes = excluded.bytes,
         modified = excluded.modified, missing = 0, year = ${metadataValue('year')},
         season_number = excluded.season_number, episode_number = excluded.episode_number,
         series_directory = excluded.series_directory, is_series = excluded.is_series,

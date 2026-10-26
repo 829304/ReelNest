@@ -15,3 +15,7 @@ Source-page title illustrations, selected linear icon paths, section/header
 layout, directory reachability checks and the local scan queue are translated
 from MediaLib's VividIconLibrary.swift, SourcesView.swift, FileAccessService.swift
 and AppState.swift at the same revision.
+
+The Jellyfin connector mark reproduces the official Jellyfin icon geometry
+from jellyfin-ux (https://github.com/jellyfin/jellyfin-ux), licensed under
+CC BY-SA 4.0. Copyright Jellyfin contributors.

@@ -1,0 +1,36 @@
+import 'dart:convert';
+
+import 'package:drift/drift.dart';
+
+import '../../../domain/media_source.dart';
+import '../../../storage/library_database.dart';
+import '../domain/external_player_settings.dart';
+
+class ExternalPlayerSettingsRepository {
+  ExternalPlayerSettingsRepository(this.database);
+  final LibraryDatabase database;
+  static const key = 'global.externalVideoPlayerSettings';
+  Future<ExternalPlayerSettings> load() async {
+    final row = await database
+        .customSelect(
+          'SELECT value FROM player_preferences WHERE key=?',
+          variables: [Variable(key)],
+        )
+        .getSingleOrNull();
+    if (row == null) return const ExternalPlayerSettings();
+    try {
+      final raw = row.read<String>('value');
+      if (raw.length > 256 * 1024) throw const FormatException();
+      return ExternalPlayerSettings.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      throw const SourceFailure('无法读取外部播放器设置，请重新选择播放器。');
+    }
+  }
+
+  Future<void> save(ExternalPlayerSettings value) => database.customStatement(
+    'INSERT INTO player_preferences(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+    [key, jsonEncode(value.toJson())],
+  );
+}

@@ -167,7 +167,7 @@ final _batchProvider = FutureProvider.autoDispose
       final repository = ref.watch(sourceRepositoryProvider);
       final playback = ref.watch(playbackRepositoryProvider);
       final source = await repository.source(key.series.sourceId);
-      if (source.kind == MediaSourceKind.emby && source.lastScan == null) {
+      if (source.kind.isEmbyCompatible && source.lastScan == null) {
         if (!ref.mounted) throw const ScanCancelled();
         await ref.watch(embySeriesEpisodesProvider(key.series).future);
       }

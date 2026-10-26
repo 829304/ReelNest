@@ -63,6 +63,7 @@ void main() {
     test(
       'rejects ignored ranges, redirects and mismatched content range ($status)',
       () async {
+        final issues = <String>[];
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         final client = HttpClient();
         server.listen((request) async {
@@ -80,9 +81,12 @@ void main() {
           await request.response.close();
         });
         final proxy = await BoundedVideoPreviewProxy.open(
-          Uri.parse('http://127.0.0.1:${server.port}/stream.mkv'),
+          Uri.parse(
+            'http://127.0.0.1:${server.port}/stream.mkv?api_key=secret',
+          ),
           VideoPreviewCancellation(),
           maxRangeBytes: 8,
+          onIssue: issues.add,
         );
         addTearDown(() async {
           client.close(force: true);
@@ -93,6 +97,9 @@ void main() {
         expect(response.statusCode, 502);
         await response.drain<void>();
         expect(proxy.receivedBytes, 0);
+        expect(issues, [
+          status == 206 ? 'upstream_range' : 'upstream_http_$status',
+        ]);
       },
     );
   }

@@ -80,6 +80,35 @@ class EmbyCacheRepository {
   final int maxImageBytes, maxImageFiles;
   final Future<void> Function()? beforePublish;
   final tasks = ValueNotifier<Map<MediaIdentity, VideoCacheTask>>({});
+  final _shutdown = ScanCancellation();
+  final _imageStages = <String, String>{};
+  void Function(String phase, int milliseconds)? _shutdownProgress;
+  void _checkOpen() {
+    if (_disposed) throw const ScanCancelled();
+  }
+
+  Future<T> _imageStage<T>(
+    String key,
+    String phase,
+    Future<T> Function() work,
+  ) async {
+    final previous = _imageStages[key];
+    _imageStages[key] = phase;
+    final watch = Stopwatch()..start();
+    try {
+      return await work();
+    } finally {
+      if (previous == null) {
+        _imageStages.remove(key);
+      } else {
+        _imageStages[key] = previous;
+      }
+      if (_disposed) {
+        _shutdownProgress?.call('artwork_$phase', watch.elapsedMilliseconds);
+      }
+    }
+  }
+
   final _images = <String, Future<Uint8List>>{};
   final _queue = <VideoCacheTask>[];
   bool _draining = false, _disposed = false;
@@ -147,6 +176,7 @@ class EmbyCacheRepository {
     int revision = 0,
     ArtworkPriority priority = ArtworkPriority.visible,
   }) {
+    if (_disposed) return Future.error(const ScanCancelled());
     // Successful source sync/detail refresh supplies a persisted timestamp.
     // Separate generations also prevent a late old request replacing new art;
     // old generations remain subject to the same global LRU budget.
@@ -179,24 +209,30 @@ class EmbyCacheRepository {
     int index,
     int? width,
   ) async {
+    _checkOpen();
     Directory? root;
     var replacing = false;
     try {
-      root = await imageRoot();
+      root = await _imageStage(key, "disk_root", imageRoot);
+      _checkOpen();
       final row = await sources.database
           .customSelect(
             'SELECT * FROM artwork_disk_cache WHERE cache_key = ?',
             variables: [Variable(key)],
           )
           .getSingleOrNull();
+      _checkOpen();
       if (row != null && _token(row.read<String>('filename'))) {
         replacing = true;
-        final file = File(p.join(root.path, row.read<String>('filename')));
+        final file = File(p.join(root!.path, row.read<String>('filename')));
         if (await FileSystemEntity.type(file.path, followLinks: false) ==
                 FileSystemEntityType.file &&
             await file.length() <= 24 * 1024 * 1024) {
-          final bytes = await file.readAsBytes();
-          await _validateImage(bytes);
+          _checkOpen();
+          final bytes = await _imageStage(key, "disk_read", file.readAsBytes);
+          _checkOpen();
+          await _imageStage(key, "disk_validate", () => _validateImage(bytes));
+          _checkOpen();
           await sources.database.customStatement(
             'UPDATE artwork_disk_cache SET accessed_at = ? WHERE cache_key = ?',
             [_now(), key],
@@ -204,9 +240,12 @@ class EmbyCacheRepository {
           return bytes;
         }
       }
+    } on ScanCancelled {
+      rethrow;
     } catch (_) {
       /* A corrupt/missing disk copy can be fetched again. */
     }
+    _checkOpen();
     if ((_imageFailures[key]?.until ?? 0) > _now()) {
       throw const SourceFailure('封面暂不可用，请稍后重试。');
     }
@@ -221,23 +260,29 @@ class EmbyCacheRepository {
     _imageCancellations.add(cancellation);
     try {
       if (_disposed) throw const ScanCancelled();
-      final bytes = await connections
-          .artwork(
-            sourceId,
-            itemId,
-            backdrop: backdrop,
-            index: index,
-            maxWidth: width,
-            cancellation: cancellation,
-          )
-          .timeout(
-            const Duration(seconds: 14),
-            onTimeout: () {
-              cancellation.cancel();
-              throw const SourceFailure('封面读取超时。');
-            },
-          );
-      await _validateImage(bytes);
+      final bytes = await _imageStage(
+        key,
+        "network",
+        () => connections
+            .artwork(
+              sourceId,
+              itemId,
+              backdrop: backdrop,
+              index: index,
+              maxWidth: width,
+              cancellation: cancellation,
+            )
+            .timeout(
+              const Duration(seconds: 14),
+              onTimeout: () {
+                cancellation.cancel();
+                throw const SourceFailure('封面读取超时。');
+              },
+            ),
+      );
+      _checkOpen();
+      await _imageStage(key, "network_validate", () => _validateImage(bytes));
+      _checkOpen();
       _imageFailures.remove(key);
       if (root != null) {
         // UUID paths and a manifest replace avoid authenticated URLs on disk.
@@ -245,20 +290,34 @@ class EmbyCacheRepository {
         final file = File(p.join(root.path, filename));
         final temporary = File('${file.path}.part');
         try {
-          await temporary.writeAsBytes(bytes, flush: true);
-          await sources.database.transaction(() async {
-            await _writeLock();
-            await temporary.rename(file.path);
-            await sources.database.customStatement(
-              '''
+          await _imageStage(
+            key,
+            "file_write",
+            () => temporary.writeAsBytes(bytes, flush: true),
+          );
+          _checkOpen();
+          await _imageStage(
+            key,
+            "publish",
+            () => sources.database.transaction(() async {
+              await _writeLock();
+              _checkOpen();
+              await temporary.rename(file.path);
+              await sources.database.customStatement(
+                '''
               INSERT INTO artwork_disk_cache(cache_key,source_id,filename,bytes,accessed_at)
               VALUES(?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET
                 filename=excluded.filename,bytes=excluded.bytes,accessed_at=excluded.accessed_at
             ''',
-              [key, sourceId, filename, bytes.length, _now()],
-            );
-            await _pruneImages(root!, force: replacing);
-          });
+                [key, sourceId, filename, bytes.length, _now()],
+              );
+              await _imageStage(
+                key,
+                "prune",
+                () => _pruneImages(root!, force: replacing),
+              );
+            }),
+          );
         } catch (_) {
           if (await temporary.exists()) await temporary.delete();
           if (await file.exists()) await file.delete();
@@ -295,6 +354,7 @@ class EmbyCacheRepository {
   }
 
   Future<void> _validateImage(Uint8List bytes) => decodes.run(() async {
+    _checkOpen();
     if (bytes.length > 24 * 1024 * 1024) throw const SourceFailure('封面过大。');
     final codec = await ui.instantiateImageCodec(
       bytes,
@@ -304,14 +364,16 @@ class EmbyCacheRepository {
       targetHeight: 1,
     );
     try {
+      _checkOpen();
       final frame = await codec.getNextFrame();
       frame.image.dispose();
     } finally {
       codec.dispose();
     }
-  });
+  }, cancellation: _shutdown);
 
   Future<void> _pruneImages(Directory root, {bool force = false}) async {
+    if (_disposed) return;
     // Keep the exact budget, but don't enumerate thousands of files while
     // holding the database write lock after every downloaded thumbnail.
     final size = await sources.database
@@ -333,6 +395,7 @@ class EmbyCacheRepository {
         .get();
     var bytes = 0, count = 0;
     for (final row in rows) {
+      if (_disposed) return;
       bytes += row.read<int>('bytes');
       count++;
       if (bytes <= maxImageBytes && count <= maxImageFiles) continue;
@@ -347,7 +410,9 @@ class EmbyCacheRepository {
                 .get())
             .map((r) => r.read<String>('filename'))
             .toSet();
+    if (_disposed) return;
     await for (final file in root.list(followLinks: false)) {
+      if (_disposed) return;
       if (file is File &&
           _token(p.basename(file.path)) &&
           !kept.contains(p.basename(file.path))) {
@@ -703,7 +768,7 @@ class EmbyCacheRepository {
       task.state = VideoCacheTaskState.complete;
       sources.traceChanged();
       try {
-        await maintenance();
+        if (!_disposed) await maintenance();
       } catch (_) {
         task.error ??= '视频已缓存，容量清理未能完成。';
       }
@@ -818,9 +883,11 @@ class EmbyCacheRepository {
     MediaIdentity? remove,
     String? protectedBundle,
   }) async {
+    if (_disposed) return;
     final root = await videoRoot();
     await sources.database.transaction(() async {
       await _writeLock();
+      if (_disposed) return;
       await sources.database.customStatement(
         'DELETE FROM video_cache_leases WHERE expires_at < ?',
         [_now()],
@@ -854,6 +921,7 @@ class EmbyCacheRepository {
           )
           .get();
       for (final row in tracked) {
+        if (_disposed) return;
         final bundle = row.read<String>('bundle');
         if (!validBundles.contains(bundle) && !leased.contains(bundle)) {
           await sources.database.customStatement(
@@ -896,6 +964,7 @@ class EmbyCacheRepository {
       });
       final sizes = <String, int>{};
       for (final entry in list) {
+        if (_disposed) return;
         sizes[entry.bundle] = await _bundleBytes(root, entry.bundle);
       }
       var total = sizes.values.fold<int>(0, (a, b) => a + b);
@@ -911,6 +980,7 @@ class EmbyCacheRepository {
           .map((t) => t.item.identity)
           .toSet();
       for (final entry in list) {
+        if (_disposed) return;
         if (leased.contains(entry.bundle) ||
             entry.bundle == protectedBundle ||
             (!clear &&
@@ -933,6 +1003,7 @@ class EmbyCacheRepository {
           )
           .get();
       for (final row in stagingRows) {
+        if (_disposed) return;
         if (row.read<int>('touched_at') >= _now() - 86400000) continue;
         await _removeBundle(root, row.read<String>('token'), staging: true);
         await sources.database.customStatement(
@@ -946,6 +1017,7 @@ class EmbyCacheRepository {
       final stagingRoot = Directory(p.join(root.path, '.staging'));
       if (await stagingRoot.exists()) {
         await for (final entity in stagingRoot.list(followLinks: false)) {
+          if (_disposed) return;
           final token = p.basename(entity.path);
           if (!_token(token) || registered.contains(token)) continue;
           final stat = await entity.stat();
@@ -967,6 +1039,7 @@ class EmbyCacheRepository {
       final objects = Directory(p.join(root.path, 'objects'));
       if (await objects.exists()) {
         await for (final entity in objects.list(followLinks: false)) {
+          if (_disposed) return;
           final token = p.basename(entity.path);
           if (_token(token) && !keep.contains(token)) {
             await _removeBundle(root, token);
@@ -1007,9 +1080,21 @@ class EmbyCacheRepository {
   }
 
   Future<void>? _disposing;
-  Future<void> dispose() => _disposing ??= _dispose();
+  Future<void> dispose({
+    void Function(String phase, int milliseconds)? onProgress,
+  }) {
+    _shutdownProgress ??= onProgress;
+    return _disposing ??= _dispose();
+  }
+
   Future<void> _dispose() async {
     _disposed = true;
+    for (final phase in _imageStages.values.toList()) {
+      _shutdownProgress?.call('pending_$phase', 0);
+    }
+    _shutdown.cancel();
+    if (_ownsDecodes) decodes.dispose();
+    final shutdownWatch = Stopwatch()..start();
     for (final token in _imageCancellations) {
       token.cancel();
     }
@@ -1027,6 +1112,8 @@ class EmbyCacheRepository {
         await t.work;
       }),
     );
+    _shutdownProgress?.call('video_tasks', shutdownWatch.elapsedMilliseconds);
+    shutdownWatch.reset();
     await Future.wait(
       _images.values.map((f) async {
         try {
@@ -1034,7 +1121,7 @@ class EmbyCacheRepository {
         } catch (_) {}
       }),
     );
-    if (_ownsDecodes) decodes.dispose();
+    _shutdownProgress?.call("image_tasks", shutdownWatch.elapsedMilliseconds);
     tasks.dispose();
   }
 }

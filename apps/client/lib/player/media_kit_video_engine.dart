@@ -18,6 +18,7 @@ import 'video_screenshot_engine.dart';
 import '../features/playback/domain/video_screenshot.dart';
 import 'video_engine.dart';
 import 'video_tracks.dart';
+import 'video_track_shortcut_engine.dart';
 import 'video_timeline.dart';
 import 'playback_diagnostics.dart';
 import 'video_load_monitor.dart';
@@ -46,6 +47,7 @@ import '../platform/playback_sleep_guard.dart';
 class MediaKitVideoEngine
     implements
         VideoEngine,
+        VideoTrackShortcutEngine,
         VideoTimelineEngine,
         VideoAspectEngine,
         VideoSubtitleSettingsEngine,
@@ -707,7 +709,20 @@ class MediaKitVideoEngine
     if (!await File(path).exists()) {
       throw StateError('Subtitle file unavailable');
     }
-    await _native.command(['sub-add', path, 'select']);
+    final existing = tracks.subtitles
+        .where(
+          (t) =>
+              t.externalFilename != null && p.equals(t.externalFilename!, path),
+        )
+        .firstOrNull;
+    if (existing == null) {
+      await _native.command(['sub-add', path, 'select']);
+    } else {
+      // Online downloads can atomically replace an auto-loaded sidecar. mpv
+      // keeps its decoded text in memory until explicitly reloaded.
+      await _native.command(['sub-reload', '${existing.id}']);
+      await selectSubtitle(existing.id);
+    }
     await _set('sub-visibility', 'yes');
     await refreshTracks();
     if (!tracks.subtitles.any(
@@ -719,6 +734,25 @@ class MediaKitVideoEngine
     )) {
       throw StateError('Subtitle load rejected');
     }
+  }
+
+  @override
+  Future<void> toggleSubtitleVisibility() async {
+    await _native.command(['cycle', 'sub-visibility']);
+    await refreshTracks();
+  }
+
+  @override
+  Future<void> cycleSubtitleTrack() async {
+    await _set('sub-visibility', 'yes');
+    await _native.command(['cycle', 'sub']);
+    await refreshTracks();
+  }
+
+  @override
+  Future<void> cycleAudioTrack() async {
+    await _native.command(['cycle', 'audio']);
+    await refreshTracks();
   }
 
   @override

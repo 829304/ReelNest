@@ -7,13 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/emby_providers.dart';
 import '../data/artwork_image_pipeline.dart';
+import '../../metadata/application/tmdb_providers.dart';
+import '../../metadata/data/tmdb_artwork_store.dart';
 
 import 'package:path/path.dart' as p;
 
 import '../../../domain/media.dart';
 import '../../../domain/media_source.dart';
 
-/// Shared poster rendering. File and Emby data never use legacy Mlink artwork/auth.
+/// Shared poster rendering. File and Emby-compatible data never use legacy
+/// Mlink artwork/auth.
 class LocalMediaArtwork extends ConsumerWidget {
   const LocalMediaArtwork({
     required this.source,
@@ -39,7 +42,7 @@ class LocalMediaArtwork extends ConsumerWidget {
         this.placeholder ??
         LocalPosterPlaceholder(title: item.cardTitle, type: item.displayType);
     if (relative == null) return placeholder;
-    if (source.kind == MediaSourceKind.emby) {
+    if (source.kind.isEmbyCompatible) {
       final pipeline = ref.watch(embyImagePipelineProvider);
       final key = (
         sourceId: source.id,
@@ -92,7 +95,31 @@ class LocalMediaArtwork extends ConsumerWidget {
         },
       );
     }
+    if (TmdbArtworkStore.isReference(relative)) {
+      return ref
+          .watch(tmdbArtworkFileProvider(relative))
+          .when(
+            loading: () => placeholder,
+            error: (_, _) => placeholder,
+            data: (file) =>
+                _fileImage(context, file, placeholder, revision ?? 0),
+          );
+    }
     final path = p.joinAll([source.location, ...p.posix.split(relative)]);
+    return _fileImage(
+      context,
+      File(path),
+      placeholder,
+      source.lastScan?.millisecondsSinceEpoch ?? 0,
+    );
+  }
+
+  Widget _fileImage(
+    BuildContext context,
+    File file,
+    Widget placeholder,
+    int imageRevision,
+  ) {
     return LayoutBuilder(
       builder: (context, size) {
         final width = (size.maxWidth * MediaQuery.devicePixelRatioOf(context))
@@ -100,10 +127,7 @@ class LocalMediaArtwork extends ConsumerWidget {
             .clamp(1, 2048);
         return Image(
           image: ResizeImage(
-            _ScannedFileImage(
-              File(path),
-              source.lastScan?.millisecondsSinceEpoch ?? 0,
-            ),
+            _ScannedFileImage(file, imageRevision),
             width: width,
           ),
           fit: fit,

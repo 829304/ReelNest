@@ -69,9 +69,11 @@ class EmbyDetailRepository {
     final token = cancellation ?? ScanCancellation();
     token.check();
     final item = await sources.media(id);
-    if ((await sources.source(id.sourceId, includeCounts: false)).kind !=
-        MediaSourceKind.emby) {
-      throw const SourceFailure('此来源不支持 Emby 详情。');
+    if (!(await sources.source(
+      id.sourceId,
+      includeCounts: false,
+    )).kind.isEmbyCompatible) {
+      throw const SourceFailure('此来源不支持 远程媒体库详情。');
     }
     final cached = await read(id);
     token.check();
@@ -91,7 +93,7 @@ class EmbyDetailRepository {
             onTimeout: () {
               expired = true;
               token.cancel();
-              throw const SourceFailure('Emby 详情读取超时，请重试。');
+              throw const SourceFailure('远程媒体库详情读取超时，请重试。');
             },
           );
       token.check();
@@ -128,7 +130,7 @@ class EmbyDetailRepository {
           refreshError: '详情更新失败，正在显示本机缓存。',
         );
       }
-      throw const SourceFailure('Emby 详情读取失败，基础信息和播放仍可使用。');
+      throw const SourceFailure('远程媒体库详情读取失败，基础信息和播放仍可使用。');
     } finally {
       unlisten();
     }

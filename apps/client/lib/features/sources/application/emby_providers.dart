@@ -321,7 +321,7 @@ Future<void> prepareEmbySeries(
     final item = await sources.media(id);
     if (item.isSeries &&
         item.remote != null &&
-        (await sources.source(id.sourceId)).kind == MediaSourceKind.emby) {
+        (await sources.source(id.sourceId)).kind.isEmbyCompatible) {
       await browser.loadEpisodes(id, ScanCancellation());
     }
   }

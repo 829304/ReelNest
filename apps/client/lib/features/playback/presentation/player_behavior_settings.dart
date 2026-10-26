@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../application/playback_session.dart';
 import 'player_basic_settings.dart';
+import 'player_shortcut_settings.dart';
 import 'player_subtitle_sync_settings.dart';
 import 'player_video_display_settings.dart';
 import 'player_visuals.dart';
 
-enum PlayerAdvancedSettingsTab { playback, sync, video, subtitles }
+enum PlayerAdvancedSettingsTab { playback, sync, video, subtitles, shortcuts }
 
 extension on PlayerAdvancedSettingsTab {
   String get title => switch (this) {
@@ -15,6 +16,7 @@ extension on PlayerAdvancedSettingsTab {
     PlayerAdvancedSettingsTab.sync => '音画同步',
     PlayerAdvancedSettingsTab.video => '画面',
     PlayerAdvancedSettingsTab.subtitles => '字幕',
+    PlayerAdvancedSettingsTab.shortcuts => '快捷键',
   };
 
   IconData get icon => switch (this) {
@@ -22,6 +24,7 @@ extension on PlayerAdvancedSettingsTab {
     PlayerAdvancedSettingsTab.sync => Icons.graphic_eq_rounded,
     PlayerAdvancedSettingsTab.video => Icons.aspect_ratio_rounded,
     PlayerAdvancedSettingsTab.subtitles => Icons.closed_caption_outlined,
+    PlayerAdvancedSettingsTab.shortcuts => Icons.keyboard_rounded,
   };
 }
 
@@ -60,6 +63,7 @@ class _PlayerBehaviorSettingsDialogState
     extends State<_PlayerBehaviorSettingsDialog> {
   PlayerAdvancedSettingsTab selected = PlayerAdvancedSettingsTab.playback;
   Future<List<String>>? fontFamilies;
+  int shortcutEditorEpoch = 0;
 
   PlaybackSession get session => widget.session;
   PlayerPalette get palette => widget.palette;
@@ -67,6 +71,12 @@ class _PlayerBehaviorSettingsDialogState
   void select(PlayerAdvancedSettingsTab tab) {
     if (selected == tab) return;
     setState(() {
+      if (selected == PlayerAdvancedSettingsTab.shortcuts) {
+        // A later same-frame selection must still create a fresh recorder.
+        // Otherwise a recorded key could survive a rapid/programmatic tab
+        // round-trip even though the editor was left in between.
+        shortcutEditorEpoch++;
+      }
       selected = tab;
       if (tab == PlayerAdvancedSettingsTab.subtitles) {
         fontFamilies ??= session.subtitleFontFamilies;
@@ -121,48 +131,60 @@ class _PlayerBehaviorSettingsDialogState
                             _sidebar(compact ? 132 : 150),
                             VerticalDivider(width: 1, color: palette.rowStroke),
                             Expanded(
-                              child: Scrollbar(
-                                child: SingleChildScrollView(
-                                  key: ValueKey(
-                                    'player-settings-content-${selected.name}',
-                                  ),
-                                  padding: EdgeInsets.fromLTRB(
-                                    compact ? 14 : 18,
-                                    16,
-                                    compact ? 14 : 18,
-                                    18,
-                                  ),
-                                  child: switch (selected) {
-                                    PlayerAdvancedSettingsTab.playback =>
-                                      PlayerBasicSettings(
-                                        session: session,
-                                        palette: palette,
-                                        showControlError: false,
+                              child:
+                                  selected ==
+                                      PlayerAdvancedSettingsTab.shortcuts
+                                  ? PlayerShortcutSettings(
+                                      key: ValueKey(
+                                        'player-shortcut-settings-$shortcutEditorEpoch',
                                       ),
-                                    PlayerAdvancedSettingsTab.sync =>
-                                      PlayerSyncSettings(
-                                        session: session,
-                                        palette: palette,
-                                        showControlError: false,
+                                      session: session,
+                                      palette: palette,
+                                    )
+                                  : Scrollbar(
+                                      child: SingleChildScrollView(
+                                        key: ValueKey(
+                                          'player-settings-content-${selected.name}',
+                                        ),
+                                        padding: EdgeInsets.fromLTRB(
+                                          compact ? 14 : 18,
+                                          16,
+                                          compact ? 14 : 18,
+                                          18,
+                                        ),
+                                        child: switch (selected) {
+                                          PlayerAdvancedSettingsTab.playback =>
+                                            PlayerBasicSettings(
+                                              session: session,
+                                              palette: palette,
+                                              showControlError: false,
+                                            ),
+                                          PlayerAdvancedSettingsTab.sync =>
+                                            PlayerSyncSettings(
+                                              session: session,
+                                              palette: palette,
+                                              showControlError: false,
+                                            ),
+                                          PlayerAdvancedSettingsTab.video =>
+                                            PlayerVideoDisplaySettings(
+                                              session: session,
+                                              palette: palette,
+                                              showControlError: false,
+                                            ),
+                                          PlayerAdvancedSettingsTab.subtitles =>
+                                            PlayerSubtitleStyleSettings(
+                                              session: session,
+                                              palette: palette,
+                                              fontFamilies: fontFamilies ??=
+                                                  session.subtitleFontFamilies,
+                                              onRetryFonts: retryFonts,
+                                              showControlError: false,
+                                            ),
+                                          PlayerAdvancedSettingsTab.shortcuts =>
+                                            const SizedBox.shrink(),
+                                        },
                                       ),
-                                    PlayerAdvancedSettingsTab.video =>
-                                      PlayerVideoDisplaySettings(
-                                        session: session,
-                                        palette: palette,
-                                        showControlError: false,
-                                      ),
-                                    PlayerAdvancedSettingsTab.subtitles =>
-                                      PlayerSubtitleStyleSettings(
-                                        session: session,
-                                        palette: palette,
-                                        fontFamilies: fontFamilies ??=
-                                            session.subtitleFontFamilies,
-                                        onRetryFonts: retryFonts,
-                                        showControlError: false,
-                                      ),
-                                  },
-                                ),
-                              ),
+                                    ),
                             ),
                           ],
                         ),

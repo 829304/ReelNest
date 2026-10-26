@@ -57,7 +57,7 @@ final sourceReachabilityProvider = FutureProvider<Map<String, bool>>((
   final sources = await ref.watch(sourcesProvider.future);
   final results = await Future.wait(
     sources.map((source) async {
-      final online = source.kind == MediaSourceKind.emby
+      final online = source.kind.isEmbyCompatible
           ? await ref.read(embyConnectionProvider).isReachable(source)
           : await repository.isReachable(source);
       if (ref.mounted) {
@@ -247,7 +247,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     final initialBatch = _active == null && !_updatingSettings;
     final futures = <Future<void>>[];
     for (final source in sources.where(
-      (s) => s.kind.isFileSource || s.kind == MediaSourceKind.emby,
+      (s) => s.kind.isFileSource || s.kind.isEmbyCompatible,
     )) {
       futures.add(scan(source.id));
       if (initialBatch) {
@@ -353,7 +353,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
       }
 
       late SourceScanSummary summary;
-      if (source.kind == MediaSourceKind.emby) {
+      if (source.kind.isEmbyCompatible) {
         summary = await ref
             .read(embySyncProvider)
             .synchronize(id, onProgress: update);
@@ -369,7 +369,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
           progress: progress,
           failed: summary.errors.isNotEmpty,
           message: summary.errors.isEmpty
-              ? (source.kind == MediaSourceKind.emby
+              ? (source.kind.isEmbyCompatible
                     ? '同步完成：${summary.importedItems} 个媒体条目'
                     : '扫描完成：${summary.importedItems} 个媒体文件')
               : '扫描结束：${summary.importedItems} 个媒体文件，${summary.errors.length} 个错误。${summary.errors.first}',

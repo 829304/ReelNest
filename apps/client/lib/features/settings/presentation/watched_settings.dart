@@ -5,6 +5,7 @@ import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../../sources/application/source_providers.dart';
+import 'external_player_settings_panel.dart';
 import 'video_cache_settings.dart';
 
 /// SettingsView.videoSettings: watched threshold remains in general settings.
@@ -71,6 +72,13 @@ class _WatchedSettingsState extends ConsumerState<WatchedSettings> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const ExternalPlayerSettingsPanel(),
+          const AppSettingsDivider(),
+          const AppSettingsSubsectionHeader(
+            title: '观看规则',
+            icon: Icons.tune_rounded,
+          ),
+          const SizedBox(height: 12),
           AppSettingsRow(
             title: '已看判定',
             subtitle: '播放达到设定比例后标记为已看',

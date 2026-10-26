@@ -518,6 +518,8 @@ class _TaskRow extends StatelessWidget {
         ? const Color(0xFFFF9F45)
         : task.title.startsWith('Emby')
         ? const Color(0xFFFF5C8A)
+        : task.title.startsWith('Jellyfin')
+        ? const Color(0xFF9B59B6)
         : _blue;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

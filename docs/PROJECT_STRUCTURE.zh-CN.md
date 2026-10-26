@@ -6,7 +6,7 @@
 
 当前已有 `apps/client`、五个平台工程模板、桌面外壳、CI、文件来源与索引、本地视频播放、健康与设置、Emby 视频闭环，以及首页 H1、H2 推荐与跨来源视频搜索。正常入口包含首页、媒体源、仪表盘和设置；Mlink 媒体库/服务器模块只保留为隔离历史路径。第一阶段仍只开发和验收 Windows、macOS、Linux。
 
-当前只有一个 Flutter 包；`packages/`、`contracts/` 等目录仍是边界稳定后的目标结构，不代表已经建立。Jellyfin、Plex、ReelNest Server、音乐及其他原版模块尚待迁移，完整播放器和三桌面端 UI/原生验收也未完成。[首页运行状态摘要](HOME_RUNTIME_STATUS.zh-CN.md)已接通，共享被动状态位于 `app/runtime_observations.dart`，纯模型位于 `domain/runtime_status.dart`。[首页编排](HOME_LAYOUT_EDITOR.zh-CN.md)位于 `features/home`，布局纯规则、SQLite 偏好仓库、串行保存控制器和编辑组件分别独立；当前下一批为首页桌面交互与真实数据验收，见[首页实施计划](HOME_IMPLEMENTATION_PLAN.zh-CN.md)；实现总览见[文档索引](README.md)。
+当前只有一个 Flutter 包；`packages/`、`contracts/` 等目录仍是边界稳定后的目标结构，不代表已经建立。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke，真实服务器、macOS/Linux 与人工视觉验收待；Plex、ReelNest Server、音乐及其他原版模块尚待迁移，完整播放器和三桌面端 UI/原生验收也未完成。[首页运行状态摘要](HOME_RUNTIME_STATUS.zh-CN.md)已接通，共享被动状态位于 `app/runtime_observations.dart`，纯模型位于 `domain/runtime_status.dart`。[首页编排](HOME_LAYOUT_EDITOR.zh-CN.md)位于 `features/home`，布局纯规则、SQLite 偏好仓库、串行保存控制器和编辑组件分别独立；当前下一批为首页桌面交互与真实数据验收，见[首页实施计划](HOME_LAYOUT_EDITOR.zh-CN.md)；实现总览见[文档索引](README.md)。
 
 Emby 画质与流式下载位于 `api/emby/emby_quality.dart` / `emby_download.dart`；图片及视频缓存清单、下载协调和清理保护位于 `features/sources/data/emby_cache_repository.dart`，UI 为 `emby_cache_actions.dart` 与设置中的 `video_cache_settings.dart`。播放会话仅获取/释放缓存租约，不直接下载或维护目录。实现范围见[画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)。
 
@@ -203,7 +203,7 @@ flowchart TD
 
 各协议 DTO 在来源适配器边界转换成项目领域对象。文件扫描结果也转换成相同的媒体身份与展示模型。页面不拼接服务器 URL、不依赖协议字段或全局登录会话；能力差异显式表示。接口样例必须脱敏并标记版本。
 
-本地文件夹、移动硬盘、已挂载 NAS、Emby、Jellyfin、Plex 均为核心范围。前三类共享文件来源实现；后三类分别适配协议。每个来源有稳定 sourceId，缓存、条目与播放记录按来源/账号隔离。一个来源离线不阻断其他来源。原 `features/servers` 和 `api/mlink` 为待解耦的试验实现，不是目标结构；Mlink 不作为必需来源继续扩展。
+本地文件夹、移动硬盘、已挂载 NAS、Emby、Jellyfin、Plex 均为核心范围。前三类共享文件来源实现；远程来源保留各自稳定 sourceId、kind/provider、凭据和 URI 身份，只有经协议盘点确认兼容的 API 才共享内部实现；Emby/Jellyfin 共用 Emby-compatible 链路并按 kind 处理差异，Plex 使用自己的协议路径。Jellyfin 基础视频来源闭环已实现，真实服务器/跨平台/人工视觉验收仍待。缓存、条目与播放记录按来源/账号隔离，一个来源离线不阻断其他来源。原 `features/servers` 和 `api/mlink` 为待解耦的试验实现，不是目标结构；Mlink 不作为必需来源继续扩展。
 
 ## 8. 测试、依赖与文件约定
 

@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-22
+- 最后更新：2026-10-26
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -63,6 +63,8 @@ library/reelnest.sqlite
 
 枚举存在不等于对应连接器已经实现。ReelNest Server 仍属于后续原版能力迁移范围，当前尚未进入该枚举。
 
+Jellyfin 基础视频来源闭环已实现，Windows Release/smoke 已通过。实现使用独立 `sources.kind = jellyfin`、Jellyfin provider/凭据类型及 `jellyfin://` 来源路径；普通 HTTP API 采用 `Authorization: MediaBrowser`，播放/下载 URL 采用 `ApiKey` 查询参数，Emby 既有认证行为保持不变。来源配置使用 `connector.jellyfin.uuid`；共享凭据工厂内部的 `emby.source.<uuid>` 命名按来源 UUID 隔离，并通过 provider kind 校验，不表示二者身份相同。凭据存入既有安全凭据存储，不写普通 SQLite 字段。远程媒体数据沿用现有 `remote_media_metadata`、`remote_media_details`、`remote_library_views` 结构并按 `source_id` 隔离；不新增表、不改变 schema 或执行迁移，`schemaVersion` 维持 1。官方稳定版 OpenAPI 12.3.0 已核对；实施方回报共享协议定向 255/255、同步/界面组 61/61、Emby 基线 37/37、UI 2/2 与 Windows Native 真实 mpv 业务用例通过；analyze 与 421 个 Dart 文件格式检查通过。本批未跑全量 Flutter 测试。真实服务器与其他平台验收待完成。实现与验收边界见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。
+
 ### 媒体身份
 
 媒体主身份是：
@@ -93,6 +95,9 @@ library/reelnest.sqlite
 | `playback_markers` | 持久 | 内嵌章节、手动章节和书签等播放标记 | `(source_id, local_id, id)` |
 | `media_library_preferences` | 持久 | 本机想看与人工评级 | `(source_id, local_id)` |
 | `player_preferences` | 持久 | 播放器、库视图及模块键值偏好 | `key` |
+| `local_movie_metadata` | 持久 | 本地电影 TMDB 详情 JSON | `(source_id, local_id)` |
+| `local_series_metadata` | 持久 | 本地剧集 TMDB 详情 JSON | `(source_id, local_id)` |
+| `local_episode_metadata` | 持久 | TMDB 季详情与已有本地单集的资料/关联 | `(source_id, local_id)` |
 | `remote_media_metadata` | 持久 | 无凭据的远程列表元数据 JSON | `(source_id, local_id)` |
 | `remote_media_details` | 持久 | 无凭据的远程详情缓存 JSON | `(source_id, local_id)` |
 | `remote_library_views` | 持久 | 远程服务器媒体库目录 | `(source_id, library_id)` |
@@ -103,6 +108,15 @@ library/reelnest.sqlite
 | `video_cache_staging` | 持久协调 | 未提交下载的暂存目录 | `token` |
 | `video_offline_subscriptions` | 持久 | 系列自动离线订阅 | `(source_id, series_id)`，另有唯一 `id` |
 | `scan_stage` | 临时 | 当前进程扫描/同步成功身份集合 | `(run_id, local_id)` |
+
+### 本地 TMDB 元数据（剧集手动匹配已实现）
+
+`local_movie_metadata` 按 `(source_id, local_id)` 保存 `value` JSON，并关联本地 `media` 条目。本地剧集手动匹配已实现并纳入当前初始 schema：
+
+- `local_series_metadata(source_id, local_id, value)`：以 `(source_id, local_id)` 为主键，保存本地剧集的 TMDB 元数据 JSON。
+- `local_episode_metadata(source_id, local_id, series_local_id, value)`：以 `(source_id, local_id)` 为主键，保存已有本地 episode 的 TMDB 季详情元数据及其所属本地系列关联。`(source_id, local_id)` 外键引用 `media`；`(source_id, series_local_id)` 外键引用 `local_series_metadata(source_id, local_id)`；两条外键均 `ON DELETE CASCADE`。
+
+单集关联取自本地 `seasonNumber >= 0` 与 `episodeNumber > 0`；最多 2 个季详情并行请求，不逐集请求。无有效编号时不猜测匹配。匹配只更新已有 episode 的 title/overview/year，保留媒体身份、季集号、路径、图片和播放记录；剧集海报/背景图复用安全本地图片存储，不下载季/单集图片，也不创建 TMDB 季卡。部分季失败保留已有单集资料；同一 TMDB 系列重匹配保留此前成功季。提交时若媒体集合或编号变化则拒绝整事务。重扫保护已确认 title/overview；季号、集号、父级或类型变化会删除失效的单集元数据关联。`schemaVersion=1`，不引入开发中间版本迁移或历史兼容分支。后端定向 102/102、UI 12/12、Windows Profile 原生及 Release/smoke 验证通过；真实 TMDB 公服、macOS/Linux 与人工精确视觉仍待。详见[TMDB 本地剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
 
 ## `sources`
 
@@ -275,6 +289,14 @@ library/reelnest.sqlite
 此值作为单个字符串写入既有 `player_preferences` 键值结构，不新增 schema。当前实现和验收状态见[播放器画面锐化与滤镜组合计划](PLAYER_VIDEO_SHARPEN_PLAN.zh-CN.md)；降噪目前仅核查依赖和方案，不持久化、不实现。
 
 键空间必须带模块或范围前缀；新代码不能使用含义不明的通用键。JSON、数值和布尔值均以 TEXT 保存，读取端负责校验与默认值。敏感凭据禁止写入该表。
+
+播放器自定义快捷键使用现有 `player_preferences` 全局键：
+
+| 键 | 值格式 | 默认/内容 |
+|---|---|---|
+| `global.videoKeyboardShortcuts` | JSON 字符串 | 动作 ID → 快捷键列表的 override map；未保存的动作使用代码定义的默认绑定，动作值 `[]` 表示明确清除该动作绑定 |
+
+该键仅保存用户覆盖，不展开写入整套默认表；单动作恢复默认只删除该动作 override，全部恢复默认删除整个 `global.videoKeyboardShortcuts` 键。快捷键配置沿用既有 `player_preferences`，不新增表、列或 schema 版本。该快捷键 JSON 的读取上限为 128 KiB；损坏值回退默认且不自动重写。偏好读取使用单次 SQL 快照；`playback_read_performance_test` 单元 fixture 中该读取路径的 SQLite 计数由 28 次降为 1 次，不是 Profile 原生性能测量。动作范围、录制/冲突及焦点规则见[播放器快捷键迁移计划](PLAYER_SHORTCUTS_PLAN.zh-CN.md)；自动化及 Windows Release/smoke 于 2026-10-24 通过，平台实机与 UI 验收边界仍见计划。
 
 当前字幕样式/音画同步批次已将下列全局默认值接入现有 `player_preferences` 键值表（代码已冻结；Windows 构建及 smoke 通过，平台与 UI 验收范围见[模块记录](PLAYER_TRACKS.zh-CN.md#当前批次字幕样式与音画同步代码已冻结windows-验证完成2026-10-16)）：
 

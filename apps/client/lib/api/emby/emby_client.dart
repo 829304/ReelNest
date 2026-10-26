@@ -54,26 +54,38 @@ class EmbySession {
     required this.username,
     required this.userId,
     required this.token,
+    this.kind = MediaSourceKind.emby,
   });
   final Uri server;
   final String username, userId, token;
+  final MediaSourceKind kind;
   Map<String, dynamic> toJson() => {
     'server': server.toString(),
     'username': username,
     'userId': userId,
     'token': token,
+    'kind': kind.name,
   };
   factory EmbySession.fromJson(Map<String, dynamic> data) => EmbySession(
     server: embyServerUri(data['server'] as String),
     username: data['username'] as String,
     userId: _required(data['userId']),
     token: _required(data['token']),
+    kind: _provider(data['kind']),
   );
+}
+
+MediaSourceKind _provider(Object? value) {
+  final kind = value == null
+      ? MediaSourceKind.emby
+      : MediaSourceKind.values.byName(value as String);
+  if (!kind.isEmbyCompatible) throw const SourceFailure('无效的媒体服务器类型。');
+  return kind;
 }
 
 String _required(Object? value) {
   if (value is! String || value.trim().isEmpty) {
-    throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的 Emby 数据。');
+    throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的媒体服务器数据。');
   }
   return value;
 }
@@ -129,7 +141,9 @@ class EmbyClient {
     String username,
     String password, {
     ScanCancellation? cancellation,
+    MediaSourceKind kind = MediaSourceKind.emby,
   }) async {
+    if (!kind.isEmbyCompatible) throw const SourceFailure('此媒体服务器类型尚未接入。');
     final base = embyServerUri(server);
     if (username.trim().isEmpty) throw const SourceFailure('请输入用户名。');
     final value = await _request(
@@ -137,6 +151,7 @@ class EmbyClient {
       ['Users', 'AuthenticateByName'],
       method: 'POST',
       body: {'Username': username.trim(), 'Pw': password},
+      kind: kind,
       cancellation: cancellation,
     );
     final user = value['User'];
@@ -150,6 +165,7 @@ class EmbyClient {
           : username.trim(),
       userId: _required(user['Id']),
       token: _required(value['AccessToken']),
+      kind: kind,
     );
   }
 
@@ -159,8 +175,14 @@ class EmbyClient {
   }) async {
     final value = await _request(
       session.server,
-      ['Users', session.userId, 'Views'],
+      session.kind == MediaSourceKind.jellyfin
+          ? ['UserViews']
+          : ['Users', session.userId, 'Views'],
       token: session.token,
+      kind: session.kind,
+      query: {
+        if (session.kind == MediaSourceKind.jellyfin) 'UserId': session.userId,
+      },
       cancellation: cancellation,
     );
     final items = value['Items'];
@@ -200,6 +222,7 @@ class EmbyClient {
       session.server,
       ['Users', session.userId],
       token: session.token,
+      kind: session.kind,
       cancellation: cancellation,
     );
   }
@@ -239,7 +262,8 @@ class EmbyClient {
         queryParameters: {
           'Static': quality.original ? 'true' : 'false',
           'DeviceId': deviceId,
-          'api_key': session.token,
+          session.kind == MediaSourceKind.jellyfin ? 'ApiKey' : 'api_key':
+              session.token,
           if (item.mediaSourceId?.isNotEmpty == true)
             'MediaSourceId': item.mediaSourceId!,
           if (!quality.original) ...{
@@ -287,6 +311,7 @@ class EmbyClient {
       ],
       method: 'POST',
       token: session.token,
+      kind: session.kind,
       requestTimeout: const Duration(seconds: 5),
       cancellation: cancellation,
       body: {
@@ -311,14 +336,20 @@ class EmbyClient {
   }) async {
     await _requestBytes(
       session.server,
-      [
-        'Users',
-        session.userId,
-        favorite ? 'FavoriteItems' : 'PlayedItems',
-        itemId,
-      ],
+      session.kind == MediaSourceKind.jellyfin
+          ? [favorite ? 'UserFavoriteItems' : 'UserPlayedItems', itemId]
+          : [
+              'Users',
+              session.userId,
+              favorite ? 'FavoriteItems' : 'PlayedItems',
+              itemId,
+            ],
       method: value ? 'POST' : 'DELETE',
       token: session.token,
+      kind: session.kind,
+      query: {
+        if (session.kind == MediaSourceKind.jellyfin) 'UserId': session.userId,
+      },
     );
   }
 
@@ -330,9 +361,13 @@ class EmbyClient {
   }) async => EmbyDetail.fromServer(
     await _request(
       session.server,
-      ['Users', session.userId, 'Items', itemId],
+      session.kind == MediaSourceKind.jellyfin
+          ? ['Items', itemId]
+          : ['Users', session.userId, 'Items', itemId],
       token: session.token,
+      kind: session.kind,
       query: {
+        if (session.kind == MediaSourceKind.jellyfin) 'UserId': session.userId,
         'Fields': 'People,ProviderIds,Overview,Genres,BackdropImageTags,Studios,ProductionLocations,OfficialRating,Status,MediaSources,MediaStreams',
       },
       cancellation: cancellation,
@@ -349,8 +384,14 @@ class EmbyClient {
   }) async => EmbySubtitle.parse(
     await _request(
       session.server,
-      ['Users', session.userId, 'Items', itemId],
+      session.kind == MediaSourceKind.jellyfin
+          ? ['Items', itemId]
+          : ['Users', session.userId, 'Items', itemId],
       token: session.token,
+      kind: session.kind,
+      query: {
+        if (session.kind == MediaSourceKind.jellyfin) 'UserId': session.userId,
+      },
       cancellation: cancellation,
     ),
     itemId,
@@ -364,7 +405,11 @@ class EmbyClient {
   }) {
     Uri? resource;
     if (stream.deliveryUrl?.trim().isNotEmpty == true) {
-      resource = session.server.resolve(stream.deliveryUrl!);
+      // A relative delivery path belongs below the configured proxy prefix.
+      // The normalized server URI intentionally has no trailing slash.
+      resource = session.server
+          .replace(path: '${session.server.path}/')
+          .resolve(stream.deliveryUrl!);
       if (resource.origin != session.server.origin ||
           resource.userInfo.isNotEmpty) {
         throw const EmbyFailure(EmbyError.address, '字幕地址不属于当前服务器。');
@@ -372,7 +417,8 @@ class EmbyClient {
       resource = resource.replace(
         queryParameters: {
           for (final entry in resource.queryParameters.entries)
-            if (entry.key.toLowerCase() != 'api_key') entry.key: entry.value,
+            if (!{'api_key', 'apikey'}.contains(entry.key.toLowerCase()))
+              entry.key: entry.value,
         },
       );
     } else if (stream.mediaSourceId == null) {
@@ -390,6 +436,7 @@ class EmbyClient {
       ],
       resource: resource,
       token: session.token,
+      kind: session.kind,
       cancellation: cancellation,
       maxBytes: 8 * 1024 * 1024,
     );
@@ -405,7 +452,9 @@ class EmbyClient {
     String? personKey,
     ScanCancellation? cancellation,
   }) async {
-    if (limit <= 0 || start < 0) throw ArgumentError('Invalid Emby pagination');
+    if (limit <= 0 || start < 0) {
+      throw ArgumentError('Invalid media server pagination');
+    }
     final scope = (
       session.server,
       session.userId,
@@ -425,10 +474,15 @@ class EmbyClient {
         final result = EmbyItemPage.fromJson(
           await _request(
             session.server,
-            ['Users', session.userId, 'Items'],
+            session.kind == MediaSourceKind.jellyfin
+                ? ['Items']
+                : ['Users', session.userId, 'Items'],
             token: session.token,
+            kind: session.kind,
             cancellation: cancellation,
             query: {
+              if (session.kind == MediaSourceKind.jellyfin)
+                'UserId': session.userId,
               'Recursive': 'true',
               'IncludeItemTypes': episodesOnly
                   ? 'Episode'
@@ -497,6 +551,7 @@ class EmbyClient {
       if (backdrop) '$index',
     ],
     token: session.token,
+    kind: session.kind,
     cancellation: cancellation,
     maxBytes: maxArtworkBytes,
     query: {
@@ -513,6 +568,7 @@ class EmbyClient {
     String? token,
     Map<String, String> query = const {},
     ScanCancellation? cancellation,
+    MediaSourceKind kind = MediaSourceKind.emby,
   }) async {
     final bytes = await _requestBytes(
       base,
@@ -522,15 +578,16 @@ class EmbyClient {
       token: token,
       query: query,
       cancellation: cancellation,
+      kind: kind,
     );
     try {
       final decoded = jsonDecode(utf8.decode(bytes));
       if (decoded is! Map) throw const FormatException();
       return Map<String, dynamic>.from(decoded);
     } on FormatException {
-      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的 Emby 数据。');
+      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的媒体服务器数据。');
     } on TypeError {
-      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的 Emby 数据。');
+      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的媒体服务器数据。');
     }
   }
 
@@ -545,36 +602,63 @@ class EmbyClient {
     int? maxBytes,
     Duration? requestTimeout,
     Uri? resource,
+    MediaSourceKind kind = MediaSourceKind.emby,
   }) async {
     cancellation?.check();
     HttpClientRequest? active;
-    final unlisten = cancellation?.listen(() => active?.abort());
+    StreamIterator<List<int>>? activeBody;
+    final cancelled = Completer<Uint8List>();
     var expired = false;
+    final unlisten = cancellation?.listen(() {
+      expired = true;
+      active?.abort();
+      unawaited(activeBody?.cancel());
+      if (!cancelled.isCompleted) {
+        cancelled.completeError(const ScanCancelled());
+      }
+    });
     Future<Uint8List> send() async {
       var uri =
           resource?.replace(
-            queryParameters: {...resource.queryParameters, 'api_key': ?token},
+            queryParameters: {
+              ...resource.queryParameters,
+              if (kind == MediaSourceKind.emby) 'api_key': ?token,
+            },
           ) ??
           base.replace(
             pathSegments: [
               ...base.pathSegments.where((s) => s.isNotEmpty),
               ...path,
             ],
-            queryParameters: {...query, 'api_key': ?token},
+            queryParameters: {
+              ...query,
+              if (kind == MediaSourceKind.emby) 'api_key': ?token,
+            },
           );
       for (var attempt = 0; attempt < 6; attempt++) {
         final request = active = await _http.openUrl(method, uri);
-        cancellation?.check();
         if (expired) {
           request.abort();
+          cancellation?.check();
           throw const EmbyFailure(EmbyError.network, '连接已超时。');
         }
+        cancellation?.check();
         request.followRedirects = false;
-        request.headers.set('X-Emby-Authorization', authorization(token));
+        request.headers.set(
+          kind == MediaSourceKind.jellyfin
+              ? HttpHeaders.authorizationHeader
+              : 'X-Emby-Authorization',
+          authorization(token),
+        );
         request.headers.set(HttpHeaders.userAgentHeader, userAgent);
         request.headers.contentType = ContentType.json;
         if (body != null) request.add(utf8.encode(jsonEncode(body)));
         final response = await request.close();
+        if (expired) {
+          await response.take(0).drain<void>();
+          cancellation?.check();
+          throw const EmbyFailure(EmbyError.network, '连接已超时。');
+        }
         if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
           final location = response.headers.value(HttpHeaders.locationHeader);
           if (location == null) {
@@ -610,7 +694,9 @@ class EmbyClient {
           await response.take(0).drain<void>();
           throw const EmbyFailure(EmbyError.tooLarge, '服务器返回的数据超过本次安全读取上限。');
         }
-        await for (final chunk in response) {
+        final reader = activeBody = StreamIterator<List<int>>(response);
+        while (await reader.moveNext()) {
+          final chunk = reader.current;
           cancellation?.check();
           if (bytes.length + chunk.length > limit) {
             request.abort();
@@ -680,7 +766,10 @@ class EmbyClient {
     }
 
     try {
-      return await send().timeout(
+      return await Future.any([
+        send(),
+        if (cancellation != null) cancelled.future,
+      ]).timeout(
         requestTimeout ?? timeout,
         onTimeout: () {
           expired = true;
@@ -694,14 +783,16 @@ class EmbyClient {
     } on SourceFailure {
       rethrow;
     } on FormatException {
-      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的 Emby 数据。');
+      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的媒体服务器数据。');
     } on TypeError {
-      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的 Emby 数据。');
+      throw const EmbyFailure(EmbyError.response, '服务器没有返回有效的媒体服务器数据。');
     } catch (_) {
       active?.abort();
       cancellation?.check();
       throw const EmbyFailure(EmbyError.network, '无法连接服务器，请检查地址和网络后重试。');
     } finally {
+      expired = true;
+      unawaited(activeBody?.cancel());
       unlisten?.call();
     }
   }

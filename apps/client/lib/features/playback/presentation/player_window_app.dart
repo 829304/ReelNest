@@ -14,7 +14,11 @@ import '../../sources/application/source_providers.dart';
 import '../../sources/application/emby_providers.dart';
 import '../application/playback_providers.dart';
 import '../application/playback_session.dart';
+import '../application/transient_playback_providers.dart';
+import '../application/external_playback_providers.dart';
+import '../domain/transient_playback_target.dart';
 import 'video_player_page.dart';
+import 'transient_playback_controls.dart';
 import 'player_window_coordinator.dart';
 
 class PlayerWindowApp extends ConsumerStatefulWidget {
@@ -36,6 +40,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   late final PlaybackSession _session;
   late final PlayerWindowCoordinator _windowCoordinator;
   late final MediaIdentity _initial;
+  TransientPlaybackTarget? _initialTransient;
   bool _destroyed = false;
   MediaIdentity? _notifiedIdentity;
   final _playedSourceIds = <String>{};
@@ -43,6 +48,11 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   void initState() {
     super.initState();
     _initial = _identity(widget.arguments);
+    if (widget.arguments['transient'] is Map) {
+      _initialTransient = TransientPlaybackTarget.fromJson(
+        Map<String, dynamic>.from(widget.arguments['transient'] as Map),
+      );
+    }
     _session = PlaybackSession(
       sources: ref.read(sourceRepositoryProvider),
       records: ref.read(playbackRepositoryProvider),
@@ -77,7 +87,9 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
       );
     }
     final identity = _session.item?.identity;
-    if (identity != null) _playedSourceIds.add(identity.sourceId);
+    if (identity != null && !isTransientPlayback(identity)) {
+      _playedSourceIds.add(identity.sourceId);
+    }
     if (!_session.loading &&
         _session.error == null &&
         identity != null &&
@@ -104,6 +116,22 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
         await widget.window.show();
         await windowManager.focus();
         final id = _identity(Map<String, dynamic>.from(call.arguments as Map));
+        final rawTarget = (call.arguments as Map)['transient'];
+        if (rawTarget is Map) {
+          await _session.openTransient(
+            TransientPlaybackTarget.fromJson(
+              Map<String, dynamic>.from(rawTarget),
+            ),
+          );
+          if (!_session.lastOpenSucceeded) {
+            throw PlatformException(
+              code: 'playback_open_failed',
+              message:
+                  _session.transitionMessage ?? _session.error ?? '视频未能打开。',
+            );
+          }
+          return null;
+        }
         if (_session.item?.identity != id || _session.error != null) {
           await _session.open(id);
           await _notifyMain();
@@ -149,6 +177,7 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   }
 
   Future<void> _notifyMain() async {
+    if (_playedSourceIds.isEmpty) return;
     try {
       await WindowController.fromWindowId(
             widget.arguments['mainWindowId'] as String,
@@ -203,13 +232,34 @@ class _PlayerWindowAppState extends ConsumerState<PlayerWindowApp>
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: ThemeData.dark(useMaterial3: true),
-    home: VideoPlayerPage(
-      key: _page,
-      identity: _initial,
-      session: _session,
-      closeWindow: _destroy,
-      setFullscreen: windowManager.setFullScreen,
-      windowCoordinator: _windowCoordinator,
+    home: TransientMediaDropTarget(
+      openFile: ref.read(transientPlaybackLauncherProvider).openFile,
+      onError: (error) {
+        _session.transitionMessage = error is SourceFailure
+            ? error.message
+            : '视频未能打开，请检查文件或重试。';
+        if (mounted) setState(() {});
+      },
+      child: VideoPlayerPage(
+        key: _page,
+        identity: _initial,
+        initialTransient: _initialTransient,
+        session: _session,
+        closeWindow: _destroy,
+        setFullscreen: windowManager.setFullScreen,
+        windowCoordinator: _windowCoordinator,
+        openExternal: () async {
+          final launcher = ref.read(externalPlaybackServiceProvider);
+          final target = _session.transientTarget;
+          if (target != null) {
+            await launcher.openTransient(target);
+          } else if (_session.item != null) {
+            await launcher.openLibrary(_session.item!.identity);
+          } else {
+            await launcher.openLibrary(_initial);
+          }
+        },
+      ),
     ),
   );
 }

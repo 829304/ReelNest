@@ -21,6 +21,10 @@ import 'package:reelnest/features/health/application/missing_index_cleanup.dart'
 import 'package:reelnest/features/health/domain/local_health_evaluator.dart';
 import 'package:reelnest/features/health/presentation/library_health_page.dart';
 import 'package:reelnest/features/home/application/home_runtime_providers.dart';
+import 'package:reelnest/features/playback/application/online_subtitle_providers.dart';
+import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
+import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
+import 'package:reelnest/features/settings/presentation/settings_page.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/sources/presentation/source_settings_sheet.dart';
@@ -28,7 +32,33 @@ import 'package:reelnest/sources/source_adapter.dart';
 import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/ui/theme/app_theme.dart';
 
+import 'support/fake_online_subtitle_settings.dart';
+import 'support/fake_tmdb_settings.dart';
+
 void main() {
+  Finder settingsPageScroll() => find
+      .descendant(
+        of: find.byType(SettingsPage),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Scrollable &&
+              widget.axisDirection == AxisDirection.down,
+        ),
+      )
+      .first;
+  Future<void> revealHealthSettings(WidgetTester tester) async {
+    await tester.scrollUntilVisible(
+      find.text('数据、存储与诊断'),
+      220,
+      scrollable: settingsPageScroll(),
+    );
+    await tester.pumpAndSettle();
+    final restore = find.text('恢复显示');
+    expect(restore, findsOneWidget);
+    await tester.ensureVisible(restore);
+    await tester.pumpAndSettle();
+  }
+
   Finder pageScroll() => find
       .descendant(
         of: find.byType(LibraryHealthPage),
@@ -96,6 +126,14 @@ void main() {
           ProviderScope(
             overrides: [
               sourceRepositoryProvider.overrideWithValue(repository),
+              onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+                FakeOnlineSubtitleSettingsRepository(
+                  PlayerPreferencesRepository(repository.database),
+                ),
+              ),
+              tmdbSettingsRepositoryProvider.overrideWithValue(
+                FakeTmdbSettingsRepository(repository.database),
+              ),
               localHealthEvaluatorProvider.overrideWithValue(
                 LocalHealthEvaluator(
                   paths: p.Context(style: p.Style.posix),
@@ -193,6 +231,7 @@ void main() {
         expect(probes, probeCount);
         await tester.tap(find.byKey(const ValueKey('nav-设置')));
         await tester.pumpAndSettle();
+        await revealHealthSettings(tester);
         await tester.tap(find.text('恢复显示'));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
@@ -221,6 +260,14 @@ void main() {
         ProviderScope(
           overrides: [
             sourceRepositoryProvider.overrideWithValue(repository),
+            onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+              FakeOnlineSubtitleSettingsRepository(
+                PlayerPreferencesRepository(repository.database),
+              ),
+            ),
+            tmdbSettingsRepositoryProvider.overrideWithValue(
+              FakeTmdbSettingsRepository(repository.database),
+            ),
             localHealthEvaluatorProvider.overrideWithValue(
               LocalHealthEvaluator(
                 paths: p.Context(style: p.Style.posix),
@@ -248,6 +295,7 @@ void main() {
       expect(probes, count);
       await tester.tap(find.byKey(const ValueKey('nav-设置')));
       await tester.pumpAndSettle();
+      await revealHealthSettings(tester);
       expect(find.text('1 项'), findsOneWidget);
       await tester.tap(find.text('恢复显示'));
       await tester.pumpAndSettle();
@@ -295,6 +343,14 @@ void main() {
         ProviderScope(
           overrides: [
             sourceRepositoryProvider.overrideWithValue(repository),
+            onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+              FakeOnlineSubtitleSettingsRepository(
+                PlayerPreferencesRepository(repository.database),
+              ),
+            ),
+            tmdbSettingsRepositoryProvider.overrideWithValue(
+              FakeTmdbSettingsRepository(repository.database),
+            ),
             localHealthEvaluatorProvider.overrideWithValue(
               LocalHealthEvaluator(
                 paths: p.context,
@@ -367,6 +423,14 @@ void main() {
         ProviderScope(
           overrides: [
             sourceRepositoryProvider.overrideWithValue(repository),
+            onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+              FakeOnlineSubtitleSettingsRepository(
+                PlayerPreferencesRepository(repository.database),
+              ),
+            ),
+            tmdbSettingsRepositoryProvider.overrideWithValue(
+              FakeTmdbSettingsRepository(repository.database),
+            ),
             localHealthEvaluatorProvider.overrideWithValue(
               LocalHealthEvaluator(
                 paths: p.context,
@@ -409,6 +473,14 @@ void main() {
         ProviderScope(
           overrides: [
             sourceRepositoryProvider.overrideWithValue(repository),
+            onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+              FakeOnlineSubtitleSettingsRepository(
+                PlayerPreferencesRepository(repository.database),
+              ),
+            ),
+            tmdbSettingsRepositoryProvider.overrideWithValue(
+              FakeTmdbSettingsRepository(repository.database),
+            ),
             sourcesProvider.overrideWith(
               (_) async => throw const LibrarySchemaMismatch(),
             ),

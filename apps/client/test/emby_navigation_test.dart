@@ -12,7 +12,10 @@ import 'package:reelnest/api/emby/emby_detail.dart';
 import 'package:reelnest/app/router.dart';
 import 'package:reelnest/app/bootstrap.dart';
 import 'package:reelnest/features/playback/application/playback_providers.dart';
+import 'package:reelnest/features/playback/application/online_subtitle_providers.dart';
+import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/domain/remote_media_metadata.dart';
 import 'package:reelnest/features/playback/domain/playback_record.dart';
@@ -32,6 +35,8 @@ import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/storage/library_database.dart';
 
 import 'support/emby_server_fixture.dart';
+import 'support/fake_online_subtitle_settings.dart';
+import 'support/fake_tmdb_settings.dart';
 
 class _Store implements CredentialStore {
   String? value;
@@ -810,6 +815,14 @@ void main() {
             ProviderScope(
               overrides: [
                 sourceRepositoryProvider.overrideWithValue(sources),
+                onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+                  FakeOnlineSubtitleSettingsRepository(
+                    PlayerPreferencesRepository(sources.database),
+                  ),
+                ),
+                tmdbSettingsRepositoryProvider.overrideWithValue(
+                  FakeTmdbSettingsRepository(sources.database),
+                ),
                 sourceReachabilityProvider.overrideWith(
                   (ref) async => {source.id: true},
                 ),
@@ -994,12 +1007,17 @@ void main() {
             'shows',
           );
           expect(find.text('共 0 项'), findsOneWidget);
+          final embyLogo = find.byKey(
+            ValueKey('emby-source-logo-${source.id}'),
+          );
+          final embyLogoImage = find.descendant(
+            of: embyLogo,
+            matching: find.byType(Image),
+          );
+          expect(embyLogo, findsOneWidget);
+          expect(embyLogoImage, findsOneWidget);
           expect(
-            tester
-                .widget<Image>(
-                  find.byKey(ValueKey('emby-source-logo-${source.id}')),
-                )
-                .image,
+            tester.widget<Image>(embyLogoImage).image,
             isA<AssetImage>().having(
               (image) => image.assetName,
               'asset',

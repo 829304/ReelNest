@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/playback_session.dart';
 import 'package:reelnest/features/playback/data/playback_repository.dart';
+import 'package:reelnest/features/playback/domain/transient_playback_target.dart';
 import 'package:reelnest/features/playback/presentation/player_playback_info.dart';
 import 'package:reelnest/features/playback/presentation/player_visuals.dart';
 import 'package:reelnest/features/sources/data/source_repository.dart';
@@ -121,6 +122,75 @@ void main() {
         expect(
           p.basename(directory.path),
           startsWith('reelnest-playback-info-stats-'),
+        );
+        await directory.delete(recursive: true);
+      });
+    }
+  });
+
+  testWidgets('playback info labels transient streams and files', (
+    tester,
+  ) async {
+    Directory? sandbox;
+    SourceRepository? sources;
+    PlaybackSession? session;
+    try {
+      await tester.runAsync(() async {
+        sandbox = await Directory.systemTemp.createTemp(
+          'reelnest-transient-info-',
+        );
+        final repository = SourceRepository(
+          database: LibraryDatabase(NativeDatabase.memory()),
+          adapters: {MediaSourceKind.localFolder: FileSourceAdapter()},
+        );
+        sources = repository;
+        session = PlaybackSession(
+          sources: repository,
+          records: PlaybackRepository(repository.database),
+          createEngine: FakeVideoEngine.new,
+        );
+        await session!.openTransient(
+          TransientPlaybackTarget.stream('https://example.com/live.m3u8'),
+        );
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: PlayerPlaybackInfoOverlay(
+            session: session!,
+            palette: const PlayerPalette(lightContent: true),
+            onDismiss: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('网络串流'), findsOneWidget);
+      expect(find.text('未知来源'), findsNothing);
+
+      await tester.runAsync(() async {
+        final file = File(p.join(sandbox!.path, 'Temporary.mkv'));
+        await file.writeAsString('temporary');
+        await session!.openTransient(TransientPlaybackTarget.file(file.path));
+      });
+      await tester.pump();
+      expect(find.text('临时文件'), findsOneWidget);
+      expect(find.text('网络串流'), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() async {
+        final current = session;
+        if (current != null) {
+          await current.close(discardProgress: true);
+          current.dispose();
+        }
+        final repository = sources;
+        if (repository != null) await repository.close();
+        final directory = sandbox;
+        if (directory == null) return;
+        expect(p.isWithin(Directory.systemTemp.path, directory.path), isTrue);
+        expect(
+          p.basename(directory.path),
+          startsWith('reelnest-transient-info-'),
         );
         await directory.delete(recursive: true);
       });

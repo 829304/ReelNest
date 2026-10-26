@@ -20,28 +20,42 @@ import '../features/playback/domain/video_frame_preview.dart';
 Future<Uint8List?> generateMpvVideoPreview(
   VideoPreviewResource resource,
   Duration sampleTime,
-  VideoPreviewCancellation cancellation,
-) async {
+  VideoPreviewCancellation cancellation, {
+  void Function(String code)? onIssue,
+}) async {
   if (cancellation.isCancelled || sampleTime < resource.offset) return null;
   BoundedVideoPreviewProxy? proxy;
   final ready = ReceivePort();
   SendPort? control;
-  final subscription = ready.listen((port) {
-    control = port as SendPort;
-    if (cancellation.isCancelled) control?.send(null);
+  final subscription = ready.listen((message) {
+    if (message is SendPort) {
+      control = message;
+      if (cancellation.isCancelled) control?.send(null);
+    } else if (message is String && message != 'cancelled') {
+      onIssue?.call(message);
+    }
   });
   unawaited(cancellation.whenCancelled.then((_) => control?.send(null)));
-  final deadline = Timer(const Duration(seconds: 8), cancellation.cancel);
+  final deadline = Timer(const Duration(seconds: 8), () {
+    if (!cancellation.isCancelled) {
+      onIssue?.call('preview_timeout');
+      cancellation.cancel();
+    }
+  });
   try {
     var location = resource.location;
     final format = resource.remote
         ? previewDemuxer(Uri.parse(location).path)
         : null;
     if (resource.remote) {
-      if (format == null) return null;
+      if (format == null) {
+        onIssue?.call('container_unknown');
+        return null;
+      }
       proxy = await BoundedVideoPreviewProxy.open(
         Uri.parse(location),
         cancellation,
+        onIssue: onIssue,
       );
       location = proxy.uri.toString();
     }
@@ -73,6 +87,7 @@ Future<Uint8List?> generateMpvVideoPreview(
       decoded.dispose();
     }
   } catch (_) {
+    if (!cancellation.isCancelled) onIssue?.call('preview_exception');
     // No decoder exception or authenticated URI escapes through this API.
   } finally {
     deadline.cancel();
@@ -110,6 +125,7 @@ class BoundedVideoPreviewProxy {
     this._route,
     this.maxRangeBytes,
     this.maxTotalBytes,
+    this.onIssue,
   ) {
     _uri = Uri(
       scheme: 'http',
@@ -127,6 +143,7 @@ class BoundedVideoPreviewProxy {
   final String _route;
   final int maxRangeBytes;
   final int maxTotalBytes;
+  final void Function(String code)? onIssue;
   int _received = 0;
   bool _closed = false;
   int get receivedBytes => _received;
@@ -138,6 +155,7 @@ class BoundedVideoPreviewProxy {
     VideoPreviewCancellation cancellation, {
     int maxRangeBytes = 2 * 1024 * 1024,
     int maxTotalBytes = 16 * 1024 * 1024,
+    void Function(String code)? onIssue,
   }) async {
     if (!['http', 'https'].contains(upstream.scheme) ||
         upstream.userInfo.isNotEmpty ||
@@ -160,6 +178,7 @@ class BoundedVideoPreviewProxy {
       '/$nonce/preview.mp4',
       maxRangeBytes,
       maxTotalBytes,
+      onIssue,
     );
     unawaited(cancellation.whenCancelled.then((_) => proxy.close()));
     return proxy;
@@ -209,6 +228,11 @@ class BoundedVideoPreviewProxy {
           (response.headers.value(HttpHeaders.contentEncodingHeader) ??
                   'identity') !=
               'identity') {
+        onIssue?.call(
+          response.statusCode != 206
+              ? 'upstream_http_${response.statusCode}'
+              : 'upstream_range',
+        );
         incoming.abort();
         output.statusCode = HttpStatus.badGateway;
         return;
@@ -236,6 +260,7 @@ class BoundedVideoPreviewProxy {
         if (_closed ||
             count + chunk.length > expected ||
             _received + chunk.length > maxTotalBytes) {
+          if (!_closed) onIssue?.call('upstream_budget');
           incoming.abort();
           await close();
           return;

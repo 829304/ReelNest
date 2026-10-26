@@ -15,14 +15,23 @@ import 'package:reelnest/storage/library_database.dart';
 import 'support/fake_video_engine.dart';
 
 class _NetworkPlaybackSession extends PlaybackSession {
-  _NetworkPlaybackSession(this.fake, SourceRepository sources)
-    : super(
-        sources: sources,
-        records: PlaybackRepository(sources.database),
-        createEngine: () => fake,
-      );
+  _NetworkPlaybackSession(
+    this.fake,
+    SourceRepository sources, {
+    this.persistentRemote = true,
+    this.temporaryHttp = false,
+  }) : super(
+         sources: sources,
+         records: PlaybackRepository(sources.database),
+         createEngine: () => fake,
+       );
 
   final FakeVideoEngine fake;
+  final bool persistentRemote;
+  final bool temporaryHttp;
+
+  @override
+  bool get httpStream => temporaryHttp;
 
   @override
   Future<void> open(MediaIdentity identity) async {
@@ -32,7 +41,9 @@ class _NetworkPlaybackSession extends PlaybackSession {
       type: 'movie',
       bytes: 0,
       modified: DateTime(2026),
-      remote: const RemoteMediaMetadata(externalId: 'remote-film'),
+      remote: persistentRemote
+          ? const RemoteMediaMetadata(externalId: 'remote-film')
+          : null,
     );
     filePath = null;
     loading = false;
@@ -148,6 +159,52 @@ void main() {
       find.byKey(const ValueKey('player-network-speed-hud')),
       findsNothing,
     );
+  });
+
+  testWidgets('temporary HTTP shows speed while RTSP stays hidden', (
+    tester,
+  ) async {
+    Future<bool> render({required bool http}) async {
+      final sources = SourceRepository(
+        database: LibraryDatabase(NativeDatabase.memory()),
+        adapters: {},
+      );
+      final fake = FakeVideoEngine();
+      final session = _NetworkPlaybackSession(
+        fake,
+        sources,
+        persistentRemote: false,
+        temporaryHttp: http,
+      );
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VideoPlayerPage(
+              identity: (
+                sourceId: 'temporary-video',
+                localId: http ? 'http-stream' : 'rtsp-stream',
+              ),
+              session: session,
+              closeWindow: () async {},
+              setFullscreen: (_) async {},
+            ),
+          ),
+        );
+        await tester.pump();
+        return find
+            .byKey(const ValueKey('player-network-speed-hud'))
+            .evaluate()
+            .isNotEmpty;
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await fake.dispose();
+        session.dispose();
+        await sources.close();
+      }
+    }
+
+    expect(await render(http: true), isTrue);
+    expect(await render(http: false), isFalse);
   });
 
   testWidgets(

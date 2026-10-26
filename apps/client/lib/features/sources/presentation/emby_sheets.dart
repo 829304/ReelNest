@@ -12,6 +12,7 @@ import '../../../ui/widgets/source_policy_switch.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../data/emby_connection_repository.dart';
 import '../application/source_providers.dart';
+import 'media_server_brand_mark.dart';
 
 /// The migrated source-selection step; remaining connector cards are deferred.
 class SourceKindSheet extends StatefulWidget {
@@ -52,6 +53,7 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
             for (final kind in [
               MediaSourceKind.localFolder,
               MediaSourceKind.emby,
+              MediaSourceKind.jellyfin,
             ])
               SizedBox(
                 width: 264,
@@ -79,14 +81,8 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                       children: [
                         SizedBox(
                           width: 26,
-                          child: kind == MediaSourceKind.emby
-                              ? Image.asset(
-                                  'assets/brands/emby.png',
-                                  width: 19,
-                                  height: 19,
-                                  fit: BoxFit.contain,
-                                  excludeFromSemantics: true,
-                                )
+                          child: kind.isEmbyCompatible
+                              ? MediaServerBrandMark(kind: kind, size: 19)
                               : Icon(
                                   Icons.folder_outlined,
                                   size: 19,
@@ -245,9 +241,15 @@ class EmbySheetFrame extends StatelessWidget {
 }
 
 class EmbyConnectionSheet extends StatefulWidget {
-  const EmbyConnectionSheet({required this.repository, this.source, super.key});
+  const EmbyConnectionSheet({
+    required this.repository,
+    this.source,
+    this.kind = MediaSourceKind.emby,
+    super.key,
+  });
   final EmbyConnectionRepository repository;
   final MediaSource? source;
+  final MediaSourceKind kind;
   @override
   State<EmbyConnectionSheet> createState() => _EmbyConnectionSheetState();
 }
@@ -259,6 +261,8 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
   bool _busy = false, _settings = false, _metadata = true, _health = true;
   RemoteTraceSyncMode _trace = RemoteTraceSyncMode.bidirectional;
   String? _error;
+  MediaSourceKind get _kind => widget.source?.kind ?? widget.kind;
+  String get _brand => _kind.label;
   @override
   void dispose() {
     _server.dispose();
@@ -286,6 +290,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
           _server.text,
           _username.text,
           _password.text,
+          kind: _kind,
           options: SourceOptions(
             autoScan: false,
             preferLocalArtwork: false,
@@ -318,8 +323,12 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
     );
     final reauth = widget.source != null;
     return EmbySheetFrame(
-      title: reauth ? 'Emby 重新认证' : '添加媒体源',
-      subtitle: _settings ? '确认扫描、健康检查和同步策略。' : '填写服务器地址和登录凭据。',
+      title: reauth ? '$_brand 重新认证' : '添加媒体源',
+      subtitle: _settings
+          ? '确认扫描、健康检查和同步策略。'
+          : reauth
+          ? '填写服务器地址和登录凭据。'
+          : '登录后同步到独立的 $_brand 目录。',
       busy: _busy,
       actions: [
         SourceSheetButton(
@@ -337,7 +346,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
         ),
         SourceSheetButton(
           label: _busy
-              ? 'Emby 连接中'
+              ? '$_brand 连接中'
               : _settings || reauth
               ? (reauth ? '登录' : '登录并同步')
               : '下一步',
@@ -379,10 +388,15 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
                   _field(
                     _server,
                     '服务器地址，例如 http://192.168.1.20:8096',
-                    'emby-server',
+                    '${_kind.name}-server',
                   ),
-                _field(_username, '用户名', 'emby-username'),
-                _field(_password, '密码', 'emby-password', password: true),
+                _field(_username, '用户名', '${_kind.name}-username'),
+                _field(
+                  _password,
+                  '密码',
+                  '${_kind.name}-password',
+                  password: true,
+                ),
               ],
             ),
           ),
@@ -411,7 +425,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
         ),
         if (_busy) ...[
           const SizedBox(height: 12),
-          const _SheetStatusNotice(message: '正在连接 Emby，请稍候…'),
+          _SheetStatusNotice(message: '正在连接 $_brand，请稍候…'),
         ],
         if (_error != null) ...[
           const SizedBox(height: 12),

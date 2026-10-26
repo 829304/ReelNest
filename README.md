@@ -8,8 +8,17 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 ## 当前状态
 
-截至 2026-10-16：
+截至 2026-10-26（下列模块记录各自最后验证批次）：
 
+- Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke。共享协议定向 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未运行全量 Flutter 测试。真实 Jellyfin、macOS/Linux 和人工精确视觉验收仍待。范围与证据见[Jellyfin 计划](docs/JELLYFIN_PLAN.zh-CN.md)。
+
+- TMDB 本地电影元数据已完成实现及 Windows Delivery Release/smoke 验证；最终定向合并复跑 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）。全量测试为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不能视为全量通过。随后缓存关闭取消专项46项通过，Windows Release/smoke 通过；该次未复现先前约4.9秒的具体任务状态。真实 TMDB 公服、macOS/Linux 原生与精确视觉验收仍待。详见[TMDB 专项计划](docs/TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](docs/CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+
+- 本地剧集 TMDB 手动匹配实现及 Windows 验证完成：后端最终定向102/102、前端12/12、Profile 原生、Release 与五秒 smoke 通过；本批未跑全量。真实 TMDB 公服、macOS/Linux 原生和人工精确视觉验收待完成。详见[剧集专项计划](docs/TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+
+- [统一实现状态盘点](docs/IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)：当前已接入/未实现能力、平台与来源验收边界、分阶段路线；本轮未重跑测试或构建。
+- 在线字幕搜索/下载已实现并冻结；最终全量 924 passed / 1 optional benchmark skipped（含专项 39 项），Windows Profile GPU/SW 本机 fixture 集成、Release 和五秒 smoke 均通过。macOS/Linux 实机、真实 Emby 在线/离线字幕、公共服务 live 及可见 UI/原版视觉验收仍待，详情见[专项计划](docs/ONLINE_SUBTITLES_PLAN.zh-CN.md)。
+- 自定义播放器快捷键自动化及 Windows Release/smoke 验证通过（2026-10-24）：domain 覆盖 59 个动作；最终串行全量 941 passed / 1 optional benchmark skipped，五个定向测试文件 60 passed / 13 秒（包含新增 17 项）；Windows Profile GPU/SW 实际 mpv fixture integration 两例通过。`dart analyze` clean、374 个 Dart 文件 format 0 changed、diff-check clean。Windows Release 79.9 秒成功，五秒 smoke 正常响应并关闭、退出码 0；macOS/Linux、精确视觉、实体键盘和真实 Emby 验收仍待。`openExternal` 随外部播放模块后补；鼠标/触控板另列后续，范围见[快捷键计划](docs/PLAYER_SHORTCUTS_PLAN.zh-CN.md)。
 - 本地视频已接入目录来源、扫描与索引、浏览详情、播放与续播、队列、字幕/音轨、基础播放设置和健康检查；本地与 Emby 共用播放器已接入章节/书签、单片循环、A–B 循环与前后逐帧第一批。
 - Emby 视频已接入登录与选库、分页同步与前台浏览、详情、播放与进度、收藏/已看、服务器字幕、画质与转码、图片缓存、手动及自动离线下载、右键与批量操作。
 - 首页 H1 已接入跨来源视频统计、继续观看、最近播放、想看、收藏和最近剧集；H2 已接入每日推荐、剧集推荐、高分精选、跨来源视频搜索和运行状态摘要；H3 编排已支持拖动排序、隐藏、添加恢复、默认布局与持久化。视频健康评分已接通原版公式及本地/Emby 核心检查、本地重复与详情缺口；适用范围见[健康评分](docs/HEALTH_SCORE.zh-CN.md)。
@@ -22,7 +31,7 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 2026-10-16 用户明确授权播放器右上角显示输入速率，并随底部进度 Dock 同步显隐。代码已冻结：backend 54、UI 27、隔离 native 2 项通过；analyze、269 文件格式及 diff 检查通过。本轮未重跑上一轮 701 项全量；Windows Release 39.6 秒及五秒 smoke 通过。真实 Emby、实体键鼠、macOS/Linux 原生和三端视觉验收仍待。详情见[播放器记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
 
-仍未完成或未完整验收的主要范围包括：Jellyfin、Plex、ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权，三桌面端原生与视觉对照。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
+仍未完成或未完整验收的主要范围包括：Jellyfin 真实服务器、macOS/Linux 原生与人工视觉验收，Plex、ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权及三桌面端整体视觉对照。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
 
 ## 项目结构
 

@@ -46,8 +46,17 @@ import '../domain/video_queue.dart';
 import '../domain/playback_record.dart';
 import '../domain/playback_options.dart';
 import '../domain/video_frame_preview.dart';
+import '../domain/transient_playback_target.dart';
+import '../../../platform/transient_file_access.dart';
+import 'transient_playback_resolver.dart';
 import '../domain/video_subtitle_settings.dart';
 import 'video_frame_preview_cache.dart';
+import '../domain/online_subtitle.dart';
+import '../data/online_subtitle_service.dart';
+import '../data/online_subtitle_settings_repository.dart';
+import '../data/online_subtitle_store.dart';
+import '../domain/video_keyboard_shortcuts.dart';
+import '../../../player/video_track_shortcut_engine.dart';
 
 /// Owns a single engine; transitions and checkpoints are serialized. No widget
 /// sends native commands or writes SQLite directly.
@@ -66,11 +75,444 @@ class PlaybackSession extends ChangeNotifier {
     Future<List<String>> Function()? subtitleFonts,
     VideoPreviewGenerator? previewGenerator,
     VideoScreenshotStore? screenshotStore,
+    OnlineSubtitleService? onlineSubtitleService,
+    OnlineSubtitleSettingsRepository? onlineSubtitleSettings,
+    OnlineSubtitleStore? onlineSubtitleStore,
   }) : preferences =
            preferences ?? PlayerPreferencesRepository(sources.database),
-       _previewGenerator = previewGenerator ?? generateMpvVideoPreview,
+       _providedPreviewGenerator = previewGenerator,
        _subtitleFonts = subtitleFonts ?? SubtitleFontCatalog().families,
-       _screenshotStore = screenshotStore ?? VideoScreenshotStore();
+       _screenshotStore = screenshotStore ?? VideoScreenshotStore(),
+       _onlineService = onlineSubtitleService ?? OnlineSubtitleService(),
+       _providedOnlineSettings = onlineSubtitleSettings,
+       _onlineStore = onlineSubtitleStore ?? OnlineSubtitleStore();
+  final OnlineSubtitleService _onlineService;
+  final OnlineSubtitleSettingsRepository? _providedOnlineSettings;
+  late final onlineSubtitleSettings =
+      _providedOnlineSettings ?? OnlineSubtitleSettingsRepository(preferences);
+  final OnlineSubtitleStore _onlineStore;
+  VideoKeyboardShortcuts keyboardShortcuts = VideoKeyboardShortcuts();
+  Future<void> _shortcutActions = Future.value();
+  double? _keyboardHoldRate;
+  VideoEngine? _keyboardHoldEngine;
+
+  Future<void> _changeKeyboardShortcuts(
+    VideoKeyboardShortcuts Function(VideoKeyboardShortcuts) change,
+  ) => _serialize(() async {
+    if (_closed || _closing != null || _disposed) return;
+    try {
+      final next = change(keyboardShortcuts);
+      await preferences.rememberKeyboardShortcuts(next);
+      keyboardShortcuts = next;
+      controlError = null;
+    } catch (_) {
+      controlError = '快捷键设置保存失败，原有绑定已保留，请重试。';
+    }
+    if (!_closed && !_disposed) notifyListeners();
+  });
+  Future<void> setKeyboardShortcuts(
+    VideoShortcutAction action,
+    List<VideoKeyChord> keys,
+  ) => _changeKeyboardShortcuts((current) => current.set(action, keys));
+  Future<void> resetKeyboardShortcut(VideoShortcutAction action) =>
+      _changeKeyboardShortcuts((current) => current.reset(action));
+  Future<void> resetAllKeyboardShortcuts() =>
+      _changeKeyboardShortcuts((current) => current.resetAll());
+
+  /// Serialize keyboard deltas before calculating the next value. Network
+  /// playback and renderer commands continue through the existing session APIs.
+  Future<void> performKeyboardAction(VideoShortcutAction action) {
+    final target = engine, identity = item?.identity;
+    final operation = _shortcutActions.then((_) async {
+      if (_closed ||
+          _disposed ||
+          _closing != null ||
+          loading ||
+          target == null ||
+          engine != target ||
+          item?.identity != identity) {
+        return;
+      }
+      if (action.seekPercent case final double percent) {
+        await seek(
+          Duration(
+            microseconds: (clock.duration.inMicroseconds * percent).round(),
+          ),
+        );
+        return;
+      }
+      switch (action) {
+        case VideoShortcutAction.playPause:
+          await toggle();
+        case VideoShortcutAction.previousEpisode:
+          await adjacent(-1);
+        case VideoShortcutAction.nextEpisode:
+          await adjacent(1);
+        case VideoShortcutAction.restart:
+          await seek(Duration.zero);
+          if (engine == target && !clock.playing) await toggle();
+        case VideoShortcutAction.cycleABLoopPoint:
+          await cycleABLoop();
+        case VideoShortcutAction.clearABLoop:
+          await clearABLoop();
+        case VideoShortcutAction.toggleCurrentLoop:
+          await setLoopCurrentItem(!precision.value.loop.loopCurrentItem);
+        case VideoShortcutAction.seekBackward:
+          await skip(-1);
+        case VideoShortcutAction.seekForward:
+          await skip(1);
+        case VideoShortcutAction.seekBackwardSmall:
+          await seek(clock.position - const Duration(seconds: 5));
+        case VideoShortcutAction.seekForwardSmall:
+          await seek(clock.position + const Duration(seconds: 5));
+        case VideoShortcutAction.seekBackwardLarge:
+          await seek(clock.position - const Duration(seconds: 60));
+        case VideoShortcutAction.seekForwardLarge:
+          await seek(clock.position + const Duration(seconds: 60));
+        case VideoShortcutAction.seekBackwardTen:
+          await seek(clock.position - const Duration(seconds: 10));
+        case VideoShortcutAction.seekForwardTen:
+          await seek(clock.position + const Duration(seconds: 10));
+        case VideoShortcutAction.volumeUp:
+          await volume(clock.volume + 5.5);
+        case VideoShortcutAction.volumeDown:
+          await volume(clock.volume - 5.5);
+        case VideoShortcutAction.mute:
+          await mute();
+        case VideoShortcutAction.goToBeginning:
+          await seek(Duration.zero);
+        case VideoShortcutAction.goToEnd:
+          await seek(clock.duration - const Duration(milliseconds: 500));
+        case VideoShortcutAction.speedDown:
+          await rate(clock.rate - .25);
+        case VideoShortcutAction.speedUp:
+          await rate(clock.rate + .25);
+        case VideoShortcutAction.resetSpeed:
+          await rate(1);
+        case VideoShortcutAction.frameBackward:
+          await stepFrame(backward: true);
+        case VideoShortcutAction.frameForward:
+          await stepFrame();
+        case VideoShortcutAction.audioDelayDown:
+          await audioDelay(timing.audioDelay - .1);
+        case VideoShortcutAction.audioDelayUp:
+          await audioDelay(timing.audioDelay + .1);
+        case VideoShortcutAction.subtitleDelayDown:
+          await subtitleDelay(timing.subtitleDelay - .1);
+        case VideoShortcutAction.subtitleDelayUp:
+          await subtitleDelay(timing.subtitleDelay + .1);
+        case VideoShortcutAction.subtitleSizeDown:
+          await subtitleScale(timing.subtitleScale - .05);
+        case VideoShortcutAction.subtitleSizeUp:
+          await subtitleScale(timing.subtitleScale + .05);
+        case VideoShortcutAction.subtitleMoveUp:
+          await subtitlePosition(timing.subtitlePosition - 4);
+        case VideoShortcutAction.subtitleMoveDown:
+          await subtitlePosition(timing.subtitlePosition + 4);
+        case VideoShortcutAction.cycleAspectRatio:
+          await updateDisplaySettings(
+            (current) => current.copyWith(
+              aspectOverride:
+                  VideoAspectOverride.values[(current.aspectOverride.index +
+                          1) %
+                      VideoAspectOverride.values.length],
+            ),
+          );
+        case VideoShortcutAction.cycleCropMode:
+          await updateDisplaySettings(
+            (current) => current.copyWith(
+              cropMode:
+                  VideoCropMode.values[(current.cropMode.index + 1) %
+                      VideoCropMode.values.length],
+            ),
+          );
+        case VideoShortcutAction.cycleDeinterlaceMode:
+          await updateDisplaySettings(
+            (current) => current.copyWith(
+              deinterlaceMode:
+                  VideoDeinterlaceMode.values[(current.deinterlaceMode.index +
+                          1) %
+                      VideoDeinterlaceMode.values.length],
+            ),
+          );
+        case VideoShortcutAction.rotateVideoLeft:
+          await updateDisplaySettings(
+            (current) => current.copyWith(
+              rotationMode:
+                  VideoRotationMode.values[(current.rotationMode.index - 1) %
+                      VideoRotationMode.values.length],
+            ),
+          );
+        case VideoShortcutAction.rotateVideoRight:
+          await updateDisplaySettings(
+            (current) => current.copyWith(
+              rotationMode:
+                  VideoRotationMode.values[(current.rotationMode.index + 1) %
+                      VideoRotationMode.values.length],
+            ),
+          );
+        case VideoShortcutAction.subtitleCycle:
+        case VideoShortcutAction.subtitleToggle:
+        case VideoShortcutAction.audioCycle:
+          await _controls(() async {
+            if (target is! VideoTrackShortcutEngine) {
+              throw StateError('Track shortcuts unavailable');
+            }
+            final tracksEngine = target as VideoTrackShortcutEngine;
+            if (action == VideoShortcutAction.subtitleCycle) {
+              await tracksEngine.cycleSubtitleTrack();
+            } else if (action == VideoShortcutAction.subtitleToggle) {
+              await tracksEngine.toggleSubtitleVisibility();
+            } else {
+              await tracksEngine.cycleAudioTrack();
+            }
+            _didApplyTrackPreference = true;
+            tracks.value = target.tracks;
+          });
+        default:
+          break; // Window/surface actions belong to the presentation.
+      }
+    });
+    _shortcutActions = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return operation;
+  }
+
+  Future<void> setKeyboardSeekForwardHold(bool holding) {
+    final requestedEngine = engine;
+    return _controls(() async {
+      if (holding) {
+        if (engine != requestedEngine) return;
+        if (_keyboardHoldRate != null) return;
+        final current = engine!;
+        final before = clock.rate;
+        await current.setRate(3);
+        _keyboardHoldRate = before;
+        _keyboardHoldEngine = current;
+        if (!clock.playing) await current.play();
+      } else {
+        final before = _keyboardHoldRate;
+        final expected = _keyboardHoldEngine;
+        _keyboardHoldRate = null;
+        _keyboardHoldEngine = null;
+        if (before != null && expected == engine) await engine!.setRate(before);
+      }
+    }, failureMessage: '临时倍速操作失败，请重新设置播放速度。');
+  }
+
+  ScanCancellation? _onlineSearchToken, _onlineDownloadToken;
+  bool searchingOnlineSubtitles = false, hasOpenSubtitlesKey = false;
+  String? onlineSubtitleError, downloadingOnlineSubtitleID;
+  List<OnlineSubtitleResult> onlineSubtitleResults = const [];
+  final downloadedOnlineSubtitlePaths = <String, String>{};
+  bool _disposed = false;
+
+  void cancelOnlineSubtitleSearch() {
+    _onlineSearchToken?.cancel();
+    _onlineSearchToken = null;
+    searchingOnlineSubtitles = false;
+  }
+
+  void _cancelOnlineSubtitles() {
+    cancelOnlineSubtitleSearch();
+    _onlineDownloadToken?.cancel();
+    _onlineDownloadToken = null;
+    downloadingOnlineSubtitleID = null;
+  }
+
+  Future<({OnlineSubtitleSettings settings, String? warning})>
+  _readOnlineSettings() async {
+    try {
+      return (settings: await onlineSubtitleSettings.read(), warning: null);
+    } catch (_) {
+      // An unavailable optional key must not disable the keyless provider.
+      return (
+        settings: OnlineSubtitleSettings(
+          language: await preferences.subtitleLanguage,
+        ),
+        warning: 'OpenSubtitles 设置读取失败，已尝试使用 Podnapisi。',
+      );
+    }
+  }
+
+  Future<void> searchOnlineSubtitles() async {
+    if (_closed ||
+        _disposed ||
+        _closing != null ||
+        loading ||
+        item == null ||
+        engine == null) {
+      return;
+    }
+    cancelOnlineSubtitleSearch();
+    final token = _onlineSearchToken = ScanCancellation();
+    final selected = item!, current = engine;
+    searchingOnlineSubtitles = true;
+    onlineSubtitleError = null;
+    onlineSubtitleResults = const [];
+    notifyListeners();
+    try {
+      final configuration = await _readOnlineSettings();
+      token.check();
+      final settings = configuration.settings;
+      onlineSubtitleError = configuration.warning;
+      hasOpenSubtitlesKey = settings.apiKey.isNotEmpty;
+      var title = selected.title, year = selected.year;
+      if (selected.parentId != null) {
+        try {
+          final parent = await sources.media((
+            sourceId: selected.identity.sourceId,
+            localId: selected.parentId!,
+          ));
+          title = parent.title;
+          year = parent.year;
+        } catch (_) {
+          /* Use the selected title when the parent is unavailable. */
+        }
+      }
+      token.check();
+      final external = selected.remote?.externalId ?? '';
+      final result = await _onlineService.search(
+        OnlineSubtitleQuery(
+          title: title,
+          year: year,
+          imdbID: external.startsWith('imdb:') ? external.substring(5) : null,
+          season: selected.seasonNumber,
+          episode: selected.episodeNumber,
+        ),
+        settings,
+        token,
+      );
+      token.check();
+      if (!identical(engine, current) || item?.identity != selected.identity) {
+        return;
+      }
+      onlineSubtitleResults = result.results;
+      final warnings = [?onlineSubtitleError, ...result.warnings];
+      onlineSubtitleError = warnings.isNotEmpty
+          ? warnings.join(' ')
+          : result.results.isEmpty
+          ? '未找到字幕，可尝试修改标题后重新搜索。'
+          : null;
+    } on ScanCancelled {
+      /* Stale requests never publish results. */
+    } catch (_) {
+      if (identical(_onlineSearchToken, token) && !_closed && !_disposed) {
+        onlineSubtitleError = '在线字幕搜索失败，请稍后重试。';
+      }
+    } finally {
+      if (identical(_onlineSearchToken, token)) {
+        _onlineSearchToken = null;
+        searchingOnlineSubtitles = false;
+        if (!_closed && !_disposed) notifyListeners();
+      }
+    }
+  }
+
+  Future<void> downloadOnlineSubtitle(OnlineSubtitleResult result) async {
+    if (_closed ||
+        _disposed ||
+        _closing != null ||
+        loading ||
+        item == null ||
+        engine == null ||
+        downloadingOnlineSubtitleID != null ||
+        !onlineSubtitleResults.any(
+          (r) =>
+              r.id == result.id &&
+              r.fileId == result.fileId &&
+              r.provider == result.provider,
+        )) {
+      return;
+    }
+    final token = _onlineDownloadToken = ScanCancellation();
+    final selected = item!, current = engine!;
+    downloadingOnlineSubtitleID = result.id;
+    onlineSubtitleError = null;
+    notifyListeners();
+    try {
+      var path = downloadedOnlineSubtitlePaths[result.id];
+      final alreadySaved = path != null && await File(path).exists();
+      final payload = alreadySaved
+          ? null
+          : await _onlineService.download(
+              result,
+              (await _readOnlineSettings()).settings,
+              token,
+            );
+      token.check();
+      // Network I/O is outside the playback queue. Commit/load is serialized
+      // with engine replacement so a late download cannot attach to a new film.
+      await _serialize(() async {
+        token.check();
+        if (_closed ||
+            _closing != null ||
+            !identical(engine, current) ||
+            item?.identity != selected.identity) {
+          return;
+        }
+        if (payload != null) {
+          if (selected.remote == null && filePath != null) {
+            path = p.setExtension(filePath!, '.${payload.extension}');
+          } else {
+            final root = await RuntimeStoragePaths.current.temporary();
+            await root.create(recursive: true);
+            _subtitleDirectory ??= await root.createTemp('reelnest-subtitles-');
+            path = p.join(
+              _subtitleDirectory!.path,
+              'online-${result.provider.name}-${result.fileId}.${payload.extension}',
+            );
+          }
+          token.check();
+          path = await _onlineStore.save(payload, path!, token);
+          downloadedOnlineSubtitlePaths.removeWhere(
+            (_, old) => p.equals(old, path!),
+          );
+          downloadedOnlineSubtitlePaths[result.id] = path!;
+        }
+        token.check();
+        final existing = current.tracks.subtitles
+            .where(
+              (t) =>
+                  t.externalFilename != null &&
+                  p.equals(t.externalFilename!, path!),
+            )
+            .firstOrNull;
+        if (existing == null || payload != null) {
+          await current.addSubtitle(path!);
+        } else {
+          await current.selectSubtitle(existing.id);
+        }
+        _didApplyTrackPreference = true;
+        tracks.value = current.tracks;
+        if (selected.remote == null && filePath != null) {
+          sidecarSubtitles = await SidecarSubtitle.find(filePath!);
+        }
+        try {
+          await preferences.rememberSubtitle(selected, result.language);
+        } catch (_) {
+          onlineSubtitleError = '字幕已加载，但语言偏好保存失败。';
+        }
+      });
+    } on ScanCancelled {
+      /* Close/switch owns cancellation and cleanup. */
+    } catch (failure) {
+      if (identical(_onlineDownloadToken, token) && !_closed && !_disposed) {
+        onlineSubtitleError = failure is OnlineSubtitleFailure
+            ? failure.message
+            : '字幕下载或加载失败，请重试。';
+      }
+    } finally {
+      if (identical(_onlineDownloadToken, token)) {
+        _onlineDownloadToken = null;
+        downloadingOnlineSubtitleID = null;
+        if (!_closed && !_disposed) notifyListeners();
+      }
+    }
+  }
+
   final VideoScreenshotStore _screenshotStore;
   VideoScreenshotMode screenshotMode = VideoScreenshotMode.subtitles;
   bool capturingFrame = false;
@@ -162,8 +604,19 @@ class PlaybackSession extends ChangeNotifier {
       const VideoPerformanceSettings();
   VideoRenderSettings renderSettings = const VideoRenderSettings();
   final PlaybackRepository records;
-  final VideoPreviewGenerator _previewGenerator;
+  final VideoPreviewGenerator? _providedPreviewGenerator;
+  final _previewIssueCodes = <String>{};
+  int _previewTraceAttempts = 0;
+  bool _didGeneratePreview = false;
   VideoPreviewResource? _previewResource;
+  TransientPlaybackTarget? _transientTarget;
+  TransientPlaybackTarget? _failedTransientTarget;
+  TransientFileAccess? _fileAccess;
+  bool get transient => item != null && isTransientPlayback(item!.identity);
+  TransientPlaybackTarget? get transientTarget =>
+      _transientTarget ?? (engine == null ? _failedTransientTarget : null);
+  bool get httpStream => _previewResource?.remote == true;
+  bool lastOpenSucceeded = false;
   late final previewFrames = VideoFramePreviewCache(generate: _generatePreview);
 
   Future<Uint8List?> _generatePreview(
@@ -172,16 +625,89 @@ class PlaybackSession extends ChangeNotifier {
     VideoPreviewCancellation cancellation,
   ) async {
     String? lease;
+    TransientFileAccess? fileAccess;
+    final watch = Stopwatch()..start();
+    final trace = _trace;
+    final traceAttempt = _previewTraceAttempts++ < 8;
+    if (traceAttempt) {
+      trace?.event(
+        'preview_started',
+        stage: 'preview',
+        remote: resource.remote,
+        cached: resource.cached,
+      );
+    }
+    void report(String code) {
+      if (cancellation.isCancelled ||
+          resource != _previewResource ||
+          _previewIssueCodes.length >= 16 ||
+          !_previewIssueCodes.add(code)) {
+        return;
+      }
+      _trace?.event(
+        'preview_unavailable',
+        stage: 'preview',
+        code: code,
+        durationMs: watch.elapsedMilliseconds,
+        remote: resource.remote,
+        cached: resource.cached,
+      );
+    }
+
     try {
+      if (_fileAccess != null && !resource.remote) {
+        fileAccess = await TransientFileAccess.acquire(
+          resource.location,
+          bookmark: _fileAccess!.bookmark,
+        );
+      }
       if (resource.cached) {
         final retained = await cache?.acquire(resource.identity);
-        if (retained == null) return null;
+        if (retained == null) {
+          report('cache_unavailable');
+          return null;
+        }
         lease = retained.lease;
         if (!p.equals(retained.path, resource.location)) return null;
       }
       if (cancellation.isCancelled) return null;
-      return await _previewGenerator(resource, time, cancellation);
+      final custom = _providedPreviewGenerator;
+      final bytes = custom == null
+          ? await generateMpvVideoPreview(
+              resource,
+              time,
+              cancellation,
+              onIssue: report,
+            )
+          : await custom(resource, time, cancellation);
+      if (bytes != null &&
+          !cancellation.isCancelled &&
+          resource == _previewResource &&
+          !_didGeneratePreview) {
+        _didGeneratePreview = true;
+        _trace?.event(
+          'preview_generated',
+          stage: 'preview',
+          durationMs: watch.elapsedMilliseconds,
+          remote: resource.remote,
+          cached: resource.cached,
+        );
+      }
+      return bytes;
+    } catch (_) {
+      report('preview_exception');
+      return null;
     } finally {
+      if (traceAttempt) {
+        trace?.event(
+          cancellation.isCancelled ? 'preview_cancelled' : 'preview_finished',
+          stage: 'preview',
+          durationMs: watch.elapsedMilliseconds,
+          remote: resource.remote,
+          cached: resource.cached,
+        );
+      }
+      await fileAccess?.release();
       if (lease != null) {
         try {
           await cache?.release(lease);
@@ -246,7 +772,9 @@ class PlaybackSession extends ChangeNotifier {
   EmbyVideoQuality quality = EmbyVideoQuality.source;
   Duration _streamOffset = Duration.zero;
   List<EmbyVideoQuality> get qualityOptions =>
-      item == null || filePath != null ? [] : EmbyVideoQuality.options(item!);
+      item == null || filePath != null || transient
+      ? []
+      : EmbyVideoQuality.options(item!);
   Future<void> selectQuality(EmbyVideoQuality value) => _serialize(() async {
     if (_closed || loading || item == null || value.id == quality.id) return;
     final selected = qualityOptions.where((q) => q.id == value.id).firstOrNull;
@@ -308,8 +836,18 @@ class PlaybackSession extends ChangeNotifier {
     return next;
   }
 
-  Future<void> open(MediaIdentity identity) =>
-      _serialize(() => _open(identity));
+  Future<void> open(MediaIdentity identity) => _serialize(
+    () => _open(
+      identity,
+      transientTarget:
+          _failedTransientTarget?.identity == identity ||
+              (engine == null && error != null && item?.identity == identity)
+          ? _failedTransientTarget
+          : null,
+    ),
+  );
+  Future<void> openTransient(TransientPlaybackTarget target) =>
+      _serialize(() => _open(target.identity, transientTarget: target));
 
   Future<void> _open(
     MediaIdentity identity, {
@@ -318,14 +856,18 @@ class PlaybackSession extends ChangeNotifier {
     bool force = false,
     bool autoplay = true,
     bool fullTimeline = false,
+    TransientPlaybackTarget? transientTarget,
   }) async {
+    lastOpenSucceeded = false;
     if (_closed || _closing != null) return;
     if (!force &&
         item?.identity == identity &&
         error == null &&
         engine != null) {
+      lastOpenSucceeded = true;
       return;
     }
+    _cancelOnlineSubtitles();
     final previous = engine;
     final previousLoop = force && item?.identity == identity
         ? _precision.value.loop
@@ -336,6 +878,10 @@ class PlaybackSession extends ChangeNotifier {
     trace?.event('open_begin');
     VideoEngine? candidate;
     String? candidateLease;
+    TransientFileAccess? candidateAccess;
+    final requestedTarget =
+        transientTarget ??
+        (item?.identity == identity ? _transientTarget : null);
     _checkpoint?.cancel();
     loading = true;
     previewFrames.attach(null);
@@ -343,12 +889,25 @@ class PlaybackSession extends ChangeNotifier {
     notifyListeners();
     try {
       trace?.stage('source_lookup');
-      final selected = await sources.media(identity);
-      final source = await sources.source(
-        identity.sourceId,
-        includeCounts: false,
-      );
-      trace?.event('source_selected', code: source.kind.name);
+      var target = requestedTarget;
+      if (target?.local == true) {
+        candidateAccess = await TransientFileAccess.acquire(
+          target!.location,
+          bookmark: target.securityBookmark,
+        );
+        await target.validate();
+        target = target.withBookmark(candidateAccess.bookmark);
+        final indexed = await indexedFileIdentity(sources, target.location);
+        if (indexed != null) {
+          identity = indexed;
+          target = null;
+        }
+      }
+      final selected = target?.item ?? await sources.media(identity);
+      final source = target != null
+          ? null
+          : await sources.source(identity.sourceId, includeCounts: false);
+      trace?.event('source_selected', code: source?.kind.name ?? 'temporary');
       if (selected.isSeries ||
           selected.type == 'music' ||
           selected.type == 'photo') {
@@ -358,8 +917,12 @@ class PlaybackSession extends ChangeNotifier {
       String? localPath;
       String? nextCacheWarning;
       trace?.stage('preferences');
-      final nextHistoryEpoch = await records.historyEpoch(identity);
-      final record = await records.read(identity);
+      final nextHistoryEpoch = target != null
+          ? ''
+          : await records.historyEpoch(identity);
+      final record = target != null
+          ? PlaybackRecord(identity: identity)
+          : await records.read(identity);
       late final PlaybackOptions nextOptions;
       late final VideoSubtitleStyle nextStyle;
       late final VideoTimingSettings nextTiming;
@@ -372,6 +935,7 @@ class PlaybackSession extends ChangeNotifier {
       late final double? rate;
       late final double volume, volumeBoost;
       var nextScreenshotMode = VideoScreenshotMode.subtitles;
+      var nextKeyboardShortcuts = VideoKeyboardShortcuts();
       var nextColors = VideoColorAdjustments.neutral;
       String? nextSubtitleWarning;
       String? nextDisplayWarning;
@@ -389,6 +953,7 @@ class PlaybackSession extends ChangeNotifier {
         nextStyle = await preferences.subtitleStyle;
         nextTiming = await preferences.timing;
         nextDisplay = await preferences.displaySettings;
+        nextKeyboardShortcuts = await preferences.keyboardShortcuts;
         try {
           nextScreenshotMode = await preferences.screenshotMode;
         } catch (error, stack) {
@@ -444,7 +1009,11 @@ class PlaybackSession extends ChangeNotifier {
           );
       var streamOffset = Duration.zero;
       String? playSessionId;
-      if (source.kind.isFileSource) {
+      if (target != null) {
+        trace?.stage(target.local ? 'local_resource' : 'stream_resource');
+        resource = target.location;
+        localPath = target.local ? target.location : null;
+      } else if (source!.kind.isFileSource) {
         trace?.stage('local_resource');
         localPath = p.normalize(
           p.joinAll([source.location, ...p.posix.split(identity.localId)]),
@@ -455,7 +1024,7 @@ class PlaybackSession extends ChangeNotifier {
           throw const SourceFailure('媒体文件不存在，可能是 NAS 未挂载、移动硬盘断开，或文件已被移动。');
         }
         resource = localPath;
-      } else if (source.kind == MediaSourceKind.emby && emby != null) {
+      } else if (source.kind.isEmbyCompatible && emby != null) {
         ({String path, String lease})? cached;
         if (!force) {
           trace?.stage('cache_lookup');
@@ -506,10 +1075,7 @@ class PlaybackSession extends ChangeNotifier {
       final sidecars = localPath == null
           ? <SidecarSubtitle>[]
           : await SidecarSubtitle.find(localPath);
-      final nextQueue = VideoQueue.forItem(
-        selected,
-        await sources.playbackQueueCandidates(selected),
-      );
+      final nextQueue = await _queueFor(selected);
       if (previous != null) {
         trace?.stage('previous_checkpoint');
         try {
@@ -661,11 +1227,23 @@ class PlaybackSession extends ChangeNotifier {
       // Commit only after the target can actually decode. Until this point a
       // rejected target leaves the old session, clocks and controls intact.
       trace?.stage('previous_release');
-      await _release(save: false);
+      await _release(
+        save: false,
+        preserveTransient:
+            isTransientPlayback(selected.identity) &&
+            item?.identity == selected.identity,
+      );
       engine = current;
       _trace = trace;
       candidate = null;
       item = selected;
+      _transientTarget = target;
+      _failedTransientTarget = null;
+      _fileAccess = candidateAccess;
+      candidateAccess = null;
+      keyboardShortcuts = nextKeyboardShortcuts;
+      onlineSubtitleResults = const [];
+      onlineSubtitleError = null;
       _historyEpoch = nextHistoryEpoch;
       filePath = localPath;
       screenshotMode = nextScreenshotMode;
@@ -686,6 +1264,9 @@ class PlaybackSession extends ChangeNotifier {
         offset: streamOffset,
         cached: _cacheLease != null,
       );
+      _previewIssueCodes.clear();
+      _previewTraceAttempts = 0;
+      _didGeneratePreview = false;
       _playSessionId = playSessionId;
       _reportedStart = false;
       _lastReport = null;
@@ -693,6 +1274,7 @@ class PlaybackSession extends ChangeNotifier {
       sidecarSubtitles = sidecars;
       serverSubtitles = const [];
       serverSubtitlePaths.clear();
+      downloadedOnlineSubtitlePaths.clear();
       subtitleError = null;
       queue = nextQueue;
       endAction = action;
@@ -785,6 +1367,7 @@ class PlaybackSession extends ChangeNotifier {
       if (_closed || _closing != null) return;
       trace?.stage('play');
       if (autoplay) await current.play();
+      lastOpenSucceeded = true;
       loading = false;
       _observe(current.clock);
       trace?.event(
@@ -823,6 +1406,7 @@ class PlaybackSession extends ChangeNotifier {
         }
       } else {
         error = message;
+        _failedTransientTarget = requestedTarget;
         try {
           await _release(save: false);
         } catch (error, stack) {
@@ -842,6 +1426,11 @@ class PlaybackSession extends ChangeNotifier {
         trace?.failure('cache_release_failed', error, stack);
       }
       trace?.event('open_finished');
+      try {
+        await candidateAccess?.release();
+      } catch (error, stack) {
+        trace?.failure('file_access_release_failed', error, stack);
+      }
       loading = false;
       previewFrames.attach(_previewResource);
       _updateMarkerSkip();
@@ -853,18 +1442,29 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> _refreshQueueRecords() async {
+    if (transient) {
+      queueRecords = const {};
+      return;
+    }
     queueRecords = Map.unmodifiable(
       await records.readMany(queue.items.map((i) => i.identity)),
+    );
+  }
+
+  Future<VideoQueue> _queueFor(IndexedMedia selected) async {
+    if (isTransientPlayback(selected.identity)) {
+      return VideoQueue(sequence: [selected], items: [selected]);
+    }
+    return VideoQueue.forItem(
+      selected,
+      await sources.playbackQueueCandidates(selected),
     );
   }
 
   Future<void> refreshQueue() => _serialize(() async {
     if (_closed || loading || item == null) return;
     try {
-      queue = VideoQueue.forItem(
-        item!,
-        await sources.playbackQueueCandidates(item!),
-      );
+      queue = await _queueFor(item!);
       await _refreshQueueRecords();
       transitionMessage = null;
     } catch (_) {
@@ -876,10 +1476,7 @@ class PlaybackSession extends ChangeNotifier {
   Future<void> adjacent(int direction) => _serialize(() async {
     if (_closed || _closing != null || loading || item == null) return;
     try {
-      final fresh = VideoQueue.forItem(
-        item!,
-        await sources.playbackQueueCandidates(item!),
-      );
+      final fresh = await _queueFor(item!);
       final target = fresh.adjacent(item!.identity, direction);
       if (target == null) {
         transitionMessage = direction < 0 ? '已经是第一集' : '已经是最后一集';
@@ -930,10 +1527,7 @@ class PlaybackSession extends ChangeNotifier {
         closeRequests.value++;
       case VideoEndAction.nextEpisode:
         if (item == null) return;
-        final fresh = VideoQueue.forItem(
-          item!,
-          await sources.playbackQueueCandidates(item!),
-        );
+        final fresh = await _queueFor(item!);
         if (fresh.items.length > 1) await _open(fresh.items[1].identity);
     }
   });
@@ -975,7 +1569,7 @@ class PlaybackSession extends ChangeNotifier {
     }
     if (value.error != null) {
       if (error == null) _trace?.event('playback_failed', code: 'engine_error');
-      error = item?.remote == null
+      error = item?.remote == null && !(transient && filePath == null)
           ? '视频播放失败：${value.error}'
           : '远程视频播放失败，请检查连接或重新打开。';
       loading = false;
@@ -1071,7 +1665,7 @@ class PlaybackSession extends ChangeNotifier {
       } catch (error, stack) {
         trace?.failure('remote_report_failed', error, stack);
         if (item?.identity == selected.identity) {
-          syncError = 'Emby 播放状态同步失败，本机播放进度仍会保存。';
+          syncError = '远程媒体库播放状态同步失败，本机播放进度仍会保存。';
         }
       } finally {
         if (phase == EmbyPlaybackPhase.progress) {
@@ -1103,7 +1697,10 @@ class PlaybackSession extends ChangeNotifier {
     final value = clock;
     final policy = options;
     final epoch = _historyEpoch;
-    if (!_hasClock || selected == null || value.duration <= Duration.zero) {
+    if (!_hasClock ||
+        selected == null ||
+        isTransientPlayback(selected.identity) ||
+        value.duration <= Duration.zero) {
       return Future.value();
     }
     final next = _writes.then((_) async {
@@ -2028,13 +2625,18 @@ class PlaybackSession extends ChangeNotifier {
     await engine!.setAudioDevice(name);
   });
 
-  Future<void> _release({bool save = true}) async {
+  Future<void> _release({
+    bool save = true,
+    bool preserveTransient = false,
+  }) async {
     _previewResource = null;
     previewFrames.attach(null);
     _checkpoint?.cancel();
     _checkpoint = null;
     final current = engine;
     if (current == null) return;
+    _keyboardHoldRate = null;
+    _keyboardHoldEngine = null;
     try {
       await current.pause();
     } catch (_) {
@@ -2048,6 +2650,9 @@ class PlaybackSession extends ChangeNotifier {
     await _chapterSubscription?.cancel();
     _chapterSubscription = null;
     _precision.detach();
+    if (!preserveTransient) {
+      _precision.repository.clearTransient();
+    }
     _autoSkippedMarkerKey = null;
     if (_playSessionId != null) {
       await _reportRemote(EmbyPlaybackPhase.stopped, force: true);
@@ -2058,6 +2663,14 @@ class PlaybackSession extends ChangeNotifier {
       await current.dispose();
     } finally {
       engine = null;
+      final access = _fileAccess;
+      _fileAccess = null;
+      _transientTarget = null;
+      try {
+        await access?.release();
+      } catch (error, stack) {
+        _trace?.failure('file_access_release_failed', error, stack);
+      }
       _cacheHeartbeat?.cancel();
       _cacheHeartbeat = null;
       final lease = _cacheLease;
@@ -2072,6 +2685,7 @@ class PlaybackSession extends ChangeNotifier {
       final directory = _subtitleDirectory;
       _subtitleDirectory = null;
       serverSubtitlePaths.clear();
+      downloadedOnlineSubtitlePaths.clear();
       if (directory != null &&
           p.isWithin(
             p.normalize(
@@ -2095,6 +2709,7 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return _closing ?? Future.value();
     if (_closing != null) return _closing!;
     _subtitleCancellation?.cancel();
+    _cancelOnlineSubtitles();
     final closing = _serialize(() async {
       _checkpoint?.cancel();
       _checkpoint = null;
@@ -2109,6 +2724,7 @@ class PlaybackSession extends ChangeNotifier {
       await _writes;
       if (!discardProgress && saveError != null) return;
       await _release(save: false);
+      _failedTransientTarget = null;
       _closed = true;
     });
     _closing = closing;
@@ -2124,6 +2740,8 @@ class PlaybackSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _cancelOnlineSubtitles();
     previewFrames.dispose();
     _checkpoint?.cancel();
     _cacheHeartbeat?.cancel();
