@@ -15,6 +15,7 @@ String runtimeSourceKey(MediaSource source) => jsonEncode([
 
 typedef ReachabilityObservation = ({String sourceKey, bool online});
 typedef HealthObservation = ({LibraryHealthSnapshot snapshot, int revision});
+typedef VideoCacheStorageObservation = ({int count, int bytes, double limit});
 
 class RuntimeTask {
   const RuntimeTask({

@@ -66,8 +66,15 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
         uri = next.replace(
           queryParameters: {
             for (final entry in next.queryParameters.entries)
-              if (!{'api_key', 'apikey'}.contains(entry.key.toLowerCase()))
+              if (!{
+                'api_key',
+                'apikey',
+                'x-plex-token',
+              }.contains(entry.key.toLowerCase()))
                 entry.key: entry.value,
+            if (resource.queryParameters['X-Plex-Token']
+                case final String token)
+              'X-Plex-Token': token,
             if (resource.queryParameters['ApiKey'] case final String token)
               'ApiKey': token,
             if (resource.queryParameters['api_key'] case final String token)

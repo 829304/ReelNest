@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/runtime_observations.dart';
 import '../../../api/emby/emby_client.dart';
+import '../../../api/plex/plex_client.dart';
 import '../../../platform/secure_credential_store.dart';
 import '../data/emby_connection_repository.dart';
 import '../data/emby_sync_repository.dart';
@@ -36,6 +37,19 @@ final embyClientProvider = FutureProvider<EmbyClient>((ref) async {
   return client;
 });
 
+final plexClientProvider = FutureProvider<EmbyClient>((ref) async {
+  final device = await embyDeviceIdentity(
+    ref.watch(sourceRepositoryProvider).database,
+  );
+  final client = PlexClient(deviceId: device);
+  if (!ref.mounted) {
+    client.close();
+    throw const SourceClosedException();
+  }
+  ref.onDispose(client.close);
+  return client;
+});
+
 class SourceClosedException implements Exception {
   const SourceClosedException();
 }
@@ -44,6 +58,7 @@ final embyConnectionProvider = Provider<EmbyConnectionRepository>((ref) {
   final repository = EmbyConnectionRepository(
     sources: ref.watch(sourceRepositoryProvider),
     client: ref.watch(embyClientProvider.future),
+    plexClient: ref.watch(plexClientProvider.future),
     stores: ref.watch(embyCredentialStoresProvider),
   );
   ref.onDispose(repository.dispose);
@@ -139,10 +154,14 @@ final embyOfflineProvider = Provider<EmbyOfflineRepository>((ref) {
   ref.onDispose(() => unawaited(repository.dispose()));
   return repository;
 });
-final embyCacheStorageProvider = FutureProvider((ref) {
+final embyCacheStorageProvider = FutureProvider((ref) async {
   final sources = ref.watch(sourceRepositoryProvider);
   ref.watch(sourceChangesProvider.select((_) => sources.contentRevision));
-  return ref.watch(embyCacheProvider).storageSummary();
+  final summary = await ref.watch(embyCacheProvider).storageSummary();
+  if (ref.mounted) {
+    ref.read(observedVideoCacheStorageProvider.notifier).record(summary);
+  }
+  return summary;
 });
 
 final embyCachedVideosProvider = FutureProvider<List<CachedVideo>>((ref) {
@@ -321,7 +340,7 @@ Future<void> prepareEmbySeries(
     final item = await sources.media(id);
     if (item.isSeries &&
         item.remote != null &&
-        (await sources.source(id.sourceId)).kind.isEmbyCompatible) {
+        (await sources.source(id.sourceId)).kind.isRemoteVideoSource) {
       await browser.loadEpisodes(id, ScanCancellation());
     }
   }

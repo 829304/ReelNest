@@ -28,7 +28,7 @@ class SourceLibraryPage extends ConsumerWidget {
     // Dependency reloads retain the previous value in AsyncLoading. Keep the
     // same library subtree alive while its source configuration is refreshed.
     final source = sources.value?.where((s) => s.id == sourceId).firstOrNull;
-    if (source?.kind.isEmbyCompatible == true) {
+    if (source?.kind.isRemoteVideoSource == true) {
       return EmbyVideoLibraryPage(
         destination: (
           sourceId: sourceId,
@@ -87,7 +87,7 @@ class SourceLibraryPage extends ConsumerWidget {
             ),
             data: (page) => page.total == 0
                 ? _message(
-                    source.kind.isEmbyCompatible
+                    source.kind.isRemoteVideoSource
                         ? (source.lastScan == null
                               ? '媒体内容尚未同步。请先同步媒体源。'
                               : '所选媒体库没有可显示的媒体。')

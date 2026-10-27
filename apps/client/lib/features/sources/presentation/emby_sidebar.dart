@@ -95,7 +95,7 @@ class _EmbySidebarState extends ConsumerState<EmbySidebar> {
       ),
       data: (values) => Column(
         children: [
-          for (final source in values.where((s) => s.kind.isEmbyCompatible))
+          for (final source in values.where((s) => s.kind.isRemoteVideoSource))
             _group(source),
         ],
       ),

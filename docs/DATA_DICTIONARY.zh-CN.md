@@ -2,7 +2,7 @@
 
 - 状态：Active
 - 负责人：数据与文档维护者
-- 最后更新：2026-10-26
+- 最后更新：2026-10-27
 - 适用范围：`apps/client` 当前本地数据库与敏感数据边界
 - 权威范围：数据身份、表用途、生命周期和隐私说明
 - 代码依据：`apps/client/lib/storage/library_database.dart`
@@ -64,6 +64,11 @@ library/reelnest.sqlite
 枚举存在不等于对应连接器已经实现。ReelNest Server 仍属于后续原版能力迁移范围，当前尚未进入该枚举。
 
 Jellyfin 基础视频来源闭环已实现，Windows Release/smoke 已通过。实现使用独立 `sources.kind = jellyfin`、Jellyfin provider/凭据类型及 `jellyfin://` 来源路径；普通 HTTP API 采用 `Authorization: MediaBrowser`，播放/下载 URL 采用 `ApiKey` 查询参数，Emby 既有认证行为保持不变。来源配置使用 `connector.jellyfin.uuid`；共享凭据工厂内部的 `emby.source.<uuid>` 命名按来源 UUID 隔离，并通过 provider kind 校验，不表示二者身份相同。凭据存入既有安全凭据存储，不写普通 SQLite 字段。远程媒体数据沿用现有 `remote_media_metadata`、`remote_media_details`、`remote_library_views` 结构并按 `source_id` 隔离；不新增表、不改变 schema 或执行迁移，`schemaVersion` 维持 1。官方稳定版 OpenAPI 12.3.0 已核对；实施方回报共享协议定向 255/255、同步/界面组 61/61、Emby 基线 37/37、UI 2/2 与 Windows Native 真实 mpv 业务用例通过；analyze 与 421 个 Dart 文件格式检查通过。本批未跑全量 Flutter 测试。真实服务器与其他平台验收待完成。实现与验收边界见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。
+
+Plex 基础视频连接器已实现并完成 Windows 自动化验证；实现使用独立 `sources.kind = plex`、Plex provider/credential kind 和 `plex://<host>/<sourceId>` 身份。认证/会话使用 Plex server URL + Token 与 Plex 专属 `X-Plex-*` 协议；token-free 配置为 `connector.plex.<sourceId>`，保存 `serverIdentity`（machineIdentifier），库 ID 使用 `section:<key>`、媒体 ID 使用来源内 ratingKey，不套用 Emby/Jellyfin 请求认证。凭据仍走既有安全凭据存储，按来源隔离；本阶段不使用真实 Token。媒体索引及远程详情/媒体库沿用当前 schema 并按 `source_id` 隔离，不增加表、不改 `schemaVersion=1`、不做迁移。Plex 没有原版服务端收藏接口：favorite 仅由 ReelNest 本地保存，重同步必须保留本地值；播放进度与已看状态按 Plex 专属 progress/scrobble 接口回写。个人 `userRating` 通过远程 JSON 的 `initialUserRating` 字段映射为初始 0–5 评分（`userRating/2`），已有本地评分不覆盖；Plex 能力标记 `supportsQualitySelection=false`。新增评分字段进入 token-free JSON，不增加 SQL 列。最终分项验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项；前端2/2、Windows Native、analyze、427 Dart文件format、Windows Release和五秒smoke通过。本批未跑全量Flutter测试；真实 Plex、macOS/Linux、人工视觉及辅助功能验收待。详见[Plex 基础连接器计划](PLEX_PLAN.zh-CN.md)。
+
+Plex 账号归属修正（2026-10-27）：连接与重新认证可读取固定 Plex 官方账号接口；配置/凭据中的 `userId` 为 `plex-account:<官方账号 id>`，与 `serverIdentity`（服务器 machineIdentifier）分开比较。无法由官方验证的服务器专用 Token 使用 `plex-token:<SHA-256 指纹>`；不同 Token 不得沿用该来源。重新认证失败不保存新凭据，不转移旧索引、图片/视频缓存、离线订阅或本地偏好；同账号 Token 更新保留来源 UUID。只保存身份字段和既有安全凭据，不存完整官方 profile，不增加数据库表/列或迁移。本轮定向 67/67、Windows Native、Release/smoke、analyze、427 文件 format 与 diff-check 通过；测试使用本地模拟账号接口，未验证真实 Plex 官方账号/服务器。验收细节见[Plex 重新认证修正](PLEX_PLAN.zh-CN.md#2026-10-27-重新认证的账号归属修正)。
+
 
 ### 媒体身份
 

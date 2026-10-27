@@ -148,7 +148,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       loading |= m.loading;
     }
     final partial = eligible.any(
-      (s) => s.kind.isEmbyCompatible && s.lastScan == null,
+      (s) => s.kind.isRemoteVideoSource && s.lastScan == null,
     );
     final hasCards =
         modules.values.any((m) => m.items.isNotEmpty) ||
@@ -189,7 +189,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     context,
                     palette,
                     '媒体源待添加',
-                    '接入本地文件夹、移动硬盘、网络挂载、Emby 或 Jellyfin 媒体库后，ReelNest 会整理索引。',
+                    '接入本地文件夹、移动硬盘、网络挂载、Emby、Jellyfin 或 Plex 媒体库后，ReelNest 会整理索引。',
                   ),
                 ),
               )

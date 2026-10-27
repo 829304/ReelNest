@@ -11,6 +11,7 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 截至 2026-10-26（下列模块记录各自最后验证批次）：
 
 - Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke。共享协议定向 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未运行全量 Flutter 测试。真实 Jellyfin、macOS/Linux 和人工精确视觉验收仍待。范围与证据见[Jellyfin 计划](docs/JELLYFIN_PLAN.zh-CN.md)。
+- Plex 基础视频来源闭环实施中；前端 2/2 与 Windows Native mpv 单业务用例通过，后端最终定向 21/21 通过，Release/smoke 待回报。不使用真实 Token；真实 Plex、macOS/Linux、人工精确视觉待验。范围见[Plex 计划](docs/PLEX_PLAN.zh-CN.md)。
 
 - TMDB 本地电影元数据已完成实现及 Windows Delivery Release/smoke 验证；最终定向合并复跑 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）。全量测试为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不能视为全量通过。随后缓存关闭取消专项46项通过，Windows Release/smoke 通过；该次未复现先前约4.9秒的具体任务状态。真实 TMDB 公服、macOS/Linux 原生与精确视觉验收仍待。详见[TMDB 专项计划](docs/TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](docs/CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 
@@ -31,7 +32,7 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 2026-10-16 用户明确授权播放器右上角显示输入速率，并随底部进度 Dock 同步显隐。代码已冻结：backend 54、UI 27、隔离 native 2 项通过；analyze、269 文件格式及 diff 检查通过。本轮未重跑上一轮 701 项全量；Windows Release 39.6 秒及五秒 smoke 通过。真实 Emby、实体键鼠、macOS/Linux 原生和三端视觉验收仍待。详情见[播放器记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
 
-仍未完成或未完整验收的主要范围包括：Jellyfin 真实服务器、macOS/Linux 原生与人工视觉验收，Plex、ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权及三桌面端整体视觉对照。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
+仍未完成或未完整验收的主要范围包括：Jellyfin 真实服务器、macOS/Linux 原生与人工视觉验收；Plex 基础连接器实施中（前端 2/2、Windows Native 单业务用例和后端最终定向21/21通过，补充边界与Release/smoke未完成）；ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权及三桌面端整体视觉对照。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
 
 ## 项目结构
 

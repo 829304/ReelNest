@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/app_feedback.dart';
+import '../../../ui/widgets/pointer_inspect_tilt.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../metadata/application/tmdb_providers.dart';
@@ -92,7 +93,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 _DetailPageHeader(
                   key: const ValueKey('media-detail-header'),
                   title: source?.name ?? '媒体库',
-                  remote: source?.kind.isEmbyCompatible == true,
+                  remote: source?.kind.isRemoteVideoSource == true,
                   onBack: _back,
                   palette: palette,
                 ),
@@ -152,7 +153,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                         ),
                       ];
                     }
-                    final extras = source.kind.isEmbyCompatible
+                    final extras = source.kind.isRemoteVideoSource
                         ? ref.watch(
                             embyDetailProvider((
                               identity: item.identity,
@@ -277,7 +278,8 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    final foreground = source.kind.isEmbyCompatible && source.lastScan == null
+    final foreground =
+        source.kind.isRemoteVideoSource && source.lastScan == null
         ? ref.watch(embySeriesEpisodesProvider(item.identity))
         : null;
     final result = ref.watch(sourceSeasonsProvider(item.identity));
@@ -337,7 +339,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                 ),
                 const Spacer(),
                 Text('$count 集'),
-                if (source.kind.isEmbyCompatible) ...[
+                if (source.kind.isRemoteVideoSource) ...[
                   const SizedBox(width: 10),
                   EmbyBatchWatchedButton(series: item.identity),
                 ],
@@ -357,7 +359,7 @@ class _LocalMediaDetailPageState extends ConsumerState<LocalMediaDetailPage> {
                       _expanded.add(season.key);
                     }
                   }),
-                  actions: source.kind.isEmbyCompatible
+                  actions: source.kind.isRemoteVideoSource
                       ? EmbyBatchWatchedButton(
                           series: item.identity,
                           oneSeason: true,
@@ -785,26 +787,20 @@ class _DetailHero extends StatelessWidget {
       if (tmdb?.numberOfEpisodes case final episodes? when episodes > 0)
         (icon: Icons.format_list_numbered_rounded, label: '$episodes 集'),
     ];
-    final titleActions = source.kind.isEmbyCompatible
+    final titleActions = source.kind.isRemoteVideoSource
         ? EmbyMediaActions(item: item, favoriteOnly: true)
         : source.kind.isFileSource
         ? LocalVideoActions(identity: item.identity)
         : null;
-    final artworkSurface = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(13),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .24),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
+    final artworkSurface = PointerInspectTilt(
+      key: const ValueKey('media-detail-artwork-surface'),
+      enabled: item.type != 'music',
+      cornerRadius: 12,
       child: AspectRatio(
         aspectRatio: landscape ? 16 / 9 : 2 / 3,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(13),
+          key: const ValueKey('media-detail-artwork-clip'),
+          borderRadius: BorderRadius.circular(12),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -819,17 +815,21 @@ class _DetailHero extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0x20FFFFFF), Color(0x00000000)],
+                    colors: [
+                      Color(0x1AFFFFFF),
+                      Color(0x00000000),
+                      Color(0x092C7CE0),
+                    ],
                   ),
                 ),
               ),
               DecoratedBox(
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: .30),
+                    color: Colors.white.withValues(alpha: .34),
                     width: .85,
                   ),
-                  borderRadius: BorderRadius.circular(13),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ],
@@ -970,9 +970,9 @@ class _DetailHero extends StatelessWidget {
               _PlaybackButton(
                 item: item,
                 enabled:
-                    source.kind.isFileSource || source.kind.isEmbyCompatible,
+                    source.kind.isFileSource || source.kind.isRemoteVideoSource,
               ),
-              if (source.kind.isFileSource || source.kind.isEmbyCompatible)
+              if (source.kind.isFileSource || source.kind.isRemoteVideoSource)
                 ExternalPlaybackButton(item: item),
               if (source.kind.isFileSource &&
                   item.type == 'movie' &&
@@ -986,29 +986,16 @@ class _DetailHero extends StatelessWidget {
                   identity: item.identity,
                   title: item.title,
                 ),
-              if (source.kind.isEmbyCompatible && !item.isSeries)
+              if (source.kind.isRemoteVideoSource && !item.isSeries)
                 EmbyMediaActions(item: item),
-              if (source.kind.isEmbyCompatible) EmbyCacheActions(item: item),
+              if (source.kind.isRemoteVideoSource) EmbyCacheActions(item: item),
             ],
           ),
         ],
       ],
     );
-    return Container(
+    return KeyedSubtree(
       key: const ValueKey('media-detail-hero'),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: palette.card,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: palette.border, width: .9),
-        boxShadow: [
-          BoxShadow(
-            color: palette.shadow.withValues(alpha: palette.dark ? .17 : .05),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth < 720) {
@@ -1050,28 +1037,21 @@ class _DetailTitleActions extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: palette.control,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(14),
-      side: BorderSide(color: palette.border, width: .8),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: IconButtonTheme(
-      data: IconButtonThemeData(
-        style: IconButton.styleFrom(
-          foregroundColor: palette.menuText,
-          minimumSize: const Size(34, 34),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          hoverColor: palette.hoverPill,
-          focusColor: palette.selectedTint.withValues(alpha: .10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+  Widget build(BuildContext context) => IconButtonTheme(
+    data: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: palette.menuText,
+        backgroundColor: palette.card,
+        minimumSize: const Size(40, 30),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        hoverColor: palette.hoverPill,
+        focusColor: palette.selectedTint.withValues(alpha: .10),
+        side: BorderSide(color: palette.border, width: .8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
-      child: Padding(padding: const EdgeInsets.all(2), child: child),
     ),
+    child: child,
   );
 }
 
@@ -1366,7 +1346,7 @@ class _EpisodeRow extends ConsumerWidget {
       Theme.of(context).brightness == Brightness.dark,
     );
     Future<void> play() async {
-      if (!source.kind.isFileSource && !source.kind.isEmbyCompatible) {
+      if (!source.kind.isFileSource && !source.kind.isRemoteVideoSource) {
         return;
       }
       try {
@@ -1386,7 +1366,7 @@ class _EpisodeRow extends ConsumerWidget {
     final progress = record?.progress ?? 0;
     final inProgress = !watched && progress > .015;
     final row = GestureDetector(
-      onDoubleTap: source.kind.isFileSource || source.kind.isEmbyCompatible
+      onDoubleTap: source.kind.isFileSource || source.kind.isRemoteVideoSource
           ? () {
               onSelect();
               play();
@@ -1564,7 +1544,7 @@ class _EpisodeRow extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                if (source.kind.isEmbyCompatible)
+                if (source.kind.isRemoteVideoSource)
                   EmbyCacheActions(item: item, compact: true),
                 if (selected)
                   SourceLineIcon(
@@ -1602,7 +1582,7 @@ class _EpisodeRow extends ConsumerWidget {
         ],
       ),
     );
-    return source.kind.isEmbyCompatible
+    return source.kind.isRemoteVideoSource
         ? EmbyVideoContextMenu(item: item, child: row)
         : source.kind.isFileSource
         ? LocalVideoContextMenu(item: item, child: row)

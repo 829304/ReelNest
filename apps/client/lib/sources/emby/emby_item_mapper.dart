@@ -43,10 +43,14 @@ class EmbyItemMapper {
       episodeNumber: dto.type == 'episode' ? dto.integer('IndexNumber') : null,
       originalTitle: dto.text('OriginalTitle'),
       overview: dto.text('Overview'),
-      posterPath: dto.hasPoster ? dto.id : null,
-      backdropPath: dto.hasBackdrop ? dto.id : null,
+      posterPath: dto.hasPoster ? dto.text('PosterReference') ?? dto.id : null,
+      backdropPath: dto.hasBackdrop
+          ? dto.text('BackdropReference') ?? dto.id
+          : null,
       remote: RemoteMediaMetadata(
         externalId: dto.id,
+        supportsQualitySelection:
+            dto.data['SupportsQualitySelection'] as bool? ?? true,
         libraryId: library?.id,
         libraryName: library?.name,
         collectionType: library?.collectionType,
@@ -60,6 +64,7 @@ class EmbyItemMapper {
         watched: user['Played'] as bool? ?? false,
         favorite: user['IsFavorite'] as bool? ?? false,
         rating: rating,
+        initialUserRating: (dto.data['InitialUserRating'] as num?)?.toDouble(),
         artist: (dto.data['Artists'] as List?)?.firstOrNull as String?,
         album: dto.text('Album'),
         genres: List.unmodifiable(

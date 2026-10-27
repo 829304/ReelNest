@@ -40,6 +40,7 @@ class _LocalVideoActionsState extends ConsumerState<LocalVideoActions> {
 
     return Row(
       mainAxisSize: MainAxisSize.min,
+      spacing: 8,
       children: [
         IconButton(
           tooltip: value?.watchlist == true ? '移出想看' : '加入想看',

@@ -1,10 +1,18 @@
 # ReelNest 文档
 
-更新时间：2026-10-26。
+更新时间：2026-10-27。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
+
+- 媒体库主界面页头 P0 对齐原版：共享页头恢复原版标题簇、TV 图标、动作对齐与窄布局；移除额外页头卡片/管理按钮并保留原版筛选条双层表面。跨来源63项及补充22项通过，format/analyze、Windows Release41.0秒和五秒 smoke通过。未做真实服务器可见 UI、实体输入、高 DPI、macOS/Linux 精确视觉验收；不代表全局 UI 一致。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-媒体库主界面-p0-页头对齐原版windows-验证通过)。
+- 公共逻辑提取（2026-10-27）：第一批净减48行，176项相关测试通过，Windows Release 47.4秒及20:10 +08 五秒 smoke 通过；第二批净减62行，97/97相关测试通过（8秒）、analyze clean、format 0 changed，Windows Release 46.3秒及20:21:52 +08 五秒 smoke 通过（隐藏窗口响应、正常关闭、ExitCode 0）。两批验证分别记录，不与前端41秒构建混用；不代表全量测试或三平台验收。详见[公共逻辑提取记录](COMMON_LOGIC_EXTRACTION_2026-10-27.zh-CN.md)。
+- 原版侧边栏状态卡 P0 第一、二批部分迁移：固定底部卡片、继续观看、被动缓存统计快照与任务完成提示已接入。第二批专项20/20、交叉回归117/117、analyze、Windows Release 38.9秒和隐藏 smoke通过。音乐迷你控制、更新、保险库锁定、赞赏、缺失/重复项卡及任务重试/取消仍待，详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-侧边栏状态卡-p0-第二批部分迁移windows-验证通过)。
+- P0 本地媒体卡视觉一致性收口已按 `PosterGridView.swift` / `HomeVividTokens` 修正：专项1/1、核心 UI 35/35、Jellyfin/Plex 前端4/4、全项目 analyze、Windows Release 40.9秒及五秒 smoke（10:38:12 +08，响应/关闭/exit 0）与人工窗口复核通过。缺图占位内标题与卡片底部标题为原版设计，均保留。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-本地媒体卡视觉一致性修正windows-验证通过)。
+- 原版视觉纠偏第一批已完成：复用 PointerInspectTilt、媒体海报倾斜、详情 hero/海报与收藏和书签动作回归原版布局。定向16/16、跨来源47/47、analyze、Windows Release 41.0秒及隐藏 smoke 通过。此批不代表全局像素一致；来源/设置/首页逐页审计与 macOS/Linux 实机视觉仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-原版视觉纠偏第一批windows-验证通过)。
+- P0 媒体网格悬浮阴影层级已修正：视觉专项最终2/2、跨来源组合最终63/63，analyze、diff-check、Windows Release 39.7秒和隐藏 smoke通过。首次63项组合因新退出断言少 pump 一帧失败，调整时序后同一组合通过。此项只解决主悬浮阴影遮挡，不代表工具栏/图标/全页面像素审计完成。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-媒体网格悬浮阴影绘制层级修正)。
+- Plex 基础视频连接器已实现：Token 认证、选库、分页浏览/详情与直连播放、进度和已看写回；专属后端 24/24、共享后端 255/255、同步/UI 63 项、Windows Native、Release 与五秒 smoke 通过。各组有重叠，不重复累计；本批未跑全量测试。真实 Plex、macOS/Linux、人工视觉与辅助功能验收仍待。详见[Plex 计划](PLEX_PLAN.zh-CN.md)。
 
 - Jellyfin 基础闭环已实现并交付 Windows Release/smoke；共享协议 255/255、同步/界面组 61/61、Emby 基线 37/37、UI 2/2 和 Windows Native 真实 mpv 业务用例通过。本批未运行全量 Flutter 测试；真实服务器、macOS/Linux 和人工视觉验收仍待。详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。
 - TMDB 本地电影元数据：最终定向合并复跑 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）；全量为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不能记为全量通过。Windows Delivery Release 与五秒 smoke 通过；随后缓存关闭取消专项46项通过、Windows Release/smoke 通过，该次未复现此前约4.9秒任务状态。真实公服、macOS/Linux 与精确视觉验收待。详见[专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
@@ -112,6 +120,12 @@
 | [来源刷新与页面生命周期](SOURCE_PAGE_LIFECYCLE_FIX_2026-10-12.zh-CN.md) | 刷新期间保留滚动、多选、分页游标和详情状态 |
 | [媒体库进入详情的海报闪烁修复](POSTER_TRANSITION_2026-10-12.zh-CN.md) | 页面切换时的海报占位与过渡修复 |
 | [无媒体库与 NAS 的测试方案](MEDIA_TESTING.zh-CN.md) | 合成媒体、可播放样本、SMB 模拟和平台验证 |
+
+## Plex
+
+| 文档 | 内容 |
+|---|---|
+| [Plex 基础视频来源闭环计划](PLEX_PLAN.zh-CN.md) | 协议边界、原版映射、分项验证、Windows 产物与未完成验收 |
 
 ## Jellyfin
 

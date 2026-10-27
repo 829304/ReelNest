@@ -6,7 +6,7 @@
 
 当前已有 `apps/client`、五个平台工程模板、桌面外壳、CI、文件来源与索引、本地视频播放、健康与设置、Emby 视频闭环，以及首页 H1、H2 推荐与跨来源视频搜索。正常入口包含首页、媒体源、仪表盘和设置；Mlink 媒体库/服务器模块只保留为隔离历史路径。第一阶段仍只开发和验收 Windows、macOS、Linux。
 
-当前只有一个 Flutter 包；`packages/`、`contracts/` 等目录仍是边界稳定后的目标结构，不代表已经建立。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke，真实服务器、macOS/Linux 与人工视觉验收待；Plex、ReelNest Server、音乐及其他原版模块尚待迁移，完整播放器和三桌面端 UI/原生验收也未完成。[首页运行状态摘要](HOME_RUNTIME_STATUS.zh-CN.md)已接通，共享被动状态位于 `app/runtime_observations.dart`，纯模型位于 `domain/runtime_status.dart`。[首页编排](HOME_LAYOUT_EDITOR.zh-CN.md)位于 `features/home`，布局纯规则、SQLite 偏好仓库、串行保存控制器和编辑组件分别独立；当前下一批为首页桌面交互与真实数据验收，见[首页实施计划](HOME_LAYOUT_EDITOR.zh-CN.md)；实现总览见[文档索引](README.md)。
+当前只有一个 Flutter 包；`packages/`、`contracts/` 等目录仍是边界稳定后的目标结构，不代表已经建立。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke，真实服务器、macOS/Linux 与人工视觉验收待；Plex 基础视频连接器已实现，Plex专属后端24/24、共享后端255/255、同步/UI 63项、Windows Release/smoke已通过；真实服务、macOS/Linux、人工视觉和辅助功能验收待。组合日志276/276与85/85含重叠，不重复累计。ReelNest Server、音乐及其他原版模块尚待迁移，完整播放器和三桌面端 UI/原生验收也未完成。[首页运行状态摘要](HOME_RUNTIME_STATUS.zh-CN.md)已接通，共享被动状态位于 `app/runtime_observations.dart`，纯模型位于 `domain/runtime_status.dart`。[首页编排](HOME_LAYOUT_EDITOR.zh-CN.md)位于 `features/home`，布局纯规则、SQLite 偏好仓库、串行保存控制器和编辑组件分别独立；当前首页下一批为桌面交互与真实数据验收，Plex 真实服务与跨平台验收仍待进行，见[首页实施计划](HOME_LAYOUT_EDITOR.zh-CN.md)及[Plex 计划](PLEX_PLAN.zh-CN.md)；实现总览见[文档索引](README.md)。
 
 Emby 画质与流式下载位于 `api/emby/emby_quality.dart` / `emby_download.dart`；图片及视频缓存清单、下载协调和清理保护位于 `features/sources/data/emby_cache_repository.dart`，UI 为 `emby_cache_actions.dart` 与设置中的 `video_cache_settings.dart`。播放会话仅获取/释放缓存租约，不直接下载或维护目录。实现范围见[画质与缓存](EMBY_QUALITY_CACHE.zh-CN.md)。
 
@@ -219,7 +219,7 @@ flowchart TD
 1. 建立 `apps/client`，保留五端模板；当前只推进 Windows/macOS/Linux 工程与构建检查。
 2. 在应用内建立 `app`、`shell`、功能目录和必要的平台能力接口；共享代码暂放在 `lib/domain`、`lib/api`、`lib/storage`、`lib/player`、`lib/ui` 中，按需创建。
 3. 建立来源模型与路由仓储，先做通“选择目录 → 扫描索引 → 浏览详情 → 本地播放 → 保存进度”，覆盖三个桌面端的文件授权与播放能力。
-4. 完善本地来源（含移动盘与已挂载 NAS）的离线恢复；本地媒体完成后优先实现 Emby，再推进 Jellyfin、Plex。每个模块同时对照原版功能与 UI，最终只做统一验收和修正。
+4. 完善本地来源（含移动盘与已挂载 NAS）的离线恢复；Emby 与 Jellyfin 基础视频闭环已完成，Plex 基础视频来源本阶段已实现，之后再按原版继续其他来源。每个模块同时对照原版功能与 UI，最终只做统一验收和修正。
 5. 当模块需要独立依赖、独立测试或被多个功能稳定使用时，提取到 `packages/reelnest_*`，迁移引用与测试，并删除已迁出的旧实现。
 6. 按原功能清单补齐搜索、下载等模块和平台行为；本地媒体库是早期主线，尚未全部完成。历史数据导入不因出现在早期规划中而自动成为当前开发任务，需有实际需求再设计。
 

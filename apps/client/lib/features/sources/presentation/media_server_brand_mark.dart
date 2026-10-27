@@ -5,12 +5,13 @@ import '../../../domain/media_source.dart';
 Color mediaServerBrandColor(MediaSourceKind kind) => switch (kind) {
   MediaSourceKind.emby => const Color(0xFF21CFA7),
   MediaSourceKind.jellyfin => const Color(0xFFAA5CC3),
+  MediaSourceKind.plex => const Color(0xFFEBAF00),
   _ => const Color(0xFF5C7CFA),
 };
 
 /// Connector identity used by the source picker, source rows and sidebar.
-/// Emby keeps its bundled official raster mark. Jellyfin uses the exact
-/// official icon geometry from jellyfin-ux, rendered locally so it stays
+/// Emby and Plex keep their bundled official raster marks. Jellyfin uses the
+/// exact official icon geometry from jellyfin-ux, rendered locally so it stays
 /// sharp without adding a runtime SVG dependency.
 class MediaServerBrandMark extends StatelessWidget {
   const MediaServerBrandMark({required this.kind, this.size = 20, super.key});
@@ -35,6 +36,14 @@ class MediaServerBrandMark extends StatelessWidget {
         size: Size.square(size),
         painter: const _JellyfinMarkPainter(),
       ),
+    ),
+    MediaSourceKind.plex => Image.asset(
+      'assets/brands/plex.png',
+      key: const ValueKey('plex-brand-mark'),
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      excludeFromSemantics: true,
     ),
     _ => Icon(Icons.dns_outlined, size: size),
   };

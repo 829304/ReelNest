@@ -16,6 +16,7 @@ enum MediaSourceKind {
 
   /// Shared MediaBrowser protocol; provider identity and branding stay distinct.
   bool get isEmbyCompatible => this == emby || this == jellyfin;
+  bool get isRemoteVideoSource => isEmbyCompatible || this == plex;
   bool get isFileSource => switch (this) {
     localFolder || removableDrive || mountedNas => true,
     _ => false,

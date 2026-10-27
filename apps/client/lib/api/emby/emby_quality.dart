@@ -26,6 +26,7 @@ class EmbyVideoQuality {
     final resolution = RegExp(r'^(\d+)\s*[x×]\s*(\d+)$')
         .firstMatch(remote?.resolution ?? '');
     if (remote == null ||
+        !remote.supportsQualitySelection ||
         item.type == 'music' ||
         resolution == null ||
         remote.mediaSourceId?.isNotEmpty != true) {

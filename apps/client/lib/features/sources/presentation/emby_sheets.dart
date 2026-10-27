@@ -54,6 +54,7 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
               MediaSourceKind.localFolder,
               MediaSourceKind.emby,
               MediaSourceKind.jellyfin,
+              MediaSourceKind.plex,
             ])
               SizedBox(
                 width: 264,
@@ -81,7 +82,7 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                       children: [
                         SizedBox(
                           width: 26,
-                          child: kind.isEmbyCompatible
+                          child: kind.isRemoteVideoSource
                               ? MediaServerBrandMark(kind: kind, size: 19)
                               : Icon(
                                   Icons.folder_outlined,
@@ -104,6 +105,8 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                               Text(
                                 kind.isFileSource
                                     ? '本地文件夹、移动硬盘与已挂载 NAS'
+                                    : kind == MediaSourceKind.plex
+                                    ? '服务器地址与 Plex Token 直连'
                                     : '服务器地址与账号登录',
                                 style: TextStyle(
                                   fontSize: 12,
@@ -257,17 +260,29 @@ class EmbyConnectionSheet extends StatefulWidget {
 class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
   final _server = TextEditingController(),
       _username = TextEditingController(),
-      _password = TextEditingController();
+      _password = TextEditingController(),
+      _token = TextEditingController();
   bool _busy = false, _settings = false, _metadata = true, _health = true;
   RemoteTraceSyncMode _trace = RemoteTraceSyncMode.bidirectional;
   String? _error;
   MediaSourceKind get _kind => widget.source?.kind ?? widget.kind;
   String get _brand => _kind.label;
+  bool get _plex => _kind == MediaSourceKind.plex;
+  SourceOptions get _options => SourceOptions(
+    autoScan: false,
+    preferLocalArtwork: false,
+    networkScrapingEnabled: false,
+    screenshotFallbackEnabled: false,
+    includeInMetadataFetch: _metadata,
+    includeInHealthCheck: _health,
+    remoteTraceSyncMode: _trace,
+  );
   @override
   void dispose() {
     _server.dispose();
     _username.dispose();
     _password.dispose();
+    _token.dispose();
     super.dispose();
   }
 
@@ -279,28 +294,30 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
     try {
       MediaSource? result;
       if (widget.source case final source?) {
-        await widget.repository.reauthenticate(
-          source.id,
-          _username.text,
-          _password.text,
-        );
+        if (_plex) {
+          await widget.repository.reauthenticatePlex(source.id, _token.text);
+        } else {
+          await widget.repository.reauthenticate(
+            source.id,
+            _username.text,
+            _password.text,
+          );
+        }
         result = source;
       } else {
-        result = await widget.repository.connect(
-          _server.text,
-          _username.text,
-          _password.text,
-          kind: _kind,
-          options: SourceOptions(
-            autoScan: false,
-            preferLocalArtwork: false,
-            networkScrapingEnabled: false,
-            screenshotFallbackEnabled: false,
-            includeInMetadataFetch: _metadata,
-            includeInHealthCheck: _health,
-            remoteTraceSyncMode: _trace,
-          ),
-        );
+        result = _plex
+            ? await widget.repository.connectPlex(
+                _server.text,
+                _token.text,
+                options: _options,
+              )
+            : await widget.repository.connect(
+                _server.text,
+                _username.text,
+                _password.text,
+                kind: _kind,
+                options: _options,
+              );
       }
       if (mounted) {
         setState(() => _busy = false);
@@ -327,8 +344,8 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
       subtitle: _settings
           ? '确认扫描、健康检查和同步策略。'
           : reauth
-          ? '填写服务器地址和登录凭据。'
-          : '登录后同步到独立的 $_brand 目录。',
+          ? (_plex ? '填写 Plex Token 以恢复服务器访问。' : '填写服务器地址和登录凭据。')
+          : (_plex ? '连接后同步到独立的 Plex 目录。' : '登录后同步到独立的 $_brand 目录。'),
       busy: _busy,
       actions: [
         SourceSheetButton(
@@ -348,7 +365,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
           label: _busy
               ? '$_brand 连接中'
               : _settings || reauth
-              ? (reauth ? '登录' : '登录并同步')
+              ? (reauth ? (_plex ? '连接' : '登录') : (_plex ? '连接并同步' : '登录并同步'))
               : '下一步',
           prominent: true,
           onPressed: _busy
@@ -357,7 +374,10 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
                   if (!_settings && !reauth) {
                     try {
                       embyServerUri(_server.text);
-                      if (_username.text.trim().isEmpty) {
+                      if (_plex && _token.text.trim().isEmpty) {
+                        throw const SourceFailure('请输入 Plex Token。');
+                      }
+                      if (!_plex && _username.text.trim().isEmpty) {
                         throw const SourceFailure('请输入用户名。');
                       }
                       setState(() {
@@ -378,7 +398,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
         if (!_settings)
           AppSheetSection(
             title: '服务器连接',
-            subtitle: '填写服务器地址和登录凭据。',
+            subtitle: _plex ? '填写服务器地址和 Plex Token。' : '填写服务器地址和登录凭据。',
             icon: const Icon(Icons.dns_outlined, size: 17),
             colors: palette.section,
             child: Column(
@@ -387,16 +407,22 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
                 if (!reauth)
                   _field(
                     _server,
-                    '服务器地址，例如 http://192.168.1.20:8096',
+                    _plex
+                        ? '服务器地址，例如 http://192.168.1.20:32400'
+                        : '服务器地址，例如 http://192.168.1.20:8096',
                     '${_kind.name}-server',
                   ),
-                _field(_username, '用户名', '${_kind.name}-username'),
-                _field(
-                  _password,
-                  '密码',
-                  '${_kind.name}-password',
-                  password: true,
-                ),
+                if (_plex)
+                  _field(_token, 'Plex Token', 'plex-token', password: true)
+                else ...[
+                  _field(_username, '用户名', '${_kind.name}-username'),
+                  _field(
+                    _password,
+                    '密码',
+                    '${_kind.name}-password',
+                    password: true,
+                  ),
+                ],
               ],
             ),
           ),
@@ -420,7 +446,7 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
           ),
         const SizedBox(height: 14),
         Text(
-          '凭据仅保存在本机安全存储中。',
+          _plex ? 'Plex Token 仅保存在本机安全存储中。' : '凭据仅保存在本机安全存储中。',
           style: TextStyle(fontSize: 12, color: palette.secondary),
         ),
         if (_busy) ...[

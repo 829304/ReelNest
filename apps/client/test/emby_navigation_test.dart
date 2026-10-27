@@ -872,7 +872,7 @@ void main() {
           tester.view.physicalSize = const Size(1088, 720);
           await tester.pumpAndSettle();
           expect(find.text('北京故事'), findsWidgets);
-          expect(find.text('共 2 项'), findsOneWidget);
+          expect(find.text('浏览、筛选和管理当前内容 · 2 项'), findsOneWidget);
           expect(find.text('音乐'), findsNothing);
           final mouse = await tester.createGesture(
             kind: PointerDeviceKind.mouse,
@@ -936,7 +936,7 @@ void main() {
             await tester.pumpAndSettle();
             expectSelected(id);
             expect(
-              find.text(id == 'shows' ? '共 0 项' : '共 2 项'),
+              find.text('浏览、筛选和管理当前内容 · ${id == 'shows' ? 0 : 2} 项'),
               findsOneWidget,
             );
           }
@@ -953,7 +953,7 @@ void main() {
           await tester.enterText(find.byType(TextField), 'bjgs');
           await tester.pump(const Duration(milliseconds: 200));
           await tester.pumpAndSettle();
-          expect(find.text('共 1 项'), findsOneWidget);
+          expect(find.text('浏览、筛选和管理当前内容 · 1 项'), findsOneWidget);
           expect(find.text('上海故事'), findsNothing);
           final requests = server.requests.length;
           await tester.tap(find.byType(LocalMediaCard));
@@ -976,7 +976,7 @@ void main() {
             tester.widget<TextField>(find.byType(TextField)).controller!.text,
             'bjgs',
           );
-          expect(find.text('共 1 项'), findsOneWidget);
+          expect(find.text('浏览、筛选和管理当前内容 · 1 项'), findsOneWidget);
           await tester.tap(find.byTooltip('清除搜索'));
           await tester.pumpAndSettle();
           await tester.tap(find.byTooltip('最近更新 · 正序'));
@@ -993,7 +993,7 @@ void main() {
           await tester.pumpAndSettle();
           await tester.tap(find.text('想看').last);
           await tester.pumpAndSettle();
-          expect(find.text('共 1 项'), findsOneWidget);
+          expect(find.text('浏览、筛选和管理当前内容 · 1 项'), findsOneWidget);
           await tester.tap(find.text('全部').last);
           await tester.pumpAndSettle();
           await tester.tap(find.text('电视剧').first);
@@ -1006,7 +1006,7 @@ void main() {
                 .queryParameters['library'],
             'shows',
           );
-          expect(find.text('共 0 项'), findsOneWidget);
+          expect(find.text('浏览、筛选和管理当前内容 · 0 项'), findsOneWidget);
           final embyLogo = find.byKey(
             ValueKey('emby-source-logo-${source.id}'),
           );

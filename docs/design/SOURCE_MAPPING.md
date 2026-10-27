@@ -6,6 +6,7 @@
 
 | 原版源码 | Flutter 文件（相对 apps/client/lib） | 本轮范围 |
 |---|---|---|
+| `PlexService.swift` / `AppState.connectPlexServer` / `SourcesView.swift` / `PlexServiceMetadataIDTests.swift` | `api/plex/plex_client.dart` / `plex_item.dart`，共享来源仓储与播放器 | 2026-10-27 基础视频闭环已实现；独立 XML 和 X-Plex 认证，收藏在本机保留；Windows 自动化、Release/smoke 通过。真实 Plex、macOS/Linux 和人工验收待，见[Plex 计划](../PLEX_PLAN.zh-CN.md) |
 | `MediaSource.swift`、`SourceRepository.swift` | `domain/media_source.dart`、`features/sources/data/source_repository.dart`、`storage/library_database.dart` | 来源 ID、扫描配置、本地索引持久化；不复用旧数据库文件或旧 schema |
 | `MediaScanner.swift` | `sources/filesystem/file_source_adapter.dart` | 基础遍历、格式过滤、递归与点号文件选项、取消/失败保护；尚未迁移元数据、NFO、缩略图和剧集解析 |
 | `SourcesView.swift`：来源添加、扫描与移除 | `features/sources/presentation/` | 新的媒体源入口、目录选择、进度、重新定位与索引浏览；原版完整样式尚未还原 |

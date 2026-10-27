@@ -1,9 +1,8 @@
 import 'dart:convert';
-
 import 'package:drift/drift.dart';
-
 import '../../../domain/media_source.dart';
 import '../../../storage/library_database.dart';
+import '../../../storage/preference_store.dart';
 import '../domain/playback_record.dart';
 
 class PlaybackRepository {
@@ -112,14 +111,7 @@ class PlaybackRepository {
       'playback.history.epoch.${jsonEncode([id.sourceId, id.localId])}';
 
   Future<String> historyEpoch(MediaIdentity id) async =>
-      (await database
-              .customSelect(
-                'SELECT value FROM player_preferences WHERE key = ?',
-                variables: [Variable(_epochKey(id))],
-              )
-              .getSingleOrNull())
-          ?.read<String>('value') ??
-      '';
+      await database.preferenceValue(_epochKey(id)) ?? '';
 
   /// A delayed checkpoint from an already open player cannot restore a trace
   /// cleared by a different window. Keep this marker in the existing prefs store.
@@ -128,11 +120,7 @@ class PlaybackRepository {
         final ids = identities.toSet();
         for (final id in ids) {
           final epoch = (int.tryParse(await historyEpoch(id)) ?? 0) + 1;
-          await database.customStatement(
-            'INSERT INTO player_preferences(key,value) VALUES (?,?) '
-            'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-            [_epochKey(id), '$epoch'],
-          );
+          await database.writePreference(_epochKey(id), '$epoch');
         }
         await markWatched(ids, false);
       });

@@ -1,25 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:drift/drift.dart';
 
 import '../../../api/emby/emby_client.dart';
+import '../../../api/emby/emby_detail.dart';
+import '../../../api/emby/emby_download.dart';
 import '../../../api/emby/emby_item.dart';
 import '../../../api/emby/emby_playback.dart';
-import '../../../api/emby/emby_subtitle.dart';
-import '../../../api/emby/emby_detail.dart';
 import '../../../api/emby/emby_quality.dart';
-import '../../../api/emby/emby_download.dart';
-import '../../playback/data/playback_repository.dart';
-import '../../playback/domain/playback_record.dart';
+import '../../../api/emby/emby_subtitle.dart';
+import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_options.dart';
 import '../../../storage/credential_store.dart';
 import '../../../storage/library_database.dart';
-import 'source_repository.dart';
+import '../../playback/data/playback_repository.dart';
+import '../../playback/domain/playback_record.dart';
 import 'emby_library_repository.dart';
+import 'source_repository.dart';
 
 String newEmbyIdentity() {
   final bytes = List.generate(16, (_) => Random.secure().nextInt(256));
@@ -68,10 +69,16 @@ class EmbyConnectionRepository {
     required this.sources,
     required this.client,
     required this.stores,
+    this.plexClient,
     this.playbackReportTimeout = const Duration(seconds: 5),
   });
   final SourceRepository sources;
   final Future<EmbyClient> client;
+  final Future<EmbyClient>? plexClient;
+  Future<EmbyClient> _clientFor(MediaSourceKind kind) =>
+      kind == MediaSourceKind.plex
+      ? (plexClient ?? Future.error(const SourceFailure('Plex 连接器未初始化。')))
+      : client;
   final EmbyCredentialStores stores;
   final Duration playbackReportTimeout;
   final _operations = <String, Future<void>>{};
@@ -110,7 +117,7 @@ class EmbyConnectionRepository {
       }
       final credential = _Credential.decode(raw);
       final source = await sources.source(id, includeCounts: false);
-      if (!source.kind.isEmbyCompatible ||
+      if (!source.kind.isRemoteVideoSource ||
           source.kind != credential.session.kind) {
         throw const SourceFailure('登录凭据与媒体源类型不一致，请重新认证。');
       }
@@ -146,6 +153,7 @@ class EmbyConnectionRepository {
       username: data['username'] as String,
       userId: data['userId'] as String,
       token: '',
+      serverIdentity: data['serverIdentity'] as String?,
       kind: (await sources.source(id, includeCounts: false)).kind,
     );
   }
@@ -157,8 +165,8 @@ class EmbyConnectionRepository {
     SourceOptions? options,
     MediaSourceKind kind = MediaSourceKind.emby,
   }) => _serial('connect', () async {
-    if (!kind.isEmbyCompatible) throw const SourceFailure('此媒体服务器类型尚未接入。');
-    final api = await client;
+    if (!kind.isRemoteVideoSource) throw const SourceFailure('此媒体服务器类型尚未接入。');
+    final api = await _clientFor(kind);
     final session = await api.authenticate(
       server,
       username,
@@ -210,21 +218,39 @@ class EmbyConnectionRepository {
     }
   });
 
+  Future<MediaSource> connectPlex(
+    String server,
+    String token, {
+    SourceOptions? options,
+  }) =>
+      connect(server, '', token, kind: MediaSourceKind.plex, options: options);
+  Future<void> reauthenticatePlex(String id, String token) =>
+      reauthenticate(id, '', token);
+
   Future<T> _authenticated<T>(
     String id,
     Future<T> Function(EmbyClient, EmbySession) action, {
     ScanCancellation? cancellation,
   }) async {
     cancellation?.check();
-    final credential = await _cancellable(cancellation, () => _load(id));
-    final api = await _cancellable(cancellation, () => client);
+    final credential = await awaitWithCancellation(
+      cancellation,
+      () => _load(id),
+    );
+    final api = await awaitWithCancellation(
+      cancellation,
+      () => _clientFor(credential.session.kind),
+    );
     cancellation?.check();
     try {
       final result = await action(api, credential.session);
       _check();
       return result;
     } on EmbyFailure catch (error) {
-      if (error.kind != EmbyError.authentication) rethrow;
+      if (error.kind != EmbyError.authentication ||
+          credential.session.kind == MediaSourceKind.plex) {
+        rethrow;
+      }
       cancellation?.check();
       final refreshed = await api.authenticate(
         credential.session.server.toString(),
@@ -251,23 +277,6 @@ class EmbyConnectionRepository {
 
   /// Foreground browsing must not queue behind a full-library HTTP request.
   /// Only credential refresh is serialized; ordinary reads do not mutate auth.
-  Future<T> _cancellable<T>(
-    ScanCancellation? cancellation,
-    Future<T> Function() work,
-  ) async {
-    if (cancellation == null) return work();
-    cancellation.check();
-    final cancelled = Completer<T>();
-    final unlisten = cancellation.listen(
-      () => cancelled.completeError(const ScanCancelled()),
-    );
-    try {
-      return await Future.any([Future.sync(work), cancelled.future]);
-    } finally {
-      unlisten();
-    }
-  }
-
   Future<T> _foreground<T>(
     String id,
     Future<T> Function(EmbyClient, EmbySession) action, {
@@ -275,9 +284,15 @@ class EmbyConnectionRepository {
   }) async {
     _check();
     cancellation?.check();
-    await _cancellable(cancellation, () => _requireSource(id));
-    final credential = await _cancellable(cancellation, () => _load(id));
-    final api = await _cancellable(cancellation, () => client);
+    await awaitWithCancellation(cancellation, () => _requireSource(id));
+    final credential = await awaitWithCancellation(
+      cancellation,
+      () => _load(id),
+    );
+    final api = await awaitWithCancellation(
+      cancellation,
+      () => _clientFor(credential.session.kind),
+    );
     cancellation?.check();
     try {
       final result = await action(api, credential.session);
@@ -286,8 +301,11 @@ class EmbyConnectionRepository {
       await _requireSource(id);
       return result;
     } on EmbyFailure catch (error) {
-      if (error.kind != EmbyError.authentication) rethrow;
-      return _cancellable(
+      if (error.kind != EmbyError.authentication ||
+          credential.session.kind == MediaSourceKind.plex) {
+        rethrow;
+      }
+      return awaitWithCancellation(
         cancellation,
         () => _serial(id, () async {
           cancellation?.check();
@@ -453,8 +471,9 @@ class EmbyConnectionRepository {
         if (remote == null) throw const SourceFailure('此媒体没有远程状态。');
         await sources.setRemoteFavorite(identity, favorite);
         try {
-          if (source.options.remoteTraceSyncMode ==
-              RemoteTraceSyncMode.bidirectional) {
+          if (source.kind != MediaSourceKind.plex &&
+              source.options.remoteTraceSyncMode ==
+                  RemoteTraceSyncMode.bidirectional) {
             await _authenticated(
               source.id,
               (api, session) => api.setUserFlag(
@@ -583,10 +602,10 @@ class EmbyConnectionRepository {
       throw const SourceFailure('此片源不支持所选画质。');
     }
     return _foreground(id, (api, session) async {
-      await api.validate(session, cancellation: cancellation);
-      return api.playbackResource(
+      return api.preparePlayback(
         session,
         item.remote!,
+        cancellation: cancellation,
         audio: item.type == 'music',
         quality: selected,
         start: start,
@@ -619,7 +638,11 @@ class EmbyConnectionRepository {
           );
       cancellation.check();
       try {
-        return await (await client).download(
+        final kind = (await sources.source(
+          item.identity.sourceId,
+          includeCounts: false,
+        )).kind;
+        return await (await _clientFor(kind)).download(
           resource,
           destination,
           cancellation,
@@ -648,7 +671,7 @@ class EmbyConnectionRepository {
     await _serial<void>(item.identity.sourceId, () async {
       cancellation.check(); // An expired queued operation must never run later.
       final source = await sources.source(item.identity.sourceId);
-      if (!source.kind.isEmbyCompatible ||
+      if (!source.kind.isRemoteVideoSource ||
           source.options.remoteTraceSyncMode !=
               RemoteTraceSyncMode.bidirectional) {
         return;
@@ -684,13 +707,13 @@ class EmbyConnectionRepository {
     if (!(await sources.source(
       id,
       includeCounts: false,
-    )).kind.isEmbyCompatible) {
+    )).kind.isRemoteVideoSource) {
       throw const SourceFailure('该来源不是受支持的媒体服务器。');
     }
   }
 
   Future<bool> isReachable(MediaSource source) async {
-    if (!source.kind.isEmbyCompatible) return false;
+    if (!source.kind.isRemoteVideoSource) return false;
     try {
       await session(source.id);
       return true;
@@ -731,17 +754,28 @@ class EmbyConnectionRepository {
       _serial(id, () async {
         await _requireSource(id);
         final old = await _configuration(id);
-        final api = await client;
+        final api = await _clientFor(old.kind);
         final refreshed = await api.authenticate(
           old.server.toString(),
           username,
           password,
           kind: old.kind,
         );
-        if (refreshed.userId != old.userId) {
+        if (refreshed.kind != old.kind ||
+            (old.kind == MediaSourceKind.plex &&
+                (old.serverIdentity == null ||
+                    refreshed.serverIdentity != old.serverIdentity))) {
           throw const EmbyFailure(
             EmbyError.authentication,
-            '请使用此来源原有账号；切换账号请另行添加媒体源。',
+            '服务器身份发生变化，请另行添加媒体源。',
+          );
+        }
+        if (refreshed.userId != old.userId) {
+          throw EmbyFailure(
+            EmbyError.authentication,
+            old.kind == MediaSourceKind.plex
+                ? '无法确认新 Token 属于此来源的原账号，请另行添加 Plex 媒体源；原索引和离线缓存不会转交给新凭据。'
+                : '请使用此来源原有账号；切换账号请另行添加媒体源。',
           );
         }
         await api.libraries(refreshed);

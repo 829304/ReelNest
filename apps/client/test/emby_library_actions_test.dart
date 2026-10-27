@@ -851,7 +851,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('移出媒体库'));
       await tester.pumpAndSettle();
-      expect(find.text('共 0 项'), findsOneWidget);
+      expect(find.text('浏览、筛选和管理当前内容 · 0 项'), findsOneWidget);
       expect(find.text('已选 2'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());

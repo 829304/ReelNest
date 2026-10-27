@@ -35,7 +35,7 @@ String _newId() {
 String _mediaServerLocation(String value, MediaSourceKind kind) {
   final uri = Uri.tryParse(value);
   if (uri == null ||
-      !kind.isEmbyCompatible ||
+      !kind.isRemoteVideoSource ||
       uri.scheme != kind.name ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
@@ -148,7 +148,7 @@ class SourceRepository {
       SELECT s.*, COUNT(m.local_id) AS item_count,
         COALESCE(SUM(CASE WHEN m.is_series = 0 THEN m.missing ELSE 0 END), 0) AS missing_count
       FROM sources s LEFT JOIN media m ON m.source_id = s.id
-        AND (m.is_series = 0 OR s.kind IN ('emby','jellyfin'))
+        AND (m.is_series = 0 OR s.kind IN ('emby','jellyfin','plex'))
       ${id == null ? '' : 'WHERE s.id = ?'}
       GROUP BY s.id ORDER BY s.name COLLATE NOCASE, s.id
     '''
@@ -254,7 +254,7 @@ class SourceRepository {
     if (normalizedName.isEmpty) {
       throw const SourceFailure('请输入来源名称。');
     }
-    final root = kind.isEmbyCompatible
+    final root = kind.isRemoteVideoSource
         ? _mediaServerLocation(location, kind)
         : await _adapter(kind).validateLocation(location);
     final identity = _tracksIdentity(kind) ? await identityLookup(root) : null;
@@ -388,7 +388,7 @@ class SourceRepository {
       // cannot certify newly selected libraries, even if their next sync fails.
       // Invalidate in the settings transaction; keep media and playback intact.
       final expandsEmbyScope =
-          current.kind.isEmbyCompatible &&
+          current.kind.isRemoteVideoSource &&
           previousLibraries.isNotEmpty &&
           (nextLibraries.isEmpty ||
               !previousLibraries.containsAll(nextLibraries));
@@ -861,7 +861,7 @@ class SourceRepository {
     var added = false;
     await database.transaction(() async {
       final current = await source(expected.id, includeCounts: false);
-      if (!current.kind.isEmbyCompatible ||
+      if (!current.kind.isRemoteVideoSource ||
           current.kind != expected.kind ||
           current.location != expected.location ||
           jsonEncode(current.options.toJson()) !=
@@ -946,7 +946,7 @@ class SourceRepository {
     final runId = _newId();
     try {
       final current = await source(id);
-      if (!current.kind.isEmbyCompatible) {
+      if (!current.kind.isRemoteVideoSource) {
         throw const SourceFailure('此来源不支持远程同步。');
       }
       final snapshot = await fetch(current, cancellation);
@@ -1311,7 +1311,7 @@ class SourceRepository {
       [
         item.identity.sourceId,
         item.identity.localId,
-        RemoteRatingPolicy.seedUserRating(item.remote?.rating),
+        RemoteRatingPolicy.initialUserRating(item.remote),
         DateTime.now().toUtc().millisecondsSinceEpoch,
       ],
     );

@@ -1,8 +1,7 @@
 import 'dart:convert';
-
 import 'package:drift/drift.dart';
-
 import '../../../domain/media_source.dart';
+import '../../../storage/preference_store.dart';
 import '../../sources/data/source_repository.dart';
 
 typedef VideoPreferences = ({bool watchlist, bool favorite, double? rating});
@@ -68,11 +67,7 @@ class VideoPreferencesRepository {
         throw const SourceFailure('远程收藏必须通过对应服务器保存。');
       }
       await sources.media(id);
-      await sources.database.customStatement(
-        '''INSERT INTO player_preferences(key,value) VALUES (?,?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value''',
-        [favoriteKey(id), '$value'],
-      );
+      await sources.database.writePreference(favoriteKey(id), '$value');
     });
     sources.traceChanged(sourceIds: [id.sourceId]);
   }

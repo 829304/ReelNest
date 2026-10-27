@@ -14,9 +14,11 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/media.dart';
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/pointer_inspect_tilt.dart';
+import '../../../ui/widgets/hover_lift_shadow.dart';
 
-/// Shared poster rendering. File and Emby-compatible data never use legacy
-/// Mlink artwork/auth.
+/// Shared poster rendering. File and remote-video data never use legacy Mlink
+/// artwork/auth.
 class LocalMediaArtwork extends ConsumerWidget {
   const LocalMediaArtwork({
     required this.source,
@@ -42,7 +44,7 @@ class LocalMediaArtwork extends ConsumerWidget {
         this.placeholder ??
         LocalPosterPlaceholder(title: item.cardTitle, type: item.displayType);
     if (relative == null) return placeholder;
-    if (source.kind.isEmbyCompatible) {
+    if (source.kind.isRemoteVideoSource) {
       final pipeline = ref.watch(embyImagePipelineProvider);
       final key = (
         sourceId: source.id,
@@ -373,214 +375,218 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
       selected: widget.selectionMode ? widget.selected : null,
       child: Tooltip(
         message: widget.item.cardTitle,
-        child: AnimatedScale(
-          scale: active && !reduceMotion ? 1.018 : 1,
-          alignment: Alignment.bottomCenter,
-          duration: reduceMotion
-              ? Duration.zero
-              : const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: reduceMotion
-                ? Duration.zero
-                : const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: active
-                  ? [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: .24),
-                        blurRadius: 22,
-                        offset: const Offset(0, 10),
-                      ),
-                    ]
-                  : const [],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _artwork,
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.center,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Color(0x26000000),
-                          Color(0xD1000000),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: 12,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          widget.item.cardTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            height: 1.15,
-                            shadows: [
-                              Shadow(color: Color(0x99000000), blurRadius: 6),
+        child: HoverLiftShadow(
+          active: active,
+          child: PointerInspectTilt(
+            enabled:
+                widget.item.type != 'music' &&
+                !widget.selectionMode &&
+                !widget.suppressHover,
+            cornerRadius: 18,
+            child: AnimatedScale(
+              scale: active && !reduceMotion ? 1.018 : 1,
+              alignment: Alignment.bottomCenter,
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                key: const ValueKey('media-card-hover-surface'),
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _artwork,
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.center,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Color(0x26000000),
+                              Color(0xD1000000),
                             ],
                           ),
                         ),
-                        if (progress > 0 && progress < .98) ...[
-                          const SizedBox(height: 7),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(2),
-                            child: SizedBox(
-                              height: 4,
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  ColoredBox(
-                                    color: Colors.white.withValues(alpha: .30),
-                                  ),
-                                  FractionallySizedBox(
-                                    alignment: Alignment.centerLeft,
-                                    widthFactor: progress,
-                                    child: const ColoredBox(
-                                      color: Colors.white,
-                                    ),
+                      ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 12,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.item.cardTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                height: 1.15,
+                                shadows: [
+                                  Shadow(
+                                    color: Color(0x99000000),
+                                    blurRadius: 6,
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ],
-                        AnimatedSize(
-                          duration: reduceMotion
-                              ? Duration.zero
-                              : const Duration(milliseconds: 160),
-                          curve: Curves.easeOut,
-                          alignment: Alignment.topLeft,
-                          child: active && widget.badges.isNotEmpty
-                              ? Padding(
-                                  padding: const EdgeInsets.only(top: 7),
-                                  child: Wrap(
-                                    spacing: 5,
-                                    runSpacing: 5,
-                                    children: widget.badges
-                                        .take(3)
-                                        .map(_badge)
-                                        .toList(),
+                            if (progress > 0 && progress < .98) ...[
+                              const SizedBox(height: 7),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(2),
+                                child: SizedBox(
+                                  height: 4,
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      ColoredBox(
+                                        color: Colors.white.withValues(
+                                          alpha: .30,
+                                        ),
+                                      ),
+                                      FractionallySizedBox(
+                                        alignment: Alignment.centerLeft,
+                                        widthFactor: progress,
+                                        child: const ColoredBox(
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                )
-                              : const SizedBox.shrink(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: selected
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.white.withValues(
-                                alpha: active ? .38 : .18,
+                                ),
                               ),
-                        width: selected
-                            ? 2.5
-                            : active
-                            ? 1.1
-                            : .7,
+                            ],
+                            AnimatedSize(
+                              duration: reduceMotion
+                                  ? Duration.zero
+                                  : const Duration(milliseconds: 160),
+                              curve: Curves.easeOut,
+                              alignment: Alignment.topLeft,
+                              child: active && widget.badges.isNotEmpty
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(top: 7),
+                                      child: Wrap(
+                                        spacing: 5,
+                                        runSpacing: 5,
+                                        children: widget.badges
+                                            .take(3)
+                                            .map(_badge)
+                                            .toList(),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ),
-                  if (widget.selectionMode)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(
-                            color: Color(0x57000000),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            widget.selected
-                                ? Icons.check_circle
-                                : Icons.radio_button_unchecked,
-                            size: 22,
-                            color: widget.selected
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: selected
                                 ? Theme.of(context).colorScheme.primary
-                                : Colors.white,
+                                : Colors.white.withValues(
+                                    alpha: active ? .38 : .18,
+                                  ),
+                            width: selected
+                                ? 2.5
+                                : active
+                                ? 1.1
+                                : .7,
                           ),
                         ),
                       ),
-                    )
-                  else if (widget.rating case final rating? when rating > 0)
-                    Positioned(
-                      top: 9,
-                      right: 9,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: .46),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: .12),
-                              width: .7,
+                      if (widget.selectionMode)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: const BoxDecoration(
+                                color: Color(0x57000000),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                widget.selected
+                                    ? Icons.check_circle
+                                    : Icons.radio_button_unchecked,
+                                size: 22,
+                                color: widget.selected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.white,
+                              ),
                             ),
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            child: Text(
-                              '★ ${rating.toStringAsFixed(1)}',
-                              style: const TextStyle(
-                                color: Color(0xFFFFCE4A),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                        )
+                      else if (widget.rating case final rating? when rating > 0)
+                        Positioned(
+                          top: 9,
+                          right: 9,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              key: const ValueKey('media-card-rating-badge'),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: .42),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  '★ ${rating.toStringAsFixed(1)}',
+                                  style: const TextStyle(
+                                    color: Color(0xFFFFCE4A),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
+                      TextButton(
+                        onPressed: widget.onOpen,
+                        onHover: (value) {
+                          if (widget.suppressHover) {
+                            if (_hovering) setState(() => _hovering = false);
+                            return;
+                          }
+                          if (_hovering != value) {
+                            setState(() => _hovering = value);
+                          }
+                        },
+                        onFocusChange: (value) {
+                          if (_focused != value) {
+                            setState(() => _focused = value);
+                          }
+                        },
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                        child: const SizedBox.expand(),
                       ),
-                    ),
-                  TextButton(
-                    onPressed: widget.onOpen,
-                    onHover: (value) {
-                      if (widget.suppressHover) {
-                        if (_hovering) setState(() => _hovering = false);
-                        return;
-                      }
-                      if (_hovering != value) {
-                        setState(() => _hovering = value);
-                      }
-                    },
-                    onFocusChange: (value) {
-                      if (_focused != value) {
-                        setState(() => _focused = value);
-                      }
-                    },
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    child: const SizedBox.expand(),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

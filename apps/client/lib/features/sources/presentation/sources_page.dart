@@ -75,7 +75,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
       builder: (_) => const SourceKindSheet(),
     );
     if (kind == null || !mounted) return;
-    if (kind.isEmbyCompatible) {
+    if (kind.isRemoteVideoSource) {
       final added = await showDialog<MediaSource>(
         context: context,
         barrierDismissible: false,
@@ -144,7 +144,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   });
 
   Future<void> _settings(MediaSource source) async {
-    if (source.kind.isEmbyCompatible) {
+    if (source.kind.isRemoteVideoSource) {
       final scopeChanged = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
@@ -188,7 +188,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
     if (confirmed == true && mounted) {
       await _perform(
-        () => source.kind.isEmbyCompatible
+        () => source.kind.isRemoteVideoSource
             ? ref.read(embyConnectionProvider).remove(source.id)
             : ref.read(sourceRepositoryProvider).remove(source.id),
       );
@@ -231,7 +231,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                       !(sources.asData?.value.any(
                             (s) =>
                                 (s.kind.isFileSource ||
-                                s.kind.isEmbyCompatible),
+                                s.kind.isRemoteVideoSource),
                           ) ??
                           false)
                   ? null
@@ -339,7 +339,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
         : Color(dark ? 0xFFFFB84D : 0xFFD98A00);
     final accent = !connected
         ? statusColor
-        : source.kind.isEmbyCompatible
+        : source.kind.isRemoteVideoSource
         ? mediaServerBrandColor(source.kind)
         : palette.selectedTint;
     final compactButtonStyle = ButtonStyle(
@@ -406,7 +406,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                           _SourceBadge(
                             label: source.kind.label,
                             color: accent,
-                            icon: source.kind.isEmbyCompatible
+                            icon: source.kind.isRemoteVideoSource
                                 ? SourceGlyph.dashboard
                                 : SourceGlyph.drive,
                           ),
@@ -426,8 +426,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                       const SizedBox(height: 5),
                       Text(
                         source.lastScan == null
-                            ? '${source.itemCount} 项 · ${source.kind.isEmbyCompatible ? '尚未完成同步' : '尚未完成扫描'}'
-                            : '${source.itemCount} 项 · 上次完整${source.kind.isEmbyCompatible ? '同步' : '扫描'} ${source.lastScan!.toLocal().toString().split('.').first}',
+                            ? '${source.itemCount} 项 · ${source.kind.isRemoteVideoSource ? '尚未完成同步' : '尚未完成扫描'}'
+                            : '${source.itemCount} 项 · 上次完整${source.kind.isRemoteVideoSource ? '同步' : '扫描'} ${source.lastScan!.toLocal().toString().split('.').first}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: secondaryTextStyle,
@@ -444,7 +444,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                 fraction: scan.progress.totalFiles > 0
                     ? scan.progress.fraction
                     : null,
-                label: source.kind.isEmbyCompatible
+                label: source.kind.isRemoteVideoSource
                     ? scan.progress.phase == SourceScanPhase.persisting
                           ? '正在入库 ${scan.progress.processedFiles}/${scan.progress.totalFiles} 个媒体条目'
                           : '已读取 ${scan.progress.processedFiles} 个媒体条目'
@@ -483,7 +483,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                     ),
                     onPressed:
                         !source.kind.isFileSource &&
-                            !source.kind.isEmbyCompatible
+                            !source.kind.isRemoteVideoSource
                         ? null
                         : () => context.go('/sources/${source.id}'),
                     icon: const Icon(Icons.video_library_outlined, size: 15),
@@ -502,9 +502,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                     ),
                     onPressed:
                         _busy ||
-                            (source.kind.isEmbyCompatible && scan.busy) ||
+                            (source.kind.isRemoteVideoSource && scan.busy) ||
                             (!source.kind.isFileSource &&
-                                !source.kind.isEmbyCompatible) ||
+                                !source.kind.isRemoteVideoSource) ||
                             source.mediaType ==
                                 SourceMediaType.privateCollection
                         ? null
@@ -522,14 +522,14 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                               isScanning ||
                               !connected ||
                               (!source.kind.isFileSource &&
-                                  !source.kind.isEmbyCompatible)
+                                  !source.kind.isRemoteVideoSource)
                         ? null
                         : () => ref
                               .read(sourceScansProvider.notifier)
                               .scan(source.id),
                     child: Text(
                       scan.busy
-                          ? (source.kind.isEmbyCompatible ? '取消同步' : '取消扫描')
+                          ? (source.kind.isRemoteVideoSource ? '取消同步' : '取消扫描')
                           : source.kind.isFileSource
                           ? '重新扫描'
                           : '同步媒体',
@@ -549,7 +549,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                         : () => _relocate(source),
                     child: const Text('重新定位'),
                   ),
-                  if (source.kind.isEmbyCompatible) ...[
+                  if (source.kind.isRemoteVideoSource) ...[
                     const SizedBox(width: 8),
                     TextButton(
                       style: compactButtonStyle.copyWith(
@@ -704,7 +704,7 @@ class _SourceAvatar extends StatelessWidget {
               size: 25,
               color: Colors.white,
             )
-          : source.kind.isEmbyCompatible
+          : source.kind.isRemoteVideoSource
           ? MediaServerBrandMark(kind: source.kind, size: 29)
           : const SourceLineIcon(
               SourceGlyph.drive,

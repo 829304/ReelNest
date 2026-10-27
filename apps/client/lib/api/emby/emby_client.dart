@@ -55,16 +55,19 @@ class EmbySession {
     required this.userId,
     required this.token,
     this.kind = MediaSourceKind.emby,
+    this.serverIdentity,
   });
   final Uri server;
   final String username, userId, token;
   final MediaSourceKind kind;
+  final String? serverIdentity;
   Map<String, dynamic> toJson() => {
     'server': server.toString(),
     'username': username,
     'userId': userId,
     'token': token,
     'kind': kind.name,
+    'serverIdentity': serverIdentity,
   };
   factory EmbySession.fromJson(Map<String, dynamic> data) => EmbySession(
     server: embyServerUri(data['server'] as String),
@@ -72,14 +75,23 @@ class EmbySession {
     userId: _required(data['userId']),
     token: _required(data['token']),
     kind: _provider(data['kind']),
+    serverIdentity: _serverIdentity(data),
   );
+}
+
+String? _serverIdentity(Map<String, dynamic> data) {
+  if (data['kind'] != MediaSourceKind.plex.name) {
+    return data['serverIdentity'] as String?;
+  }
+  final identity = _required(data['serverIdentity']);
+  return identity;
 }
 
 MediaSourceKind _provider(Object? value) {
   final kind = value == null
       ? MediaSourceKind.emby
       : MediaSourceKind.values.byName(value as String);
-  if (!kind.isEmbyCompatible) throw const SourceFailure('无效的媒体服务器类型。');
+  if (!kind.isRemoteVideoSource) throw const SourceFailure('无效的媒体服务器类型。');
   return kind;
 }
 
@@ -224,6 +236,28 @@ class EmbyClient {
       token: session.token,
       kind: session.kind,
       cancellation: cancellation,
+    );
+  }
+
+  /// Protocol adapters may resolve a real file before preparing its live URL.
+  Future<EmbyPlaybackResource> preparePlayback(
+    EmbySession session,
+    RemoteMediaMetadata item, {
+    bool audio = false,
+    EmbyVideoQuality quality = EmbyVideoQuality.source,
+    Duration start = Duration.zero,
+    String? playSessionId,
+    ScanCancellation? cancellation,
+  }) async {
+    await validate(session, cancellation: cancellation);
+    cancellation?.check();
+    return playbackResource(
+      session,
+      item,
+      audio: audio,
+      quality: quality,
+      start: start,
+      playSessionId: playSessionId,
     );
   }
 

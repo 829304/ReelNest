@@ -282,7 +282,7 @@ void main() {
     );
     await pumpUntil(
       tester,
-      () => find.text('浏览与管理 Jellyfin 视频内容').evaluate().isNotEmpty,
+      () => find.textContaining('浏览、筛选和管理当前内容').evaluate().isNotEmpty,
     );
     await pumpUntil(
       tester,
@@ -290,7 +290,7 @@ void main() {
     );
     expect(find.byType(EmbyVideoLibraryPage), findsOneWidget);
     expect(find.text('Jellyfin 影片'), findsWidgets);
-    expect(find.text('浏览与管理 Emby 视频内容'), findsNothing);
+    expect(find.textContaining('浏览与管理 Emby 视频内容'), findsNothing);
 
     const identity = (sourceId: '', localId: 'film');
     final itemIdentity = (sourceId: source.id, localId: identity.localId);

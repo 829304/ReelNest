@@ -45,6 +45,18 @@ class ObservedHealth extends Notifier<HealthObservation?> {
 final observedTasksProvider =
     NotifierProvider<ObservedTasks, List<RuntimeTask>>(ObservedTasks.new);
 
+final observedVideoCacheStorageProvider =
+    NotifierProvider<ObservedVideoCacheStorage, VideoCacheStorageObservation?>(
+      ObservedVideoCacheStorage.new,
+    );
+
+class ObservedVideoCacheStorage
+    extends Notifier<VideoCacheStorageObservation?> {
+  @override
+  VideoCacheStorageObservation? build() => null;
+  void record(VideoCacheStorageObservation value) => state = value;
+}
+
 class ObservedTasks extends Notifier<List<RuntimeTask>> {
   @override
   List<RuntimeTask> build() => const [];

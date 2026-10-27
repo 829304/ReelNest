@@ -102,6 +102,7 @@ class _EmbyMediaActionsState extends ConsumerState<EmbyMediaActions> {
         false;
     return Row(
       mainAxisSize: MainAxisSize.min,
+      spacing: widget.favoriteOnly ? 8 : 0,
       children: [
         if (widget.favoriteOnly && item.type != 'music')
           IconButton(
@@ -167,7 +168,7 @@ final _batchProvider = FutureProvider.autoDispose
       final repository = ref.watch(sourceRepositoryProvider);
       final playback = ref.watch(playbackRepositoryProvider);
       final source = await repository.source(key.series.sourceId);
-      if (source.kind.isEmbyCompatible && source.lastScan == null) {
+      if (source.kind.isRemoteVideoSource && source.lastScan == null) {
         if (!ref.mounted) throw const ScanCancelled();
         await ref.watch(embySeriesEpisodesProvider(key.series).future);
       }

@@ -1,6 +1,66 @@
 # 当前阶段与历史实施记录
-当前摘要：截至 2026-10-26，Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集验收仍待真实 TMDB 公服、macOS/Linux 原生及人工精确视觉。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
-更新：2026-10-26。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集验收仍待真实 TMDB 公服、macOS/Linux 原生及人工精确视觉。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+更新：2026-10-27。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-27 原版侧边栏左下状态卡部分迁移（Windows 验证通过）
+
+- 此前 Flutter `DesktopShell` 将侧栏实现为单个 `ListView`，因此没有迁移原 MediaLib `ContentView.swift` 的 `SidebarStatusCenterCard`；这不是条件隐藏。本轮新增固定在侧栏底部的 `SidebarStatusCard`，菜单改为独立 `Expanded ListView`，状态卡不会随菜单滚动。
+- 按原版迁移 14 radius、58 minHeight、32 圆形渐变状态图标、标题/副标题、25px 右侧箭头、单层阴影和底部进度条。卡片只读取现有 `sidebarSourcesProvider`、`observedReachabilityProvider`、`homeRuntimeTasksProvider`、`homeRuntimeHealthProvider`，不因显示卡片额外探测磁盘或服务器。
+- 当前行为为：活动任务优先；否则展示离线来源/健康异常；30 分钟内最近任务与媒体源摘要按 60 秒轮换。媒体源/离线状态点击进入 `/sources`，任务/健康状态进入 `/health`。截图中的“6 个媒体源 / 全部在线 · 刚刚”由测试覆盖。
+- 验证分组：`app_test` 17/17；来源/侧栏/健康/首页交叉回归 70/70；`flutter analyze` clean。Windows Release 47.4 秒；隐藏 smoke 于 `2026-10-27T15:00:33+08:00` 窗口响应正常、正常关闭、ExitCode 0。
+- 这是第一批的部分迁移状态，不代表完整 `SidebarStatusCenterCard` 已迁完。第二批已接入继续观看和真实缓存摘要，见下节；仍未迁移音乐迷你播放控制、应用更新/检查更新、保险库快捷锁定和赞赏提示。
+
+## 2026-10-27 侧边栏状态卡 P0 第二批（部分迁移；Windows 验证通过）
+
+- 继续观看接入 `homeCollectionProvider(HomeCollection.continueWatching)` 的首项，并调用 `homeVideoAction(..., 'play')`，沿用真实续播、远程系列以及内置/外部播放器选择语义。
+- 新增被动 `observedVideoCacheStorageProvider`。Emby `embyCacheStorageProvider` 与 `VideoCacheSettings` 读取真实统计后才写入观察快照；侧栏只消费快照，不因展示卡片额外扫描磁盘或探测服务器。缓存摘要显示条目数及格式化 ByteCount，点击进入 `/settings`。
+- 活动任务转为“已完成”时，状态卡打断当前显示并提示“刚刚完成”6 秒；一般状态的主轮换仍为60秒。补齐自绘 server、playRectangle、downloadCircle、checkCircle 图标，避免以 Material/SF 近似图标替代原版符号。
+- 验证：sidebar/app 专项20/20；首页+缓存+侧栏+健康联合117/117；`flutter analyze` clean、`git diff --check` clean。Windows Release 38.9秒；hidden smoke 于 `2026-10-27T15:43:33+08:00` 窗口响应正常、正常关闭、ExitCode 0。
+- 状态卡仍属部分迁移。音乐迷你控制、应用更新/检查更新、保险库快捷锁定、赞赏提示、缺失文件/重复项专属卡，以及失败任务重试/活动任务取消等原版专属动作仍未迁移；未发现当前 update/vault provider、model 或 action 时不伪造入口。
+
+## 2026-10-27 P0 本地媒体卡视觉一致性修正（Windows 验证通过）
+
+- 对照原 MediaLib `PosterGridView.swift` / `HomeVividTokens`，将 ReelNest `LocalMediaCard` 悬浮阴影从 alpha .24、y=10 修正为 alpha .18、blur=22、y=8；评分胶囊恢复黑色 alpha .42，并移除多余白色描边。
+- 新增 `apps/client/test/media_card_visual_parity_test.dart`，通过 mouse pointer 验证静止无阴影、悬浮态使用原版 token、评分胶囊没有描边。该专项 1/1 通过（`apps/client/build/p0-media-card-visual.log`）；核心 UI 回归 35/35（`p0-core-ui-regression.log`）；Jellyfin/Plex 前端回归 4/4（`p0-remote-frontend-regression.log`）。分组单独记录，不累计成全量测试结果。
+- 全项目 `flutter analyze` clean（`p0-analyze.log`）；Windows Release 40.9 秒成功（`p0-release.log`）。五秒 smoke `apps/client/build/smoke/release-startup.json` 于 `2026-10-27T10:38:12.4366226+08:00` 通过：`ObservationSeconds=5`、`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。人工复核 Release 中首页、侧边栏、媒体库、缺图占位、评分与筛选正常；确认缺图占位内标题及卡片底部标题均为原版设计，保留双处标题。测试窗口已退出。
+- 本轮未运行全量 Flutter 测试；此处记录 Windows Release 人工核对，不推定 macOS/Linux 或其他数据规模下验收完成。
+
+## 2026-10-27 原版视觉纠偏第一批（Windows 验证通过）
+
+- 新增可复用 `PointerInspectTilt`，按原 Swift `PointerInspectTiltModifier` 迁移指针坐标归一化、最大约 ±2.6° 的透视倾斜、方向高光与指针阴影；reduce motion 启用时关闭倾斜效果。
+- 媒体海报接入指针倾斜，同时保留既有 hover scale 和 shadow。详情 hero 移除 Flutter 额外增加的整块卡片背景、边框、阴影和 padding，恢复原版直接 `HStack` 与窄屏布局结构；详情海报恢复 radius 12、白色 alpha .34/.85 边框和原版方向渐变，并接入 tilt。
+- 收藏/书签标题动作从组合胶囊恢复为间距 8 的独立按钮，贴合原版分隔方式。
+- 定向测试 16/16；跨来源 Emby/source/Jellyfin/Plex/TMDB 回归 47/47；`flutter analyze --no-pub` clean。Windows Release 41.0 秒成功；隐藏 smoke 于 `2026-10-27T11:04:50+08:00` 通过，窗口响应、正常关闭、exit 0。
+- 这只是第一批纠偏，不代表全局像素一致。该批之后发现的媒体卡主悬浮阴影绘制层级已在下方 P0 修正；SF Symbols 与自定义图标逐项映射、来源/设置/首页等页面逐页尺寸/颜色/动效，以及 macOS/Linux 实机视觉仍待。
+
+## 2026-10-27 P0 媒体网格悬浮阴影绘制层级修正
+
+- Flutter `SliverGrid` 按索引绘制；普通 `Transform` 配合 `clip: Clip.none` 仍会让先绘制的海报阴影被后绘制的兄弟项覆盖。本轮新增 `HoverLiftShadow`：通过 `CompositedTransformTarget` / `Follower` 与 `OverlayPortal`，在最近 Overlay 绘制 alpha .18、blur 22、y=8 的主悬浮阴影，对应原 Swift `PosterGridView` 的 active zIndex 效果。
+- 真实 `LocalMediaCard` 继续负责点击、焦点、`PointerInspectTilt` 和 scale 1.018；Overlay 只绘制阴影，并使用 `IgnorePointer` / `ExcludeSemantics`，不复制或截获交互。退出时淡出 180ms 后移除；reduce motion 下时长为零且不放大。
+- 媒体卡视觉专项最终2/2，覆盖进入、阴影 token、移出清除与 reduce motion。Emby 导航/详情、source lifecycle、Jellyfin/Plex/TMDB 跨来源回归最终63/63。第一次63项组合因新退出断言少 pump 一帧而失败；修正测试时序后，专项2/2与相同组合63/63最终通过。首次失败保留为过程记录，不计作通过。
+- 最终 `flutter analyze` clean、`git diff --check` clean；Windows Release 39.7秒，hidden smoke 于 `2026-10-27T16:04:24+08:00` 窗口响应正常、正常关闭、ExitCode 0。
+- 此修正只解决媒体卡主悬浮阴影的绘制层级，不等于工具栏/图标映射或全页面像素审计完成；来源、设置、首页的逐页核对与 macOS/Linux 实机视觉仍待。
+
+## 2026-10-27 媒体库主界面 P0 页头对齐原版（Windows 验证通过）
+
+- 原版只读对照 `E:/workspace/829304/MediaLib/Sources/MediaLib/Views/LibraryView.swift`、`AppColors.swift`、`VividIconLibrary.swift`、`DesignSystemTokens.swift`。新增共享 `apps/client/lib/ui/widgets/video_library_page_header.dart`：`PageHeader` 调整为无大卡片的 68pt 标题簇、62pt 图标槽、8pt 间距、30px 黑体标题；右侧动作底对齐。彩色 TV 标题图标按原版 `tvObj` 的 48 网格几何与官方配色翻译。
+- `emby_video_library_page.dart` 删除非原版“管理媒体源”页头按钮与外层大卡片；搜索宽度由 280 收至 226；搜索/扫描/选择恢复现有原版线性图标。窄宽度时动作保持单一横向轨道，不任意 Wrap。副标题恢复为“浏览、筛选和管理当前内容 · N 项”，删除正文重复的“共 N 项”。
+- 筛选条双层结构保留：原版 `AppAdaptiveControlBar` 本身就是外层静态表面与内层 segmented shell，本轮未误删。搜索、筛选、排序、同步、选择、服务器行为及持久化语义均未改变；适用于共享 Emby/Jellyfin/Plex 视频库页面。
+- 验证分组：Emby 导航/详情、source lifecycle、Jellyfin/Plex/TMDB 跨来源四文件63 passed；`media_card_visual_parity` + `sidebar_status_card` + `app_test` 22 passed。相关 Dart 文件最终 format 0 changed，`flutter analyze` 无问题。Windows Release 41.0 秒成功；隐藏 smoke 于 `2026-10-27T20:12:08.4686688+08:00` 的 `HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`。
+- 未运行全量 Flutter 测试；未验真实 Emby/Jellyfin/Plex 可见 UI、实体鼠标/键盘、高 DPI 或 macOS/Linux 实机精确视觉。本次只是媒体库主界面页头 P0 对齐，不代表全局 UI 已与原版一致。
+
+## 2026-10-27 Plex 重新认证账号归属修正
+
+- 已复现并修复同服务器换账号 Token 会继承旧来源的问题。用户允许官方账号校验：服务器 ID 与 Plex 官方账号 ID 分开保存；同账号可更新 Token，换账号拒绝沿用原来源。仅服务器可用的 Token 按凭据指纹隔离，更换后须另建来源；账号接口异常保留原凭据与数据。
+- 定向 67/67 通过（Plex 后端30、Emby连接18、Jellyfin后端17、Plex UI 2）。Windows Profile Native 39.1秒、业务及 tearDown 通过；Release 40.6秒、五秒 smoke 于 10:12:50 +08 正常响应并关闭、exit 0；analyze clean、427 Dart文件 format 0 changed、diff-check clean。本批未跑全量 Flutter 测试。此前 Plex 24 项里的 Token 隔离只覆盖内存缓存，不作为该问题的修复证据；未做真实 Plex 官方账号/服务器、macOS/Linux 原生、人工视觉或辅助功能验收。详细规则与证据见[Plex 修正](PLEX_PLAN.zh-CN.md#2026-10-27-重新认证的账号归属修正)。
+
+## 2026-10-27 Plex 基础视频来源闭环（已实现；Windows 验证通过）
+
+- 本阶段已接入 Plex 基础视频来源：server + Token 认证/会话恢复、媒体库选择、独立来源与侧栏、分页/搜索/详情、基础 direct 播放/音轨字幕/续播切集，以及进度/已看回写。
+- Plex 必须走独立 XML 与 `X-Plex-*` client/protocol；保持 `kind=plex`、`plex://host/sourceId`、Plex credential kind。共用数据层、播放器或历史 `Emby*` 类名不表示 Plex 走 Emby API。
+- 原版 Plex 无服务端收藏接口，收藏仅保存在 ReelNest 本地且同步不得覆盖；高转码/质量切换与 Plex 音乐留在后续范围。照片继续排除。数据库保持当前 `schemaVersion=1`，无新表或迁移。
+- 原版个人 `userRating` 按 `userRating/2` 映射为可选的 0–5 初始评分，不能覆盖已有本地评分；Plex 专属能力为 `supportsQualitySelection=false`。新增评分字段仅进入 token-free JSON，不变更 SQL schema。
+- 使用 strict loopback fixture，不使用真实 Token。最终分项为 Plex 专属后端24/24、共享后端255/255、同步/UI 63项（既有61+Plex UI 2）；前端2/2、Windows Native最终业务用例、analyze、427 Dart文件format、Windows Release与五秒smoke均通过。组合日志276/276与UI85/85含重叠，不重复累计；此前 `plex-shared-regression.log` 的254+1 stale test失败不是最终证据。本批未跑全量Flutter测试。真实 Plex、macOS/Linux、人工精确视觉及辅助功能验收待后续。详细分组见[Plex 基础连接器计划](PLEX_PLAN.zh-CN.md)。
 
 ## 2026-10-26 Jellyfin 基础视频来源闭环（已实现；Windows Release/smoke 通过）
 

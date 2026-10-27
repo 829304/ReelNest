@@ -195,7 +195,9 @@ class EmbyDetail {
           role: role,
           category: category,
           department: type,
-          imageId: raw['PrimaryImageTag'] != null ? personId : null,
+          imageId: raw['PrimaryImageTag'] != null
+              ? _text(raw['ImageReference']) ?? personId
+              : null,
         ),
       );
     }

@@ -9,9 +9,12 @@ import 'package:reelnest/app/service_providers.dart';
 import 'package:reelnest/shell/desktop_shell.dart';
 import 'package:reelnest/shell/mobile_shell.dart';
 import 'package:reelnest/shell/sidebar_components.dart';
+import 'package:reelnest/shell/sidebar_status_card.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/domain/media_source.dart';
 import 'package:reelnest/features/playback/application/online_subtitle_providers.dart';
+import 'package:reelnest/features/home/application/home_runtime_providers.dart';
+import 'package:reelnest/features/home/domain/home_runtime.dart';
 import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
 import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
 import 'package:reelnest/features/sources/application/source_providers.dart';
@@ -135,6 +138,83 @@ void main() {
       TargetPlatform.linux,
     }),
   );
+
+  testWidgets(
+    'desktop sidebar keeps the original source status card at the bottom',
+    (tester) async {
+      await start(tester, const Size(1280, 800));
+
+      expect(find.byType(SidebarStatusCard), findsOneWidget);
+      expect(find.byKey(const ValueKey('sidebar-status-card')), findsOneWidget);
+      expect(find.text('0 个媒体源'), findsOneWidget);
+      expect(find.text('全部在线 · 刚刚'), findsOneWidget);
+
+      final sidebar = tester.getRect(
+        find.byKey(const ValueKey('desktop-sidebar')),
+      );
+      final card = tester.getRect(
+        find.byKey(const ValueKey('sidebar-status-card')),
+      );
+      expect(card.left, greaterThan(sidebar.left));
+      expect(card.right, lessThan(sidebar.right));
+      expect(sidebar.bottom - card.bottom, closeTo(14, .1));
+
+      await tester.tap(
+        find.byKey(const ValueKey('sidebar-status-card-action')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('媒体源待添加'), findsOneWidget);
+      expect(
+        tester.widget<DesktopShell>(find.byType(DesktopShell)).selectedIndex,
+        1,
+      );
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets('sidebar status card reports the complete source count', (
+    tester,
+  ) async {
+    final now = DateTime(2026, 10, 27);
+    final sources = List.generate(
+      6,
+      (index) => MediaSource(
+        id: 'source-$index',
+        kind: MediaSourceKind.localFolder,
+        name: '来源 $index',
+        location: 'C:/media/$index',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sidebarSourcesProvider.overrideWith((ref) async => sources),
+          homeRuntimeTasksProvider.overrideWithValue(const []),
+          homeRuntimeHealthProvider.overrideWithValue(
+            const HomeRuntimeHealth(),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomLeft,
+              child: SizedBox(width: 252, child: SidebarStatusCard()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('6 个媒体源'), findsOneWidget);
+    expect(find.text('全部在线 · 刚刚'), findsOneWidget);
+  });
 
   testWidgets(
     'wide mobile template does not select desktop navigation by width',

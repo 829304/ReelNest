@@ -542,7 +542,7 @@ void main() {
       expect((await sources.source(source.id)).lastScan, before.lastScan);
     },
   );
-  test('source location and session reject provider confusion and unsupported Plex', () async {
+  test('source location rejects provider confusion, missing Plex adapter and malformed Plex session', () async {
     await expectLater(
       sources.add(
         kind: MediaSourceKind.jellyfin,

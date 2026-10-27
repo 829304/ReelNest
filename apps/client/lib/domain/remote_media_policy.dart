@@ -1,5 +1,7 @@
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
+import 'remote_media_metadata.dart';
+
 /// EmbyService.normalizedProviderRating / seedUserRating.
 /// Community scores stay on the server's 10-point scale.
 abstract final class RemoteRatingPolicy {
@@ -8,6 +10,13 @@ abstract final class RemoteRatingPolicy {
     return rating != null && rating.isFinite && rating > 0 && rating <= 10
         ? rating
         : null;
+  }
+
+  static double? initialUserRating(RemoteMediaMetadata? metadata) {
+    final rating = metadata?.initialUserRating;
+    return rating != null && rating.isFinite && rating > 0 && rating <= 5
+        ? rating
+        : seedUserRating(metadata?.rating);
   }
 
   static double? seedUserRating(num? value) {

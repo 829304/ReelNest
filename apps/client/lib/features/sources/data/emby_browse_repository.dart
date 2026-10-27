@@ -141,7 +141,7 @@ class EmbyBrowseRepository {
     required ScanCancellation cancellation,
   }) async {
     final source = await sources.source(sourceId, includeCounts: false);
-    if (!source.kind.isEmbyCompatible) {
+    if (!source.kind.isRemoteVideoSource) {
       throw const SourceFailure('此来源不是远程媒体库。');
     }
     final views = await catalog(sourceId, cancellation);

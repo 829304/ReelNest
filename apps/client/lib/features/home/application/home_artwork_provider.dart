@@ -22,7 +22,7 @@ final homeArtworkPaletteProvider = FutureProvider.autoDispose
       }
       try {
         final source = video.source;
-        final bytes = source.kind.isEmbyCompatible
+        final bytes = source.kind.isRemoteVideoSource
             ? await ref.watch(
                 embyArtworkProvider((
                   sourceId: source.id,

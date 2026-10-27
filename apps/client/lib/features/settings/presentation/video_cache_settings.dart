@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
+import '../../../app/runtime_observations.dart';
 import '../../../domain/media_source.dart';
 import '../../sources/application/emby_providers.dart';
 import '../../sources/application/source_providers.dart';
@@ -13,9 +14,17 @@ import '../../sources/presentation/emby_cache_actions.dart';
 import '../../sources/data/emby_cache_repository.dart';
 import '../../sources/presentation/emby_task_center.dart';
 
-final videoCacheSummaryProvider = FutureProvider((ref) {
+final videoCacheSummaryProvider = FutureProvider((ref) async {
   ref.watch(sourceChangesProvider);
-  return ref.watch(embyCacheProvider).summary();
+  final summary = await ref.watch(embyCacheProvider).summary();
+  if (ref.mounted) {
+    ref.read(observedVideoCacheStorageProvider.notifier).record((
+      count: summary.count,
+      bytes: summary.bytes,
+      limit: summary.limit,
+    ));
+  }
+  return summary;
 });
 
 class VideoCacheSettings extends ConsumerStatefulWidget {

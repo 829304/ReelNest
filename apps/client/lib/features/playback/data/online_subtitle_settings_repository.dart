@@ -1,7 +1,6 @@
-import 'dart:async';
-
-import '../../../storage/credential_store.dart';
+import '../../../application/async_tasks.dart';
 import '../../../platform/secure_credential_store.dart';
+import '../../../storage/credential_store.dart';
 import '../domain/online_subtitle.dart';
 import 'player_preferences_repository.dart';
 
@@ -14,7 +13,7 @@ class OnlineSubtitleSettingsRepository {
           );
   final PlayerPreferencesRepository preferences;
   final CredentialStore store;
-  Future<void> _writes = Future.value();
+  final _writes = SerialTaskQueue();
 
   Future<OnlineSubtitleSettings> read() async => OnlineSubtitleSettings(
     language: await preferences.subtitleLanguage,
@@ -29,7 +28,7 @@ class OnlineSubtitleSettingsRepository {
         key.contains(RegExp(r'[^\x20-\x7e]'))) {
       return Future.error(const OnlineSubtitleFailure('字幕语言或 API Key 格式不正确。'));
     }
-    final result = _writes.then((_) async {
+    return _writes.run(() async {
       final before = await read();
       try {
         if (key.isEmpty) {
@@ -51,7 +50,5 @@ class OnlineSubtitleSettingsRepository {
         throw const OnlineSubtitleFailure('字幕设置保存失败，请重试。');
       }
     });
-    _writes = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return result;
   }
 }

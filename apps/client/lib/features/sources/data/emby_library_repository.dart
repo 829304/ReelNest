@@ -1,15 +1,14 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
-
 import 'package:drift/drift.dart';
-
 import '../../../api/emby/emby_client.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/remote_media_policy.dart';
-import '../../playback/domain/playback_record.dart';
+import '../../../storage/preference_store.dart';
 import '../../playback/data/playback_repository.dart';
+import '../../playback/domain/playback_record.dart';
 import '../domain/emby_library.dart';
 import 'source_repository.dart';
 
@@ -29,7 +28,7 @@ class EmbyVideoSnapshot {
       _byIdentity[entry.item.identity] = entry;
       if (entry.watchlist ||
           entry.userRating !=
-              RemoteRatingPolicy.seedUserRating(entry.item.remote?.rating) ||
+              RemoteRatingPolicy.initialUserRating(entry.item.remote) ||
           entry.createdAt != entry.item.modified.toUtc()) {
         _preferenceCandidates.add(entry.item.identity);
       }
@@ -218,7 +217,7 @@ class EmbyLibraryRepository {
   Future<EmbyVideoSnapshot> snapshot(String sourceId) async {
     final data = await sources.database.transaction(() async {
       final source = await sources.source(sourceId);
-      if (!source.kind.isEmbyCompatible) {
+      if (!source.kind.isRemoteVideoSource) {
         throw const SourceFailure('此来源不是远程媒体库。');
       }
       final rows = await sources.database
@@ -268,7 +267,7 @@ class EmbyLibraryRepository {
         !(await sources.source(
           sourceId,
           includeCounts: false,
-        )).kind.isEmbyCompatible) {
+        )).kind.isRemoteVideoSource) {
       throw const SourceFailure('请选择同一远程媒体库来源的内容。');
     }
     final items = await sources.indexedSelection(
@@ -321,7 +320,7 @@ class EmbyLibraryRepository {
             item.identity.sourceId,
             item.identity.localId,
             value ? 1 : 0,
-            RemoteRatingPolicy.seedUserRating(item.remote?.rating),
+            RemoteRatingPolicy.initialUserRating(item.remote),
             item.modified.millisecondsSinceEpoch,
           ],
         );
@@ -377,7 +376,7 @@ class EmbyLibraryRepository {
       final row = byId[entry.item.identity.localId];
       final watchlist = row?.read<int>('watchlist') == 1;
       final rating = row == null
-          ? RemoteRatingPolicy.seedUserRating(entry.item.remote?.rating)
+          ? RemoteRatingPolicy.initialUserRating(entry.item.remote)
           : row.readNullable<double>('user_rating');
       final createdAt = row == null
           ? entry.item.modified.toUtc()
@@ -426,19 +425,10 @@ class EmbyLibraryRepository {
     EmbyVideoDestination id,
     VideoLibrarySettings settings,
   ) => savePreference(_viewKey(id), jsonEncode(settings.toJson()));
-  Future<String?> preference(String key) async =>
-      (await sources.database
-              .customSelect(
-                'SELECT value FROM player_preferences WHERE key = ?',
-                variables: [Variable(key)],
-              )
-              .getSingleOrNull())
-          ?.read<String>('value');
+  Future<String?> preference(String key) =>
+      sources.database.preferenceValue(key);
   Future<void> savePreference(String key, String value) =>
-      sources.database.customStatement(
-        'INSERT INTO player_preferences(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        [key, value],
-      );
+      sources.database.writePreference(key, value);
 }
 
 /// Only plain rows and immutable models cross this worker boundary; no live
@@ -532,7 +522,7 @@ EmbyVideoSnapshot _buildSnapshot(_SnapshotData data) {
         ),
         watchlist: row.readNullable<int>('watchlist') == 1,
         userRating: row.readNullable<String>('preference_id') == null
-            ? RemoteRatingPolicy.seedUserRating(remote?.rating)
+            ? RemoteRatingPolicy.initialUserRating(remote)
             : row.readNullable<double>('user_rating'),
         searchTerms: [
           ...terms(item),

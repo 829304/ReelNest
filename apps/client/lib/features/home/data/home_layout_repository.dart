@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
-
 import '../../../storage/library_database.dart';
+import '../../../storage/preference_store.dart';
 import '../domain/home_layout.dart';
 
 class HomeLayoutRepository {
@@ -29,17 +29,10 @@ class HomeLayoutRepository {
       orderKey: layout.encodedOrder,
       hiddenKey: layout.encodedHidden,
     }.entries) {
-      if (entry.value.isEmpty) {
-        await database.customStatement(
-          'DELETE FROM player_preferences WHERE key = ?',
-          [entry.key],
-        );
-      } else {
-        await database.customStatement(
-          'INSERT INTO player_preferences(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-          [entry.key, entry.value],
-        );
-      }
+      await database.writePreference(
+        entry.key,
+        entry.value.isEmpty ? null : entry.value,
+      );
     }
   });
 }

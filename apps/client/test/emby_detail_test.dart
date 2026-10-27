@@ -22,6 +22,7 @@ import 'package:reelnest/features/sources/presentation/local_media_detail_page.d
 import 'package:reelnest/platform/external_links.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/widgets/pointer_inspect_tilt.dart';
 
 import 'support/emby_server_fixture.dart';
 
@@ -453,7 +454,26 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('media-detail-header')), findsOneWidget);
-      expect(find.byKey(const ValueKey('media-detail-hero')), findsOneWidget);
+      final hero = find.byKey(const ValueKey('media-detail-hero'));
+      expect(hero, findsOneWidget);
+      expect(tester.widget(hero), isA<KeyedSubtree>());
+      final artworkSurface = find.descendant(
+        of: hero,
+        matching: find.byKey(const ValueKey('media-detail-artwork-surface')),
+      );
+      expect(artworkSurface, findsOneWidget);
+      expect(
+        tester.widget<PointerInspectTilt>(artworkSurface).cornerRadius,
+        12,
+      );
+      expect(
+        tester
+            .widget<ClipRRect>(
+              find.byKey(const ValueKey('media-detail-artwork-clip')),
+            )
+            .borderRadius,
+        BorderRadius.circular(12),
+      );
       expect(
         find.byKey(const ValueKey('media-detail-actions')),
         findsOneWidget,

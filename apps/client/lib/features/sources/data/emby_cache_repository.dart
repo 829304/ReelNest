@@ -7,14 +7,15 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../storage/runtime_storage_paths.dart';
-
 import '../../../api/emby/emby_quality.dart';
+import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
+import '../../../storage/preference_store.dart';
+import '../../../storage/runtime_storage_paths.dart';
+import '../../playback/data/player_preferences_repository.dart';
+import 'artwork_decode_queue.dart';
 import 'emby_connection_repository.dart';
 import 'source_repository.dart';
-import 'artwork_decode_queue.dart';
-import '../../playback/data/player_preferences_repository.dart';
 
 enum VideoCacheTaskState {
   queued,
@@ -121,12 +122,12 @@ class EmbyCacheRepository {
   int _now() => DateTime.now().toUtc().millisecondsSinceEpoch;
   Future<Directory> imageRoot() => _root('ArtworkCache');
   Future<Directory> videoRoot() async {
-    final row = await sources.database
-        .customSelect(
-          "SELECT value FROM player_preferences WHERE key = 'global.videoCacheDirectoryPath'",
-        )
-        .getSingleOrNull();
-    return _root('VideoCache', custom: row?.read<String>('value'));
+    return _root(
+      'VideoCache',
+      custom: await sources.database.preferenceValue(
+        'global.videoCacheDirectoryPath',
+      ),
+    );
   }
 
   Future<Directory> _root(String name, {String? custom}) async {
@@ -498,11 +499,9 @@ class EmbyCacheRepository {
 
   Future<({String path, String? custom, double limit, int bytes, int count})>
   summary() async {
-    final row = await sources.database
-        .customSelect(
-          "SELECT value FROM player_preferences WHERE key='global.videoCacheDirectoryPath'",
-        )
-        .getSingleOrNull();
+    final custom = await sources.database.preferenceValue(
+      'global.videoCacheDirectoryPath',
+    );
     final root = await videoRoot();
     final list = await entries();
     var bytes = 0;
@@ -511,7 +510,7 @@ class EmbyCacheRepository {
     }
     return (
       path: root.path,
-      custom: row?.read<String>('value'),
+      custom: custom,
       limit: await PlayerPreferencesRepository(sources.database)
           .number('videoCacheSizeLimitGB', 0),
       bytes: bytes,
@@ -521,11 +520,9 @@ class EmbyCacheRepository {
 
   Future<void> setDirectory(String? path) async {
     await _root('VideoCache', custom: path);
-    await sources.database.customStatement(
-      path == null
-          ? "DELETE FROM player_preferences WHERE key='global.videoCacheDirectoryPath'"
-          : "INSERT INTO player_preferences VALUES('global.videoCacheDirectoryPath',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-      path == null ? [] : [path],
+    await sources.database.writePreference(
+      'global.videoCacheDirectoryPath',
+      path,
     );
     sources.traceChanged();
   }
@@ -809,24 +806,17 @@ class EmbyCacheRepository {
     Future<T> Function(ScanCancellation) work,
   ) async {
     final token = ScanCancellation();
-    final cancelled = Completer<T>();
-    final unlisten = task.cancellation.listen(() {
-      token.cancel();
-      if (!cancelled.isCompleted) {
-        cancelled.completeError(const ScanCancelled());
-      }
-    });
-    try {
-      return await Future.any([work(token), cancelled.future]).timeout(
+    return awaitWithCancellation(
+      task.cancellation,
+      () => work(token).timeout(
         const Duration(seconds: 15),
         onTimeout: () {
           token.cancel();
           throw const SourceFailure('字幕下载超时。');
         },
-      );
-    } finally {
-      unlisten();
-    }
+      ),
+      onCancel: token.cancel,
+    );
   }
 
   void pause(VideoCacheTask task) {

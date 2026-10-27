@@ -49,7 +49,7 @@ final homeSearchProvider = FutureProvider.autoDispose
       for (final source in (sources.value ?? <MediaSource>[]).where(
         HomeRepository.accepts,
       )) {
-        partial |= source.kind.isEmbyCompatible && source.lastScan == null;
+        partial |= source.kind.isRemoteVideoSource && source.lastScan == null;
         final result = ref.watch(
           homeSearchSourceProvider((
             sourceId: source.id,

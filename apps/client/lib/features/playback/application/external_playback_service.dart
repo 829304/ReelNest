@@ -86,7 +86,7 @@ class ExternalPlaybackService implements ExternalPlaybackLauncher {
           !await sources.isReachable(source)) {
         throw const SourceFailure('视频文件不存在或 NAS 未连接。');
       }
-    } else if (source.kind.isEmbyCompatible) {
+    } else if (source.kind.isRemoteVideoSource) {
       try {
         cached = await acquireCache?.call(identity);
       } catch (_) {

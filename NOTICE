@@ -19,3 +19,7 @@ and AppState.swift at the same revision.
 The Jellyfin connector mark reproduces the official Jellyfin icon geometry
 from jellyfin-ux (https://github.com/jellyfin/jellyfin-ux), licensed under
 CC BY-SA 4.0. Copyright Jellyfin contributors.
+
+Plex, the Plex Play logo and Plex Media Server are trademarks of Plex and used
+under a license. The Plex Play icon identifies connector compatibility and does
+not indicate endorsement by Plex.

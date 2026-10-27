@@ -3,11 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/app_confirmation_dialog.dart';
 import '../../../ui/widgets/app_feedback.dart';
+import '../../../ui/widgets/source_icons.dart';
+import '../../../ui/widgets/video_library_page_header.dart';
 import '../../../domain/media_source.dart';
 import 'emby_library_selection_bar.dart';
 import 'emby_video_context_menu.dart';
@@ -430,6 +431,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
               settings: settings,
             )),
           );
+    final visibleCount = results?.asData?.value.length ?? 0;
     final scan =
         ref.watch(sourceScansProvider)[destination.sourceId] ??
         const SourceScanState();
@@ -466,7 +468,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                       busy: busy,
                       palette: palette,
                       sourceId: destination.sourceId,
-                      brand: brand,
+                      visibleCount: visibleCount,
                     ),
                   ),
                   if (data != null && settings != null)
@@ -615,18 +617,6 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                         ),
                       ],
                       data: (entries) => [
-                        inset(
-                          Text(
-                            data!.source.lastScan == null
-                                ? '已载入 ${entries.length} 项 · 同步尚未完成，筛选仅包含已载入内容'
-                                : '共 ${entries.length} 项',
-                            style: TextStyle(
-                              color: palette.secondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                          bottom: 8,
-                        ),
                         if (entries.isEmpty)
                           inset(
                             _libraryStatus(
@@ -636,7 +626,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                                   : Icons.movie_creation_outlined,
                               title: settings.search.isNotEmpty
                                   ? '没有匹配的内容'
-                                  : data.source.lastScan == null
+                                  : data!.source.lastScan == null
                                   ? _browseLoading
                                         ? '正在读取服务端视频…'
                                         : '暂无已载入的视频'
@@ -681,7 +671,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                                       entries,
                                       index,
                                       columns,
-                                      data.source,
+                                      data!.source,
                                       target,
                                     );
                                     return EmbyVideoContextMenu(
@@ -848,7 +838,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     required bool busy,
     required SourceSheetPalette palette,
     required String sourceId,
-    required String brand,
+    required int visibleCount,
   }) {
     final search = TextField(
       controller: _search,
@@ -857,7 +847,12 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
       decoration: InputDecoration(
         hintText: '搜索$title',
         isDense: true,
-        prefixIcon: const Icon(Icons.search_rounded, size: 18),
+        prefixIcon: SourceLineIcon(
+          SourceGlyph.search,
+          size: 17,
+          color: palette.secondary.withValues(alpha: .9),
+          lineWidth: 1.9,
+        ),
         prefixIconColor: palette.secondary.withValues(alpha: .9),
         suffixIconColor: palette.secondary.withValues(alpha: .9),
         suffixIcon: _search.text.isEmpty
@@ -898,7 +893,12 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
               dimension: 15,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.refresh_rounded, size: 17),
+          : SourceLineIcon(
+              SourceGlyph.refresh,
+              size: 17,
+              color: palette.menuText,
+              lineWidth: 1.9,
+            ),
       label: Text(busy ? '同步中' : '扫描'),
     );
     final selection = OutlinedButton.icon(
@@ -908,110 +908,27 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
               _selectionMode = !_selectionMode;
               if (!_selectionMode) _selected.clear();
             }),
-      icon: Icon(
-        _selectionMode
-            ? Icons.check_circle_rounded
-            : Icons.check_circle_outline_rounded,
+      icon: SourceLineIcon(
+        SourceGlyph.checkCircle,
         size: 17,
+        color: palette.menuText,
+        lineWidth: _selectionMode ? 2.3 : 1.9,
       ),
       label: Text(_selectionMode ? '完成' : '选择'),
     );
-    final manage = IconButton.outlined(
-      tooltip: '管理媒体源',
-      onPressed: () => context.go('/sources'),
-      style: IconButton.styleFrom(
-        foregroundColor: palette.secondary,
-        side: BorderSide(color: palette.border),
-      ),
-      icon: const Icon(Icons.tune_rounded, size: 18),
-    );
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
-      decoration: BoxDecoration(
-        color: palette.card,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: palette.border, width: .8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(
-              alpha: Theme.of(context).brightness == Brightness.dark
-                  ? .18
-                  : .055,
-            ),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
+    return VideoLibraryPageHeader(
+      title: title,
+      subtitle: '浏览、筛选和管理当前内容 · $visibleCount 项',
+      actions: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          SizedBox(width: 226, child: search),
+          const SizedBox(width: 10),
+          scan,
+          const SizedBox(width: 10),
+          selection,
         ],
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final titleBlock = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 30,
-                  height: 1.08,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -.45,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '浏览与管理 $brand 视频内容',
-                style: TextStyle(
-                  color: palette.secondary,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          );
-          if (constraints.maxWidth >= 820) {
-            return Row(
-              children: [
-                Expanded(child: titleBlock),
-                SizedBox(width: 280, child: search),
-                const SizedBox(width: 10),
-                scan,
-                const SizedBox(width: 8),
-                selection,
-                const SizedBox(width: 8),
-                manage,
-              ],
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: titleBlock),
-                  const SizedBox(width: 12),
-                  manage,
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SizedBox(
-                    width: constraints.maxWidth.clamp(220, 360),
-                    child: search,
-                  ),
-                  scan,
-                  selection,
-                ],
-              ),
-            ],
-          );
-        },
       ),
     );
   }

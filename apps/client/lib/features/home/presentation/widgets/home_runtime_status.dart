@@ -520,6 +520,8 @@ class _TaskRow extends StatelessWidget {
         ? const Color(0xFFFF5C8A)
         : task.title.startsWith('Jellyfin')
         ? const Color(0xFF9B59B6)
+        : task.title.startsWith('Plex')
+        ? const Color(0xFFEBAF00)
         : _blue;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

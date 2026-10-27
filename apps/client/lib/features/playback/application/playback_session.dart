@@ -1024,7 +1024,7 @@ class PlaybackSession extends ChangeNotifier {
           throw const SourceFailure('媒体文件不存在，可能是 NAS 未挂载、移动硬盘断开，或文件已被移动。');
         }
         resource = localPath;
-      } else if (source.kind.isEmbyCompatible && emby != null) {
+      } else if (source.kind.isRemoteVideoSource && emby != null) {
         ({String path, String lease})? cached;
         if (!force) {
           trace?.stage('cache_lookup');
@@ -2314,6 +2314,42 @@ class PlaybackSession extends ChangeNotifier {
         : const VideoRenderSettings();
   }
 
+  /// Share persistence rollback, while each caller retains normalization,
+  /// capability checks and the exact point at which engine state is refreshed.
+  Future<void> _changeSetting<T>(
+    T before,
+    T next,
+    Future<void> Function(T) apply,
+    Future<void> Function(T) remember, {
+    required void Function() refresh,
+    required String rollbackScope,
+    required Object rollbackFailure,
+    bool refreshAfterApplyFailure = true,
+  }) async {
+    // Subtitle/timing setters originally apply before their refresh guard.
+    if (!refreshAfterApplyFailure) await apply(next);
+    try {
+      if (refreshAfterApplyFailure) await apply(next);
+      try {
+        await remember(next);
+      } catch (error, stack) {
+        try {
+          await apply(before);
+        } catch (rollback, rollbackStack) {
+          _trace?.failure(
+            '${rollbackScope}_settings_rollback_failed',
+            rollback,
+            rollbackStack,
+          );
+          throw rollbackFailure;
+        }
+        Error.throwWithStackTrace(error, stack);
+      }
+    } finally {
+      refresh();
+    }
+  }
+
   Future<void> updateRenderSettings({
     VideoDebandMode? debandMode,
     VideoToneMappingMode? toneMappingMode,
@@ -2328,26 +2364,15 @@ class PlaybackSession extends ChangeNotifier {
       debandMode: debandMode,
       toneMappingMode: toneMappingMode,
     );
-    try {
-      await render.setRenderSettings(next);
-      try {
-        await preferences.rememberRenderSettings(next);
-      } catch (error, stack) {
-        try {
-          await render.setRenderSettings(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'render_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoRenderRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readRenderSettings(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      render.setRenderSettings,
+      preferences.rememberRenderSettings,
+      refresh: () => _readRenderSettings(current),
+      rollbackScope: 'render',
+      rollbackFailure: const VideoRenderRollbackFailure(),
+    );
   }, failureMessage: '去色带或 HDR 映射设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> updatePerformanceSettings({
@@ -2366,26 +2391,15 @@ class PlaybackSession extends ChangeNotifier {
       hardwareDecodingMode: hardwareDecodingMode,
       memoryBufferingEnabled: memoryBufferingEnabled,
     );
-    try {
-      await performance.setPerformanceSettings(next);
-      try {
-        await preferences.rememberPerformanceSettings(next);
-      } catch (error, stack) {
-        try {
-          await performance.setPerformanceSettings(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'performance_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoPerformanceRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readPerformanceSettings(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      performance.setPerformanceSettings,
+      preferences.rememberPerformanceSettings,
+      refresh: () => _readPerformanceSettings(current),
+      rollbackScope: 'performance',
+      rollbackFailure: const VideoPerformanceRollbackFailure(),
+    );
   }, failureMessage: '播放性能设置未能应用或保存，视频仍可播放，请重试。');
 
   void _readEqualizerSettings(VideoEngine current) {
@@ -2406,26 +2420,15 @@ class PlaybackSession extends ChangeNotifier {
     // Merge inside the serial operation, after prior edits or their rollback.
     final before = equalizer.equalizerSettings;
     final next = before.copyWith(enabled: enabled, preset: preset);
-    try {
-      await equalizer.setEqualizerSettings(next);
-      try {
-        await preferences.rememberEqualizerSettings(next);
-      } catch (error, stack) {
-        try {
-          await equalizer.setEqualizerSettings(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'equalizer_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoEqualizerRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readEqualizerSettings(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      equalizer.setEqualizerSettings,
+      preferences.rememberEqualizerSettings,
+      refresh: () => _readEqualizerSettings(current),
+      rollbackScope: 'equalizer',
+      rollbackFailure: const VideoEqualizerRollbackFailure(),
+    );
   }, failureMessage: '均衡器设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> setSharpenMode(VideoSharpenMode mode) => _controls(() async {
@@ -2435,26 +2438,15 @@ class PlaybackSession extends ChangeNotifier {
     }
     final sharpen = current as VideoSharpenEngine;
     final before = sharpen.sharpenMode;
-    try {
-      await sharpen.setSharpenMode(mode);
-      try {
-        await preferences.rememberSharpenMode(mode);
-      } catch (error, stack) {
-        try {
-          await sharpen.setSharpenMode(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'sharpen_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoSharpenRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readSharpenMode(current);
-    }
+    await _changeSetting(
+      before,
+      mode,
+      sharpen.setSharpenMode,
+      preferences.rememberSharpenMode,
+      refresh: () => _readSharpenMode(current),
+      rollbackScope: 'sharpen',
+      rollbackFailure: const VideoSharpenRollbackFailure(),
+    );
   }, failureMessage: '锐化设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> updateColorAdjustments(
@@ -2467,26 +2459,15 @@ class PlaybackSession extends ChangeNotifier {
     final colors = current as VideoColorEngine;
     final before = colors.colorAdjustments;
     final next = update(before).normalized;
-    try {
-      await colors.setColorAdjustments(next);
-      try {
-        await preferences.rememberColorAdjustments(next);
-      } catch (error, stack) {
-        try {
-          await colors.setColorAdjustments(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'color_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoColorRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readColorAdjustments(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      colors.setColorAdjustments,
+      preferences.rememberColorAdjustments,
+      refresh: () => _readColorAdjustments(current),
+      rollbackScope: 'color',
+      rollbackFailure: const VideoColorRollbackFailure(),
+    );
   }, failureMessage: '色彩设置未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> updateDisplaySettings(
@@ -2499,26 +2480,15 @@ class PlaybackSession extends ChangeNotifier {
     final display = current as VideoDisplayEngine;
     final before = display.displaySettings;
     final next = update(before);
-    try {
-      await display.setDisplaySettings(next);
-      try {
-        await preferences.rememberDisplaySettings(next);
-      } catch (error, stack) {
-        try {
-          await display.setDisplaySettings(before);
-        } catch (rollback, rollbackStack) {
-          _trace?.failure(
-            'display_settings_rollback_failed',
-            rollback,
-            rollbackStack,
-          );
-          throw const VideoDisplayRollbackFailure();
-        }
-        Error.throwWithStackTrace(error, stack);
-      }
-    } finally {
-      _readDisplaySettings(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      display.setDisplaySettings,
+      preferences.rememberDisplaySettings,
+      refresh: () => _readDisplaySettings(current),
+      rollbackScope: 'display',
+      rollbackFailure: const VideoDisplayRollbackFailure(),
+    );
   }, failureMessage: '画面设置未能应用或保存，视频仍可播放，请重试。');
 
   /// Evaluate a user's field edit only when its serialized operation runs.
@@ -2533,24 +2503,16 @@ class PlaybackSession extends ChangeNotifier {
     final settings = current as VideoSubtitleSettingsEngine;
     final before = settings.subtitleStyle;
     final next = update(before).normalized;
-    await settings.setSubtitleStyle(next);
-    try {
-      await preferences.rememberSubtitleStyle(next);
-    } catch (error, stack) {
-      try {
-        await settings.setSubtitleStyle(before);
-      } catch (rollback, rollbackStack) {
-        _trace?.failure(
-          'subtitle_settings_rollback_failed',
-          rollback,
-          rollbackStack,
-        );
-        throw const SubtitleSettingsRollbackFailure();
-      }
-      Error.throwWithStackTrace(error, stack);
-    } finally {
-      _readSubtitleSettings(current);
-    }
+    await _changeSetting(
+      before,
+      next,
+      settings.setSubtitleStyle,
+      preferences.rememberSubtitleStyle,
+      refresh: () => _readSubtitleSettings(current),
+      rollbackScope: 'subtitle',
+      rollbackFailure: const SubtitleSettingsRollbackFailure(),
+      refreshAfterApplyFailure: false,
+    );
   }, failureMessage: '字幕样式未能应用或保存，视频仍可播放，请重试。');
 
   Future<void> _timingSetting(
@@ -2562,24 +2524,16 @@ class PlaybackSession extends ChangeNotifier {
     final current = engine!;
     _readSubtitleSettings(current);
     final before = previous(timing);
-    await apply(current, value);
-    try {
-      await preferences.rememberNumber(key, value);
-    } catch (error, stack) {
-      try {
-        await apply(current, before);
-      } catch (rollback, rollbackStack) {
-        _trace?.failure(
-          'subtitle_settings_rollback_failed',
-          rollback,
-          rollbackStack,
-        );
-        throw const SubtitleSettingsRollbackFailure();
-      }
-      Error.throwWithStackTrace(error, stack);
-    } finally {
-      _readSubtitleSettings(current);
-    }
+    await _changeSetting(
+      before,
+      value,
+      (next) => apply(current, next),
+      (next) => preferences.rememberNumber(key, next),
+      refresh: () => _readSubtitleSettings(current),
+      rollbackScope: 'subtitle',
+      rollbackFailure: const SubtitleSettingsRollbackFailure(),
+      refreshAfterApplyFailure: false,
+    );
   }, failureMessage: '音画同步设置未能应用或保存，视频仍可播放，请重试。');
 
   VideoSubtitleSettingsEngine _subtitleSettings(VideoEngine current) {

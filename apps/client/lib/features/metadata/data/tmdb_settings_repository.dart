@@ -1,11 +1,9 @@
-import 'dart:async';
-
-import 'package:drift/drift.dart';
-
+import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
 import '../../../platform/secure_credential_store.dart';
 import '../../../storage/credential_store.dart';
 import '../../../storage/library_database.dart';
+import '../../../storage/preference_store.dart';
 import '../domain/tmdb_models.dart';
 
 class TmdbSettingsRepository {
@@ -18,7 +16,7 @@ class TmdbSettingsRepository {
   final LibraryDatabase database;
   final CredentialStore store;
   static const languageKey = 'global.tmdbLanguage';
-  Future<void> _pending = Future.value();
+  final _writes = SerialTaskQueue();
   Future<String> credential() async {
     try {
       return (await store.read() ?? '').trim();
@@ -28,14 +26,9 @@ class TmdbSettingsRepository {
   }
 
   Future<TmdbSettings> read() async {
-    final row = await database
-        .customSelect(
-          'SELECT value FROM player_preferences WHERE key=?',
-          variables: [Variable(languageKey)],
-        )
-        .getSingleOrNull();
+    final language = await database.preferenceValue(languageKey);
     return TmdbSettings(
-      language: normalizedLanguage(row?.read<String>('value') ?? ''),
+      language: normalizedLanguage(language ?? ''),
       hasCredential: (await credential()).isNotEmpty,
     );
   }
@@ -50,13 +43,7 @@ class TmdbSettingsRepository {
     return clean;
   }
 
-  Future<void> _write(Future<void> Function() action) {
-    final operation = _pending.then((_) => action());
-    _pending = operation.catchError((Object _) {});
-    return operation;
-  }
-
-  Future<void> saveCredential(String raw) => _write(() async {
+  Future<void> saveCredential(String raw) => _writes.run(() async {
     final value = raw.trim();
     if (value.length > 4096 || value.contains(RegExp(r'[^\x21-\x7e]'))) {
       throw const SourceFailure('TMDB API Key 或 Token 格式不正确。');
@@ -71,13 +58,10 @@ class TmdbSettingsRepository {
       throw const SourceFailure('TMDB 凭据保存失败，原配置未更改，请重试。');
     }
   });
-  Future<void> setLanguage(String raw) => _write(() async {
+  Future<void> setLanguage(String raw) => _writes.run(() async {
     final value = normalizedLanguage(raw);
     try {
-      await database.customStatement(
-        'INSERT INTO player_preferences(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-        [languageKey, value],
-      );
+      await database.writePreference(languageKey, value);
     } catch (_) {
       throw const SourceFailure('TMDB 语言设置保存失败，请重试。');
     }

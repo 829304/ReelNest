@@ -1,13 +1,13 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
 import '../../../api/emby/emby_detail.dart';
+import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
+import 'emby_browse_repository.dart';
 import 'emby_connection_repository.dart';
 import 'source_repository.dart';
-import 'emby_browse_repository.dart';
 
 class EmbyDetailSnapshot {
   const EmbyDetailSnapshot(this.detail, this.fetchedAt, {this.refreshError});
@@ -72,23 +72,19 @@ class EmbyDetailRepository {
     if (!(await sources.source(
       id.sourceId,
       includeCounts: false,
-    )).kind.isEmbyCompatible) {
+    )).kind.isRemoteVideoSource) {
       throw const SourceFailure('此来源不支持 远程媒体库详情。');
     }
     final cached = await read(id);
     token.check();
     if (!force && cached != null && isFresh(cached)) return cached;
-    final cancelled = Completer<EmbyDetail>();
-    final unlisten = token.listen(
-      () => cancelled.completeError(const ScanCancelled()),
-    );
     var expired = false;
     try {
       final detail =
-          await Future.any([
-            connections.detail(item, cancellation: token),
-            cancelled.future,
-          ]).timeout(
+          await awaitWithCancellation(
+            token,
+            () => connections.detail(item, cancellation: token),
+          ).timeout(
             timeout,
             onTimeout: () {
               expired = true;
@@ -131,8 +127,6 @@ class EmbyDetailRepository {
         );
       }
       throw const SourceFailure('远程媒体库详情读取失败，基础信息和播放仍可使用。');
-    } finally {
-      unlisten();
     }
   }
 

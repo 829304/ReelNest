@@ -5,18 +5,19 @@ import 'package:drift/drift.dart';
 
 import '../../../domain/media_source.dart';
 import '../../../storage/library_database.dart';
-import '../domain/video_queue.dart';
-import '../domain/playback_options.dart';
+import '../../../storage/preference_store.dart';
 import '../domain/playback_marker.dart';
-import '../domain/video_subtitle_settings.dart';
-import '../domain/video_display_settings.dart';
+import '../domain/playback_options.dart';
 import '../domain/video_color_adjustments.dart';
-import '../domain/video_sharpen_mode.dart';
-import '../domain/video_performance_settings.dart';
-import '../domain/video_render_settings.dart';
-import '../domain/video_screenshot.dart';
+import '../domain/video_display_settings.dart';
 import '../domain/video_equalizer_settings.dart';
 import '../domain/video_keyboard_shortcuts.dart';
+import '../domain/video_performance_settings.dart';
+import '../domain/video_queue.dart';
+import '../domain/video_render_settings.dart';
+import '../domain/video_screenshot.dart';
+import '../domain/video_sharpen_mode.dart';
+import '../domain/video_subtitle_settings.dart';
 
 /// TrackPreferenceStore's language/off semantics. Source identity is part of
 /// the key because this client uses source-relative media IDs.
@@ -90,27 +91,33 @@ class PlayerPreferencesRepository {
   Future<String?> _read(String key) async {
     final snapshot = Zone.current[_snapshotZone] as Map<String, String?>?;
     if (snapshot != null && snapshot.containsKey(key)) return snapshot[key];
-    return (await database
-            .customSelect(
-              'SELECT value FROM player_preferences WHERE key = ?',
-              variables: [Variable(key)],
-            )
-            .getSingleOrNull())
-        ?.read<String>('value');
+    return database.preferenceValue(key);
   }
 
-  Future<void> _write(String key, String? value) async {
+  Future<void> _write(String key, String? value) {
     final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      await database.customStatement(
-        'DELETE FROM player_preferences WHERE key = ?',
-        [key],
-      );
-    } else {
-      await database.customStatement(
-        'INSERT INTO player_preferences(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        [key, trimmed],
-      );
+    return database.writePreference(
+      key,
+      trimmed == null || trimmed.isEmpty ? null : trimmed,
+    );
+  }
+
+  Future<T> _readJsonSetting<T>(
+    String key,
+    T Function(Map<String, dynamic>) decode,
+    T fallback, {
+    bool recoverTypeErrors = false,
+  }) async {
+    final raw = await _read(key);
+    if (raw == null) return fallback;
+    try {
+      final value = jsonDecode(raw);
+      return value is Map<String, dynamic> ? decode(value) : fallback;
+    } on FormatException {
+      return fallback;
+    } on TypeError {
+      if (!recoverTypeErrors) rethrow;
+      return fallback;
     }
   }
 
@@ -150,20 +157,12 @@ class PlayerPreferencesRepository {
       );
   Future<void> rememberScreenshotMode(VideoScreenshotMode mode) =>
       _write('global.videoScreenshotMode', mode.name);
-  Future<VideoSubtitleStyle> get subtitleStyle async {
-    final raw = await _read('global.videoSubtitleStyle');
-    if (raw == null) return VideoSubtitleStyle.standard;
-    try {
-      final value = jsonDecode(raw);
-      return value is Map<String, dynamic>
-          ? VideoSubtitleStyle.fromJson(value)
-          : VideoSubtitleStyle.standard;
-    } on FormatException {
-      return VideoSubtitleStyle.standard;
-    } on TypeError {
-      return VideoSubtitleStyle.standard;
-    }
-  }
+  Future<VideoSubtitleStyle> get subtitleStyle => _readJsonSetting(
+    'global.videoSubtitleStyle',
+    VideoSubtitleStyle.fromJson,
+    VideoSubtitleStyle.standard,
+    recoverTypeErrors: true,
+  );
 
   Future<void> rememberSubtitleStyle(VideoSubtitleStyle style) => _write(
     'global.videoSubtitleStyle',
@@ -229,20 +228,12 @@ class PlayerPreferencesRepository {
         await _write('global.videoFlipMode', value.flipMode.name);
       });
 
-  Future<VideoColorAdjustments> get colorAdjustments async {
-    final raw = await _read('global.videoColorAdjustments');
-    if (raw == null) return VideoColorAdjustments.neutral;
-    try {
-      final value = jsonDecode(raw);
-      return value is Map<String, dynamic>
-          ? VideoColorAdjustments.fromJson(value)
-          : VideoColorAdjustments.neutral;
-    } on FormatException {
-      return VideoColorAdjustments.neutral;
-    } on TypeError {
-      return VideoColorAdjustments.neutral;
-    }
-  }
+  Future<VideoColorAdjustments> get colorAdjustments => _readJsonSetting(
+    'global.videoColorAdjustments',
+    VideoColorAdjustments.fromJson,
+    VideoColorAdjustments.neutral,
+    recoverTypeErrors: true,
+  );
 
   Future<void> rememberColorAdjustments(VideoColorAdjustments value) =>
       _write('global.videoColorAdjustments', jsonEncode(value.toJson()));
@@ -258,50 +249,29 @@ class PlayerPreferencesRepository {
   Future<void> rememberSharpenMode(VideoSharpenMode mode) =>
       _write('global.videoSharpenMode', mode.name);
 
-  Future<VideoEqualizerSettings> get equalizerSettings async {
-    final raw = await _read('global.videoEqualizerSettings');
-    if (raw == null) return const VideoEqualizerSettings();
-    try {
-      final value = jsonDecode(raw);
-      return value is Map<String, dynamic>
-          ? VideoEqualizerSettings.fromJson(value)
-          : const VideoEqualizerSettings();
-    } on FormatException {
-      return const VideoEqualizerSettings();
-    }
-  }
+  Future<VideoEqualizerSettings> get equalizerSettings => _readJsonSetting(
+    'global.videoEqualizerSettings',
+    VideoEqualizerSettings.fromJson,
+    const VideoEqualizerSettings(),
+  );
 
   Future<void> rememberEqualizerSettings(VideoEqualizerSettings value) =>
       _write('global.videoEqualizerSettings', jsonEncode(value.toJson()));
 
-  Future<VideoPerformanceSettings> get performanceSettings async {
-    final raw = await _read('global.videoPerformanceSettings');
-    if (raw == null) return const VideoPerformanceSettings();
-    try {
-      final value = jsonDecode(raw);
-      return value is Map<String, dynamic>
-          ? VideoPerformanceSettings.fromJson(value)
-          : const VideoPerformanceSettings();
-    } on FormatException {
-      return const VideoPerformanceSettings();
-    }
-  }
+  Future<VideoPerformanceSettings> get performanceSettings => _readJsonSetting(
+    'global.videoPerformanceSettings',
+    VideoPerformanceSettings.fromJson,
+    const VideoPerformanceSettings(),
+  );
 
   Future<void> rememberPerformanceSettings(VideoPerformanceSettings value) =>
       _write('global.videoPerformanceSettings', jsonEncode(value.toJson()));
 
-  Future<VideoRenderSettings> get renderSettings async {
-    final raw = await _read('global.videoRenderSettings');
-    if (raw == null) return const VideoRenderSettings();
-    try {
-      final value = jsonDecode(raw);
-      return value is Map<String, dynamic>
-          ? VideoRenderSettings.fromJson(value)
-          : const VideoRenderSettings();
-    } on FormatException {
-      return const VideoRenderSettings();
-    }
-  }
+  Future<VideoRenderSettings> get renderSettings => _readJsonSetting(
+    'global.videoRenderSettings',
+    VideoRenderSettings.fromJson,
+    const VideoRenderSettings(),
+  );
 
   Future<void> rememberRenderSettings(VideoRenderSettings value) =>
       _write('global.videoRenderSettings', jsonEncode(value.toJson()));

@@ -8,6 +8,7 @@ import '../ui/theme/design_tokens.dart';
 import '../ui/widgets/source_icons.dart';
 import 'destinations.dart';
 import 'sidebar_components.dart';
+import 'sidebar_status_card.dart';
 
 class DesktopShell extends StatefulWidget {
   const DesktopShell({
@@ -63,39 +64,47 @@ class _DesktopShellState extends State<DesktopShell> {
                 child: Material(
                   color: Colors.transparent,
                   child: AppSidebarHoverRegion(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+                    child: Column(
                       children: [
-                        _BrandHeader(
-                          onOpenFile: widget.onOpenFile,
-                          onOpenStream: widget.onOpenStream,
-                        ),
-                        const AppSidebarSectionHeader('媒体库'),
-                        AppSidebarRow(
-                          key: const ValueKey('nav-首页'),
-                          label: appDestinations[0].label,
-                          leading: Icon(appDestinations[0].icon),
-                          selected: widget.selectedIndex == 0,
-                          onTap: () => widget.onSelected(0),
-                        ),
-                        const EmbySidebar(),
-                        const AppSidebarSectionHeader('管理'),
-                        for (
-                          var index = 1;
-                          index < appDestinations.length;
-                          index++
-                        )
-                          AppSidebarRow(
-                            key: ValueKey(
-                              'nav-${appDestinations[index].label}',
-                            ),
-                            label: appDestinations[index].label,
-                            leading: _destinationIcon(index),
-                            selected:
-                                widget.selectedIndex == index &&
-                                (index != 1 || uri.path == '/sources'),
-                            onTap: () => widget.onSelected(index),
+                        Expanded(
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+                            children: [
+                              _BrandHeader(
+                                onOpenFile: widget.onOpenFile,
+                                onOpenStream: widget.onOpenStream,
+                              ),
+                              const AppSidebarSectionHeader('媒体库'),
+                              AppSidebarRow(
+                                key: const ValueKey('nav-首页'),
+                                label: appDestinations[0].label,
+                                leading: Icon(appDestinations[0].icon),
+                                selected: widget.selectedIndex == 0,
+                                onTap: () => widget.onSelected(0),
+                              ),
+                              const EmbySidebar(),
+                              const AppSidebarSectionHeader('管理'),
+                              for (
+                                var index = 1;
+                                index < appDestinations.length;
+                                index++
+                              )
+                                AppSidebarRow(
+                                  key: ValueKey(
+                                    'nav-${appDestinations[index].label}',
+                                  ),
+                                  label: appDestinations[index].label,
+                                  leading: _destinationIcon(index),
+                                  selected:
+                                      widget.selectedIndex == index &&
+                                      (index != 1 || uri.path == '/sources'),
+                                  onTap: () => widget.onSelected(index),
+                                ),
+                              const SizedBox(height: 4),
+                            ],
                           ),
+                        ),
+                        const SidebarStatusCard(),
                       ],
                     ),
                   ),

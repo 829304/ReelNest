@@ -175,7 +175,7 @@ final homeRecommendationProvider =
       // does not suppress online recommendations or block their first result.
       final Set<MediaIdentity> offline =
           sources.any(
-            (s) => HomeRepository.accepts(s) && s.kind.isEmbyCompatible,
+            (s) => HomeRepository.accepts(s) && s.kind.isRemoteVideoSource,
           )
           ? ref.watch(homeOfflineIDsProvider).value ?? {}
           : {};
@@ -206,7 +206,7 @@ final homeRecommendationProvider =
 bool _matchesRecommendationSource(HomeVideo video, MediaSource source) =>
     video.source.kind == source.kind &&
     video.source.location == source.location &&
-    (!source.kind.isEmbyCompatible ||
+    (!source.kind.isRemoteVideoSource ||
         source.options.selectedEmbyLibraryIDs.isEmpty ||
         source.options.selectedEmbyLibraryIDs.contains(
           video.item.remote?.libraryId,
@@ -284,7 +284,7 @@ final homeCollectionProvider = Provider.autoDispose
       var loading = sources.isLoading;
       var partial = false;
       for (final source in values.where(HomeRepository.accepts)) {
-        partial |= source.kind.isEmbyCompatible && source.lastScan == null;
+        partial |= source.kind.isRemoteVideoSource && source.lastScan == null;
         final page = ref.watch(
           homeVideoPageProvider((
             sourceId: source.id,

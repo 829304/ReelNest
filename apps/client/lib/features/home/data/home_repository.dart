@@ -53,7 +53,7 @@ class HomeRepository {
   final SourceRepository sources;
 
   static bool accepts(MediaSource source) =>
-      (source.kind.isFileSource || source.kind.isEmbyCompatible) &&
+      (source.kind.isFileSource || source.kind.isRemoteVideoSource) &&
       !{
         SourceMediaType.privateCollection,
         SourceMediaType.photo,
@@ -95,7 +95,7 @@ class HomeRepository {
   )''';
 
   List<Variable> _variables(MediaSource source) {
-    final selected = source.kind.isEmbyCompatible
+    final selected = source.kind.isRemoteVideoSource
         ? jsonEncode(source.options.selectedEmbyLibraryIDs)
         : '[]';
     return [
@@ -454,7 +454,7 @@ class HomeRepository {
   }
 
   Future<bool> needsSeed(MediaSource source) async =>
-      source.kind.isEmbyCompatible &&
+      source.kind.isRemoteVideoSource &&
       source.lastScan == null &&
       (await sources.database.customSelect('''$_scope
         SELECT 1 FROM scope WHERE parent_id IS NULL LIMIT 1
@@ -543,7 +543,7 @@ List<_SearchDocument> _buildSearchIndex(
     item.remote?.artist,
     item.remote?.album,
     item.remote?.externalId,
-    if (source.kind.isEmbyCompatible) source.kind.label,
+    if (source.kind.isRemoteVideoSource) source.kind.label,
     ...?item.remote?.genres,
     item.remote?.videoCodec,
     item.remote?.audioCodec,

@@ -25,7 +25,13 @@ class RemoteIndexWriter {
     void Function(SourceScanProgress)? onProgress,
   }) async {
     final favorites = <String, bool>{};
-    if (traceMode == RemoteTraceSyncMode.disabled) {
+    final plex = await database
+        .customSelect(
+          "SELECT id FROM sources WHERE id = ? AND kind = 'plex'",
+          variables: [Variable(sourceId)],
+        )
+        .getSingleOrNull();
+    if (traceMode == RemoteTraceSyncMode.disabled || plex != null) {
       final rows = await database
           .customSelect(
             '''SELECT r.local_id, json_type(r.value, '\$.favorite') = 'true' AS favorite
@@ -120,7 +126,7 @@ class RemoteIndexWriter {
             [
               sourceId,
               id,
-              RemoteRatingPolicy.seedUserRating(item.remote?.rating),
+              RemoteRatingPolicy.initialUserRating(item.remote),
               now,
             ],
           );

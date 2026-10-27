@@ -19,6 +19,9 @@ enum SourceGlyph {
   chevronDown,
   eyeOff,
   dashboard,
+  server,
+  playRectangle,
+  downloadCircle,
 }
 
 class SourceLineIcon extends StatelessWidget {
@@ -72,6 +75,36 @@ class _LinePainter extends CustomPainter {
         path.lineTo(17, 6);
         path.moveTo(7, 16);
         path.lineTo(17, 16);
+      case SourceGlyph.server:
+        for (final y in [4.0, 10.0, 16.0]) {
+          path.addRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(3, y, 18, 5),
+              const Radius.circular(1.5),
+            ),
+          );
+          path.addOval(Rect.fromCircle(center: Offset(7, y + 2.5), radius: .7));
+        }
+      case SourceGlyph.playRectangle:
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(3, 5, 18, 14),
+            const Radius.circular(2.5),
+          ),
+        );
+        path
+          ..moveTo(10, 9)
+          ..lineTo(15, 12)
+          ..lineTo(10, 15)
+          ..close();
+      case SourceGlyph.downloadCircle:
+        path.addOval(Rect.fromCircle(center: const Offset(12, 12), radius: 9));
+        path
+          ..moveTo(12, 7)
+          ..lineTo(12, 15)
+          ..moveTo(8.5, 11.5)
+          ..lineTo(12, 15)
+          ..lineTo(15.5, 11.5);
       case SourceGlyph.info:
         path.addOval(Rect.fromCircle(center: const Offset(12, 12), radius: 9));
         path.moveTo(12, 16);

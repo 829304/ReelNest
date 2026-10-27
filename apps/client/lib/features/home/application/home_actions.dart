@@ -40,7 +40,7 @@ Future<void> homeVideoAction(
     if (!context.mounted) return;
     switch (action) {
       case 'play':
-        if (item.isSeries && video.source.kind.isEmbyCompatible) {
+        if (item.isSeries && video.source.kind.isRemoteVideoSource) {
           await prepareEmbySeries(ref, [id]);
           if (!context.mounted) return;
         }
@@ -60,7 +60,7 @@ Future<void> homeVideoAction(
             .read(videoPreferencesRepositoryProvider)
             .setWatchlist(id, !video.entry.watchlist);
       case 'favorite':
-        if (video.source.kind.isEmbyCompatible) {
+        if (video.source.kind.isRemoteVideoSource) {
           await ref
               .read(embyConnectionProvider)
               .setFavorite(id, !video.favorite);
@@ -70,7 +70,7 @@ Future<void> homeVideoAction(
               .setLocalFavorite(id, !video.favorite);
         }
       case 'clear':
-        if (video.source.kind.isEmbyCompatible) {
+        if (video.source.kind.isRemoteVideoSource) {
           final failed = await ref
               .read(embyConnectionProvider)
               .markPlayed([id], false, clearHistory: true);
