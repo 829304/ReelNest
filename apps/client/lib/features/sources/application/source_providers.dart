@@ -106,12 +106,14 @@ final sourceEpisodesProvider = FutureProvider.autoDispose
 class SourceScanState {
   const SourceScanState({
     this.running = false,
+    this.incremental = false,
     this.queued = false,
     this.progress = const SourceScanProgress(),
     this.message,
     this.failed = false,
     this.cancelled = false,
   });
+  final bool incremental;
   final bool running;
   final bool queued;
   final bool failed, cancelled;
@@ -173,7 +175,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
           id: _runtimeIDs[entry.key]!,
           group: 'scan',
           sourceId: entry.key,
-          title: '完整扫描',
+          title: entry.value.incremental ? '增量扫描' : '完整扫描',
           detail:
               entry.value.message ??
               (entry.value.progress.totalFiles > 0
@@ -225,11 +227,18 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
 
   /// AppState.startScanQueue: one active local scan, ordered pending sources.
   /// Duplicate requests share the original future rather than scanning twice.
+  bool get isBusy => _active != null || _queue.isNotEmpty || _updatingSettings;
+
   Future<void> scan(String id) {
     if (_disposed) return Future.value();
-    if (_active?.id == id) return _active!.done.future;
+    if (_active?.id == id && _active!.paths == null) {
+      return _active!.done.future;
+    }
     for (final request in _queue) {
-      if (request.id == id) return request.done.future;
+      if (request.id == id) {
+        request.paths = null;
+        return request.done.future;
+      }
     }
     final request = _ScanRequest(
       id,
@@ -237,6 +246,38 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
     );
     _queue.add(request);
     _set(id, const SourceScanState(queued: true, message: '等待扫描'));
+    if (_active == null && !_updatingSettings) unawaited(_drain());
+    return request.done.future;
+  }
+
+  /// Events received during an active scan need a follow-up, not the active
+  /// future: that scan may already have catalogued the changed file.
+  Future<void> scanChanges(String id, {Set<String>? paths}) {
+    if (_disposed || paths?.isEmpty == true) return Future.value();
+    for (final request in _queue) {
+      if (request.id != id) continue;
+      if (paths == null) {
+        request.paths = null;
+      } else {
+        request.paths?.addAll(paths);
+      }
+      return request.done.future;
+    }
+    final request = _ScanRequest(
+      id,
+      automatic: true,
+      inCurrentRun: false,
+      paths: paths == null ? null : {...paths},
+    );
+    _queue.add(request);
+    _set(
+      id,
+      SourceScanState(
+        queued: true,
+        incremental: paths != null,
+        message: '等待自动更新',
+      ),
+    );
     if (_active == null && !_updatingSettings) unawaited(_drain());
     return request.done.future;
   }
@@ -299,6 +340,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
           final restart = existing ?? _ScanRequest(id, inCurrentRun: true);
           _queue.remove(restart);
           restart.inCurrentRun = true;
+          restart.paths = null;
           _queue.insert(0, restart);
           _set(
             id,
@@ -342,14 +384,27 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
 
   Future<void> _run(_ScanRequest request) async {
     final id = request.id;
-    _set(id, const SourceScanState(running: true));
+    _set(
+      id,
+      SourceScanState(running: true, incremental: request.paths != null),
+    );
     var progress = const SourceScanProgress();
     try {
       final source = await _repository.source(id);
       if (request.cancelled || _disposed) throw const ScanCancelled();
+      if (request.automatic && !source.options.autoScan) {
+        throw const ScanCancelled();
+      }
       void update(SourceScanProgress value) {
         progress = value;
-        _set(id, SourceScanState(running: true, progress: value));
+        _set(
+          id,
+          SourceScanState(
+            running: true,
+            progress: value,
+            incremental: request.paths != null,
+          ),
+        );
       }
 
       late SourceScanSummary summary;
@@ -361,17 +416,22 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
         final reachable = await _repository.isReachable(source);
         if (request.cancelled || _disposed) throw const ScanCancelled();
         if (!reachable) throw const SourceFailure('所选媒体源不可访问，请确认磁盘或 NAS 已挂载。');
-        summary = await _repository.scan(id, onProgress: update);
+        summary = await _repository.scan(
+          id,
+          onProgress: update,
+          changedPaths: request.paths,
+        );
       }
       _set(
         id,
         SourceScanState(
           progress: progress,
+          incremental: request.paths != null,
           failed: summary.errors.isNotEmpty,
           message: summary.errors.isEmpty
               ? (source.kind.isRemoteVideoSource
                     ? '同步完成：${summary.importedItems} 个媒体条目'
-                    : '扫描完成：${summary.importedItems} 个媒体文件')
+                    : '${request.paths == null ? '扫描' : '增量更新'}完成：${summary.importedItems} 个媒体文件')
               : '扫描结束：${summary.importedItems} 个媒体文件，${summary.errors.length} 个错误。${summary.errors.first}',
         ),
       );
@@ -380,6 +440,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
         id,
         SourceScanState(
           progress: progress,
+          incremental: request.paths != null,
           message: '操作已取消，原有索引已保留。',
           cancelled: true,
         ),
@@ -389,6 +450,7 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
         id,
         SourceScanState(
           progress: progress,
+          incremental: request.paths != null,
           message: sourceErrorMessage(error),
           failed: true,
         ),
@@ -400,7 +462,14 @@ class SourceScans extends Notifier<Map<String, SourceScanState>> {
 }
 
 class _ScanRequest {
-  _ScanRequest(this.id, {required this.inCurrentRun});
+  _ScanRequest(
+    this.id, {
+    required this.inCurrentRun,
+    this.paths,
+    this.automatic = false,
+  });
+  final bool automatic;
+  Set<String>? paths;
   final String id;
   bool inCurrentRun;
   final done = Completer<void>();

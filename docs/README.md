@@ -1,11 +1,15 @@
 # ReelNest 文档
 
-更新时间：2026-10-27。
+更新时间：2026-10-28。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
+- TMDB 本地剧集/动漫：手动批量阶段 13 文件 160/160、analyze、Windows Release/smoke 通过；定时自动匹配阶段 15 文件 179/179（48秒）、最终 analyze（4.4秒）、Windows Release（45.9秒）及五秒 hidden smoke（22:08:29 +08，响应/正常关闭/ExitCode 0）通过。自动批次 `data/app.so` 为 2026-10-27 22:07:19 +08、13,239,176 bytes；48个工作区变更 Dart 文件 format 0 changed、diff-check通过。两阶段测试有覆盖重叠，分别记录、不累计；未跑全量/native Flutter drive、真实公服、macOS/Linux、真实15分钟墙钟周期或可见UI验收，SourceRow视觉对照仍待。详见[剧集 TMDB 计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+- 本地视频健康补充与 NFO 写回：15 个定向文件 164/164、analyze、61 个 Dart 文件格式检查及 diff-check 通过；包含写回后 LocalMetadataService 读取和真实来源重扫恢复字段。Windows Release 44.3 秒及五秒 hidden smoke（09:52:30 +08，响应/正常关闭/ExitCode 0）通过。先提交 ReelNest 索引，再独立尝试 NFO，失败保留索引并提示 warning；普通 TMDB 单项/批量/定时匹配不写 NFO。macOS/Linux、真实 NAS 与可见 UI 验收仍待。详见[本地视频元数据写回计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。
+- 来源向导与来源设置 P0（2026-10-27）：已接入原版三步结构及四种当前实现的来源类型；第三步策略保存经 `SourceOptions` 持久化，schema 不变。定向/核心90/90、analyze 0 issues、Windows Release 41.9秒、smoke 21:21:32 +08通过。未实现连接器仍保留迁移范围；来源主页 `SourceRow` 尚未完成原版逐像素/逐交互对照。详见[本地来源阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-来源向导与来源设置-p0windows-验证通过)。
+- 本地媒体自动监控与增量更新（2026-10-27）：8文件78/78通过（16秒），analyze clean（4.6秒）、Windows Release 43.4秒、五秒 hidden smoke 通过（20:54:10 +08，响应/正常关闭/ExitCode 0）；来源 schema 未变。未跑全量/native Flutter drive/可见截图/真实 NAS 或移动盘拔插；Windows 强制 `perDirectory` 用例不代表 Linux 原生验收，macOS/Linux 实机与 macOS 持久目录授权仍待。详见[本地来源文档](LOCAL_SOURCES.zh-CN.md#自动监控与增量更新2026-10-27windows-自动化release-验证通过)。
 - 媒体库主界面页头 P0 对齐原版：共享页头恢复原版标题簇、TV 图标、动作对齐与窄布局；移除额外页头卡片/管理按钮并保留原版筛选条双层表面。跨来源63项及补充22项通过，format/analyze、Windows Release41.0秒和五秒 smoke通过。未做真实服务器可见 UI、实体输入、高 DPI、macOS/Linux 精确视觉验收；不代表全局 UI 一致。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-媒体库主界面-p0-页头对齐原版windows-验证通过)。
 - 公共逻辑提取（2026-10-27）：第一批净减48行，176项相关测试通过，Windows Release 47.4秒及20:10 +08 五秒 smoke 通过；第二批净减62行，97/97相关测试通过（8秒）、analyze clean、format 0 changed，Windows Release 46.3秒及20:21:52 +08 五秒 smoke 通过（隐藏窗口响应、正常关闭、ExitCode 0）。两批验证分别记录，不与前端41秒构建混用；不代表全量测试或三平台验收。详见[公共逻辑提取记录](COMMON_LOGIC_EXTRACTION_2026-10-27.zh-CN.md)。
 - 原版侧边栏状态卡 P0 第一、二批部分迁移：固定底部卡片、继续观看、被动缓存统计快照与任务完成提示已接入。第二批专项20/20、交叉回归117/117、analyze、Windows Release 38.9秒和隐藏 smoke通过。音乐迷你控制、更新、保险库锁定、赞赏、缺失/重复项卡及任务重试/取消仍待，详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-侧边栏状态卡-p0-第二批部分迁移windows-验证通过)。
@@ -138,7 +142,8 @@
 | 文档 | 内容 |
 |---|---|
 | [TMDB 本地电影元数据第一批计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md) | 实现与 Windows Delivery Release/smoke 验证完成；全量存在 1 个未收尾 native 用例，真实公服、跨平台和视觉验收待 |
-| [TMDB 本地剧集元数据手动匹配计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md) | 后端102/102、UI12/12、Windows Profile 原生与 Release/smoke 通过；本批未跑全量，真实公服、跨平台与人工视觉验收待 |
+| [TMDB 本地剧集元数据计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md) | 单项匹配、手动批量与定时自动匹配均有独立记录；自动阶段 179/179、analyze、Windows Release/smoke 通过。真实公服、全量、跨平台与人工视觉验收待 |
+| [本地视频健康补充与 NFO 写回计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md) | 定向 164/164、analyze、format/diff-check、Windows Release/smoke 通过；macOS/Linux、真实 NAS 与可见 UI 待验 |
 
 ## 视频播放
 

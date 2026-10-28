@@ -34,7 +34,7 @@
 
 | 模块 | 实现状态 | Windows 自动化/构建 | 真实来源与人工验收 | macOS 原生 | Linux 原生 | 原版 UI 视觉 |
 |---|---|---|---|---|---|---|
-| 本地视频来源与索引 | 文件夹、移动盘、已挂载 NAS 路径及扫描/索引安全能力已接入；完整原版向导、自动监控和若干元数据闭环仍缺 | 有分层自动化及 Windows 构建证据；详见[本地来源](LOCAL_SOURCES.zh-CN.md) | 真实目录/设备组合仍需验收 | 尚未完成目录持久授权与稳定卷身份 | 按项目证据逐项验收 | 原版来源向导逐项验收待完成 |
+| 本地视频来源与索引 | 文件夹、移动盘、已挂载 NAS 路径、自动监控/增量更新及当前四种可用来源的三步向导已接入；SourceRow 视觉仍待逐项对照，原版完整连接器集合仍有缺口 | 来源向导/策略定向与核心测试90/90、analyze 0 issues、Windows Release 41.9秒及五秒 smoke 通过；自动扫描独立证据见[本地来源](LOCAL_SOURCES.zh-CN.md) | 真实目录选择器、NAS/移动盘拔插仍待验收 | 原生行为及持久目录授权待验 | 原生行为待设备实测 | 来源主页 SourceRow 仍非完整原版逐像素/逐交互验收 |
 | Emby 视频 | 连接、同步/浏览/详情/用户操作/播放与缓存等主要视频流程已接入 | 有大量分层自动化证据；详见[Emby 文档](README.md#emby-视频)及专项记录 | 真实 Emby 全流程仍待系统验收 | 未完成全平台验收 | 未完成全平台验收 | 原版逐页/逐交互视觉仍待 |
 | Plex 基础视频来源 | 基础 server+Token、独立来源、浏览/搜索/详情、direct 播放及用户状态回写已实现；本地收藏语义已明确 | 前端2/2、Windows Native mpv单业务用例、Plex专属后端24/24、共享后端255/255、同步/UI 63项、Windows Release/smoke通过；组合日志276/276和85/85含重叠不重复累计 | 不使用真实 Token，真实 Plex 待后续 | 待验证 | 待验证 | 原版逐项视觉待验 |
 | 原版视觉纠偏（第一批） | 新增可复用 `PointerInspectTilt`，海报与详情 hero 按 Swift `PointerInspectTiltModifier` 迁移；详情 hero 恢复直接 HStack/窄屏结构，海报边框渐变及收藏/书签独立按钮按原版对齐。媒体卡主悬浮阴影绘制层级已由后续 `HoverLiftShadow` 修正 | 专项16/16、跨来源 Emby/source/Jellyfin/Plex/TMDB 47/47；后续阴影视觉专项2/2、跨来源63/63最终通过；analyze clean、Windows Release 39.7秒、隐藏 smoke 通过 | Windows Release 已运行；未覆盖全页人工像素审计 | 待验证 | 待验证 | 阴影层级修正不等于工具栏/图标映射或全页面像素一致；SF Symbols/自定义图标和逐页尺寸颜色动效审计仍待 |
@@ -54,16 +54,19 @@
 
 - 当前已交付的来源入口为 `localFolder`、Emby、Jellyfin 与 Plex 基础视频连接器；Jellyfin 保持独立来源身份并复用 Emby-compatible 协议实现。分组验证、Windows Native/Release/smoke 及未验边界见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。本地入口可使用移动盘及已经由操作系统挂载的 NAS 路径。
 - 本地文件侧已有多选去重、部分成功、扫描队列/取消/错误、分类/阈值/隐藏属性、文件名和季集识别、NFO/本地资料/海报/背景、来源重定位、离线保护、索引安全清理；清理索引不删除用户媒体文件。
-- `add_source_dialog` 目前不是原版完整三步向导。
+- 当前 `add_source_dialog` 已按原版三步结构提供来源选择、连接/目录与分类、设置/参与策略；当前类型为本地目录、Emby、Jellyfin、Plex。URL/网络位置/ReelNest Server 等当前未实现入口仍属迁移范围，不是永久删除。
 - `source_providers` 中 `localFolder`、`removableDrive`、`mountedNas` 共用 `FileSourceAdapter`；Emby/Jellyfin 走远程连接器与 Emby-compatible 协议链路，按 kind 隔离身份并处理差异；Plex 独立协议连接器已实现基础视频闭环，前端/Windows Native、Plex专属后端24/24、共享后端255/255和同步/UI 63项、Windows Release/smoke均通过。组合日志276/276与85/85不重复累计。
 
 ### 明确未闭环
 
-- 无 `Directory.watch`/watcher，也没有自动增量扫描执行闭环；`autoScan` 等部分策略字段存在不等于行为已接入。
-- 来源设置中的 `onMetadataChanged` / `onWriteChanged` 未传入，元数据拉取与写回入口禁用；尚无 TMDB 补全、手工匹配并写回或缩略图回退服务。
+- 来源设置可选择并持久化元数据拉取/写回参与偏好；偏好保存不等同于相关执行链路的完整验收。TMDB 电影/剧集功能状态分别见[电影元数据计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)和[剧集元数据计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
 - macOS 的目录持久授权未接入且相关按钮禁用；macOS 当前没有可用的稳定卷 UUID 身份，不能笼统记成“待实机验证”。
 - 内置 SMB/FTP/FTPS 网络设备连接与挂载未实现。“已挂载 NAS 路径可作为本地目录”不等于 ReelNest 内置网络设备支持。
 - Jellyfin 基础视频来源闭环已实现；真实 Jellyfin、macOS/Linux 和人工 UI 视觉验收仍待。Plex 基础视频连接器已完成本阶段实现；真实服务与跨平台验收仍待。网络视频 URL 来源仍未实现。旧 Mlink router 仅为测试原型且 `enableLegacyMlink=false`，不构成 ReelNest Server 正式连接器或自有服务端。
+
+### 自动监控与增量扫描（实现完成；平台/真实设备验收待）
+
+全局间隔、逐来源参与、文件事件与周期扫描、增量队列、错误脱敏记录和保护性完整扫描已实现；Windows 定向 78/78、analyze、Release/smoke 通过。未运行全量测试、native Flutter drive、可见截图或真实 NAS/移动盘拔插。Windows 强制 `perDirectory` 用例不代表 Linux 原生验收；macOS/Linux 仍待设备实测，macOS 持久目录授权缺口未变。详见[本地来源文档](LOCAL_SOURCES.zh-CN.md#自动监控与增量更新2026-10-27windows-自动化release-验证通过)。
 
 ## Emby 视频闭环
 
@@ -133,6 +136,9 @@ Emby 服务端转码是服务器对视频流的转换能力，不代表 ReelNest
 | 5（实现与 Windows 交付验证完成；全量/平台验收有缺口） | TMDB 本地电影元数据 | 最终定向复跑 `tmdb-final-targeted.log`：client16 + service14 + UI9 共39/39通过（18秒，exit 0，含series拒绝用例）。Windows Profile 原生业务用例及 marker skip native 独立复跑各自通过，不与专项/全量相加。全量 `tmdb-full-final.log` 为 1034 passed / 2 conditional skip / 1 native business test unfinished，exit 1，不记为全量通过。Delivery Release 56.0秒、五秒 smoke 正常关闭/ExitCode 0；后续缓存关闭取消专项46项通过，另一次 smoke 未重现此前约4.9秒的具体任务状态，不作为所有负载的关闭耗时保证。真实TMDB公服、macOS/Linux与精确视觉验收待。详见[专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。 |
 | 5（实现与 Windows 交付验证完成；全量/平台验收有缺口） | TMDB 本地电影元数据 | 最终定向复跑 `tmdb-final-targeted.log`：client16 + service14 + UI9 共39/39通过（18秒，exit 0，含series拒绝用例）。Windows Profile 原生业务用例及 marker skip native 独立复跑各自通过，不与专项/全量相加。全量 `tmdb-full-final.log` 为 1034 passed / 2 conditional skip / 1 native business test unfinished，exit 1，不记为全量通过。Delivery Release 56.0秒、五秒 smoke 正常关闭/ExitCode 0；后续缓存关闭取消专项46项通过，另一次 smoke 未重现此前约4.9秒的具体任务状态，不作为所有负载的关闭耗时保证。真实TMDB公服、macOS/Linux与精确视觉验收待。详见[专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。 |
 | 5b（实现与 Windows 验证通过；平台验收待） | TMDB 本地剧集手动匹配 | 后端最终定向102/102、UI12/12，analyze clean、417 Dart files format 0 changed；Windows Profile 原生业务用例、Release42.3秒与五秒 smoke 均通过。本批未跑全量。按既有有效季集号获取季详情（最多并发2、不逐集请求），更新已有 episode 的 title/overview/year 并保护身份、编号、路径、图片、播放记录；匹配期间集合/编号变化则拒绝整事务。真实TMDB公服、macOS/Linux与人工精确视觉待验。详见[专项计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。 |
+| 5c（Windows 定向交付验证通过；平台/真实公服验收待） | TMDB 本地剧集/动漫手动批量匹配 | 13文件160/160（41秒）、analyze clean4.8秒、44个变更 Dart 文件 format0 changed、diff-check通过；Windows Release52.7秒及五秒 smoke通过。首轮74/159为中间计数不累计。没有全量/native Flutter drive、真实TMDB公服、macOS/Linux、实体目录或可见UI验收；SourceRow未改，来源列表视觉对照未完成。详见[专项计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。 |
+| 5d（Windows 定向交付验证通过；平台/真实公服验收待） | TMDB 本地剧集/动漫定时自动匹配 | 15文件179/179（48秒）、analyze clean4.4秒；Windows Release45.9秒，`data/app.so` 为2026-10-27 22:07:19 +08、13,239,176 bytes；五秒 hidden smoke 于22:08:29 +08响应、正常关闭、ExitCode 0。48个工作区变更 Dart 文件 format0 changed、diff-check通过。与手动批量160项有覆盖重叠，分批记录不累计。未跑全量/native Flutter drive、真实TMDB公服、macOS/Linux、可见UI或真实15分钟墙钟周期验收。详见[专项计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。 |
+| 5e（Windows 定向交付验证通过；平台/实地视觉验收待） | 本地视频健康补充与 NFO 写回 | 定向15文件164/164（约9秒）、analyze无问题（3.9秒）、61个变更/新增 Dart 文件格式检查0更改、diff-check通过；覆盖 writer/policy/supplement、health UI、来源配置、TMDB与app回归，并验证 NFO 写入后读取及真实来源重扫恢复字段。此前失败/重复运行不累计。Windows Release44.3秒及五秒 hidden smoke通过（09:52:30 +08，响应/正常关闭/ExitCode 0）。仅本地电影、电视剧/动漫的健康一键补充可触发写回；默认关闭且要求来源参与元数据。索引先提交、NFO独立写入，失败保留索引并提示 warning，不是跨数据库/文件系统原子事务。普通单项/批量/定时匹配不写 NFO。macOS/Linux、真实 NAS/挂载与可见 UI 验收待。详见[阶段计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。 |
 | 6（基础闭环已实现；Windows 交付验证通过） | Jellyfin 基础视频连接器 | 共享协议 255/255、同步/界面组 61/61、独立 UI 2/2、Emby 基线 37/37、Windows Native 真实 mpv、Release/smoke 通过；本批未跑全量。真实服务器、macOS/Linux 与人工视觉验收待。详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。 |
 | 7（Plex 基础连接器已实现；Windows 自动验证通过） | Plex 视频来源闭环 | 独立 XML/`X-Plex-*` protocol、source identity 与本地 favorite 保护；Plex专属后端24/24、共享后端255/255、同步/UI 63项、前端2/2、Windows Native和Windows Release/smoke通过。组合报告有重叠，不重复累计。真实服务、macOS/Linux、人工视觉及辅助功能验收待。见[Plex 计划](PLEX_PLAN.zh-CN.md)。 |
 | 8 | 其他来源 | 网络视频来源/网络设备支持分别立项；内置 SMB/FTP/FTPS 连接挂载不能由已挂载目录替代。 |

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../domain/automatic_scan_interval.dart';
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
+import '../application/tmdb_batch_providers.dart';
 import '../application/tmdb_providers.dart';
+import '../domain/tmdb_match_tolerance.dart';
 
 class TmdbSettingsPanel extends ConsumerStatefulWidget {
   const TmdbSettingsPanel({super.key});
@@ -20,6 +23,8 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
   bool _showCredential = false;
   bool _savingCredential = false;
   bool _savingLanguage = false;
+  bool _savingTolerance = false;
+  bool _savingAutomaticInterval = false;
   String? _error;
   String? _notice;
 
@@ -91,12 +96,84 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
     }
   }
 
+  Future<void> _saveTolerance(TmdbMatchTolerance value) async {
+    if (_savingTolerance ||
+        value == ref.read(tmdbSettingsProvider).value?.matchTolerance) {
+      return;
+    }
+    setState(() {
+      _savingTolerance = true;
+      _error = null;
+      _notice = null;
+    });
+    try {
+      await ref.read(tmdbSettingsProvider.notifier).setMatchTolerance(value);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error is SourceFailure ? error.message : '影视匹配宽容度保存失败，请重试。';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _savingTolerance = false);
+    }
+  }
+
+  Future<void> _saveAutomaticInterval(AutomaticScanInterval value) async {
+    if (_savingAutomaticInterval ||
+        value == ref.read(tmdbSettingsProvider).value?.automaticMatchInterval) {
+      return;
+    }
+    setState(() {
+      _savingAutomaticInterval = true;
+      _error = null;
+      _notice = null;
+    });
+    try {
+      await ref
+          .read(tmdbSettingsProvider.notifier)
+          .setAutomaticMatchInterval(value);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error is SourceFailure
+              ? error.message
+              : 'TMDB 自动拉取周期保存失败，请重试。';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _savingAutomaticInterval = false);
+    }
+  }
+
+  Future<void> _startBatchMatch() async {
+    setState(() {
+      _error = null;
+      _notice = null;
+    });
+    try {
+      await ref.read(tmdbBatchProvider.notifier).start();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error is SourceFailure
+              ? error.message
+              : 'TMDB 剧集匹配无法启动，请重试。';
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(tmdbSettingsProvider);
+    final batch = ref.watch(tmdbBatchProvider);
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
     return AppSettingsSection(
       title: '元数据与匹配',
-      subtitle: '管理本地电影的 TMDB 信息来源。',
+      subtitle: '管理本地电影、电视剧与动漫的 TMDB 信息来源。',
       icon: Icons.auto_awesome_motion_outlined,
       child: settings.when(
         loading: () => const SizedBox(
@@ -161,6 +238,163 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
                   onSave: _saveLanguage,
                 ),
               ),
+              const AppSettingsDivider(),
+              AppSettingsRow(
+                title: '影视匹配宽容度',
+                subtitle: _savingTolerance ? '正在保存…' : null,
+                icon: Icons.center_focus_strong_rounded,
+                trailing: PopupMenuButton<TmdbMatchTolerance>(
+                  key: const ValueKey('tmdb-match-tolerance'),
+                  enabled: !_savingTolerance,
+                  initialValue: value.matchTolerance,
+                  tooltip: '影视匹配宽容度',
+                  onSelected: _saveTolerance,
+                  itemBuilder: (_) => [
+                    for (final tolerance in TmdbMatchTolerance.values)
+                      PopupMenuItem(
+                        value: tolerance,
+                        child: Text(tolerance.displayName),
+                      ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.control,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: palette.border),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_savingTolerance) ...[
+                          SizedBox.square(
+                            dimension: 13,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              color: palette.selectedTint,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                        ],
+                        Text(
+                          value.matchTolerance.displayName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.expand_more,
+                          size: 15,
+                          color: palette.secondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              AppSettingsDescription(
+                text:
+                    '决定自动匹配需要多大把握：${value.matchTolerance.summary}。'
+                    '越宽松越容易自动配上信息，但偶尔可能认错；拿不准就保持默认。',
+              ),
+              const AppSettingsDivider(),
+              AppSettingsRow(
+                title: '剧集一键匹配',
+                subtitle: '补全尚未匹配的本地电视剧和动漫',
+                icon: Icons.auto_fix_high_rounded,
+                trailing: batch.running
+                    ? OutlinedButton.icon(
+                        key: const ValueKey('cancel-tmdb-batch'),
+                        onPressed: () =>
+                            ref.read(tmdbBatchProvider.notifier).cancel(),
+                        icon: const Icon(Icons.stop_circle_outlined, size: 17),
+                        label: const Text('取消'),
+                      )
+                    : FilledButton.icon(
+                        key: const ValueKey('start-tmdb-batch'),
+                        onPressed: value.hasCredential
+                            ? _startBatchMatch
+                            : null,
+                        icon: const Icon(Icons.auto_fix_high_rounded, size: 17),
+                        label: const Text('立即匹配'),
+                      ),
+              ),
+              const AppSettingsDivider(),
+              AppSettingsRow(
+                title: '自动拉取周期',
+                subtitle: _savingAutomaticInterval ? '正在保存…' : '独立于媒体库文件自动扫描',
+                icon: Icons.update_rounded,
+                trailing: PopupMenuButton<AutomaticScanInterval>(
+                  key: const ValueKey('tmdb-automatic-match-interval'),
+                  enabled: !_savingAutomaticInterval,
+                  initialValue: value.automaticMatchInterval,
+                  tooltip: '自动拉取周期',
+                  onSelected: _saveAutomaticInterval,
+                  itemBuilder: (_) => [
+                    for (final interval in AutomaticScanInterval.values)
+                      PopupMenuItem(
+                        value: interval,
+                        child: Text(interval.displayName),
+                      ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: palette.control,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: palette.border),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_savingAutomaticInterval) ...[
+                          SizedBox.square(
+                            dimension: 13,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              color: palette.selectedTint,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                        ],
+                        Text(
+                          value.automaticMatchInterval.displayName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.expand_more,
+                          size: 15,
+                          color: palette.secondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const AppSettingsDescription(
+                text: '立即匹配会补全尚未匹配的本地电视剧和动漫；自动拉取只处理之后新增且未匹配的内容，周期与媒体库文件自动扫描独立。置信度偏低的结果会跳过，仍可在「片库健康 → 补充」中手动复核。',
+              ),
+              if (batch.running ||
+                  batch.processed > 0 ||
+                  batch.cancelled ||
+                  batch.message != null) ...[
+                const SizedBox(height: 12),
+                _BatchMatchStatus(state: batch),
+              ],
               if (_error != null || _notice != null) ...[
                 const SizedBox(height: 12),
                 AppSettingsNotice(
@@ -172,6 +406,120 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
           );
         },
       ),
+    );
+  }
+}
+
+class _BatchMatchStatus extends StatelessWidget {
+  const _BatchMatchStatus({required this.state});
+
+  final TmdbBatchState state;
+
+  String get _summary {
+    final supplied = state.message?.trim();
+    if (supplied != null && supplied.isNotEmpty) return supplied;
+    if (state.running) {
+      return state.total > 0
+          ? '正在匹配 ${state.processed}/${state.total} 部剧集…'
+          : '正在准备需要匹配的剧集…';
+    }
+    if (state.cancelled) {
+      return '匹配已取消；已处理 ${state.processed}/${state.total} 部剧集。';
+    }
+    return '匹配完成：已为 ${state.matched}/${state.total} 部电视剧 / 动漫匹配 TMDB 信息。';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Semantics(
+      key: const ValueKey('tmdb-batch-status'),
+      liveRegion: true,
+      label: _summary,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 11, 12, 10),
+        decoration: BoxDecoration(
+          color: palette.cleanPanelFill.withValues(alpha: .72),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: palette.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (state.running)
+                  SizedBox.square(
+                    dimension: 15,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: palette.selectedTint,
+                    ),
+                  )
+                else
+                  Icon(
+                    state.cancelled
+                        ? Icons.pause_circle_outline_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 17,
+                    color: palette.selectedTint,
+                  ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    _summary,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            LinearProgressIndicator(
+              key: const ValueKey('tmdb-batch-progress'),
+              value: state.total > 0 ? state.fraction : null,
+              minHeight: 5,
+              borderRadius: BorderRadius.circular(99),
+              color: palette.selectedTint,
+              backgroundColor: palette.border,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 14,
+              runSpacing: 5,
+              children: [
+                _BatchCount(label: '已处理', value: state.processed),
+                _BatchCount(label: '已匹配', value: state.matched),
+                _BatchCount(label: '低置信跳过', value: state.lowConfidence),
+                if (state.failed > 0)
+                  _BatchCount(label: '失败', value: state.failed),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BatchCount extends StatelessWidget {
+  const _BatchCount({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    ).secondary;
+    return Text(
+      '$label $value',
+      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: color),
     );
   }
 }

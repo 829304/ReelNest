@@ -23,14 +23,20 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
   late SourceMediaType _mediaType;
   late SourceSettingsDraft _initial;
   bool _saving = false;
+  late bool _autoScan;
+  late bool _includeInMetadataFetch;
   late bool _includeInHealthCheck;
+  late bool _preferMetadataWriteToSource;
 
   @override
   void initState() {
     super.initState();
     _initial = SourceSettingsDraft.fromSource(widget.source);
     _mediaType = _initial.mediaType;
+    _autoScan = _initial.autoScan ?? widget.source.options.autoScan;
+    _includeInMetadataFetch = _initial.includeInMetadataFetch;
     _includeInHealthCheck = _initial.includeInHealthCheck;
+    _preferMetadataWriteToSource = _initial.preferMetadataWriteToSource;
   }
 
   void _save() {
@@ -40,9 +46,10 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
       context,
       SourceSettingsDraft(
         mediaType: _mediaType,
-        includeInMetadataFetch: _initial.includeInMetadataFetch,
+        autoScan: _autoScan,
+        includeInMetadataFetch: _includeInMetadataFetch,
         includeInHealthCheck: _includeInHealthCheck,
-        preferMetadataWriteToSource: _initial.preferMetadataWriteToSource,
+        preferMetadataWriteToSource: _preferMetadataWriteToSource,
       ),
     );
   }
@@ -119,7 +126,7 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
                             const SizedBox(height: 16),
                             AppSheetSection(
                               title: '参与策略',
-                              subtitle: '控制此媒体源是否参与元数据拉取、健康检查和同步。',
+                              subtitle: '控制此媒体源是否参与自动扫描、元数据拉取和健康检查。',
                               icon: const SourceLineIcon(
                                 SourceGlyph.sliders,
                                 size: 17,
@@ -130,8 +137,22 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
                                 children: [
                                   SourceBehaviorSettingsPanel(
                                     mediaType: _mediaType,
+                                    autoScan: _autoScan,
+                                    onAutoScanChanged: _saving
+                                        ? null
+                                        : (value) =>
+                                              setState(() => _autoScan = value),
                                     includeInMetadataFetch:
-                                        _initial.includeInMetadataFetch,
+                                        _includeInMetadataFetch,
+                                    onMetadataChanged: _saving
+                                        ? null
+                                        : (value) => setState(() {
+                                            _includeInMetadataFetch = value;
+                                            if (!value) {
+                                              _preferMetadataWriteToSource =
+                                                  false;
+                                            }
+                                          }),
                                     includeInHealthCheck: _includeInHealthCheck,
                                     onHealthChanged: _saving
                                         ? null
@@ -139,11 +160,17 @@ class _SourceSettingsSheetState extends State<SourceSettingsSheet> {
                                             () => _includeInHealthCheck = value,
                                           ),
                                     preferMetadataWriteToSource:
-                                        _initial.preferMetadataWriteToSource,
+                                        _preferMetadataWriteToSource,
+                                    onWriteChanged: _saving
+                                        ? null
+                                        : (value) => setState(() {
+                                            _preferMetadataWriteToSource =
+                                                value;
+                                          }),
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
-                                    '元数据拉取和写回暂不可用。',
+                                    '开启“元数据优先写入源目录”后，仅对已迁移的本地电影、电视剧和动漫，在片库健康“一键补充”时尝试写回 NFO；普通单项、批量或定时匹配不会写入媒体目录。',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: palette.secondary,

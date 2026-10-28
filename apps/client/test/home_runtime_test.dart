@@ -36,6 +36,7 @@ class _ControlledScan extends SourceRepository {
   Future<SourceScanSummary> scan(
     String id, {
     void Function(SourceScanProgress progress)? onProgress,
+    Set<String>? changedPaths,
   }) async {
     onProgress?.call(const SourceScanProgress(processedFiles: 12));
     if (!entered.isCompleted) entered.complete();

@@ -295,7 +295,20 @@ class SourceRepository {
   Future<FolderAddResult> addFolders({
     required List<String> locations,
     SourceMediaType mediaType = SourceMediaType.auto,
+    SourceOptions options = const SourceOptions.defaults(),
   }) async {
+    // SourcesView.submitConfiguredSource: these categories never fetch metadata.
+    // Keep the wizard's other policies and existing caller defaults unchanged.
+    final metadata =
+        mediaType != SourceMediaType.photo &&
+        mediaType != SourceMediaType.homeVideo &&
+        options.includeInMetadataFetch;
+    final normalizedOptions = SourceOptions.fromJson({
+      ...options.toJson(),
+      'includeInMetadataFetch': metadata,
+      'preferMetadataWriteToSource':
+          metadata && options.preferMetadataWriteToSource,
+    });
     final existing = (await sources())
         .map((s) => _locationKey(s.location))
         .toSet();
@@ -321,11 +334,7 @@ class SourceRepository {
           name: p.basename(location).isEmpty ? location : p.basename(location),
           location: root,
           mediaType: mediaType,
-          options: SourceOptions(
-            includeInMetadataFetch:
-                mediaType != SourceMediaType.photo &&
-                mediaType != SourceMediaType.homeVideo,
-          ),
+          options: normalizedOptions,
         );
         saved.add(created);
         // Failed saves must remain retryable within this batch and later ones.
@@ -834,12 +843,13 @@ class SourceRepository {
   Future<SourceScanSummary> scan(
     String id, {
     void Function(SourceScanProgress progress)? onProgress,
+    Set<String>? changedPaths,
   }) {
     _requireIdle(id);
     if (_closed) throw const SourceFailure('媒体库已关闭。');
     final token = ScanCancellation();
     _scans[id] = token;
-    final work = _scan(id, token, onProgress);
+    final work = _scan(id, token, onProgress, changedPaths);
     _pendingScans.add(work);
     return work.whenComplete(() {
       _pendingScans.remove(work);
@@ -1012,6 +1022,7 @@ class SourceRepository {
     String id,
     ScanCancellation token,
     void Function(SourceScanProgress)? progress,
+    Set<String>? changedPaths,
   ) async {
     final runId = _newId();
     var total = 0;
@@ -1019,6 +1030,7 @@ class SourceRepository {
     var imported = 0;
     var skipped = 0;
     final errors = <String>[];
+    final removed = <String>{};
     try {
       final current = await source(id);
       if (_tracksIdentity(current.kind) && !await isSafeDirectory(current)) {
@@ -1036,12 +1048,27 @@ class SourceRepository {
               : path,
         ),
       );
-      await for (final event in _adapter(current.kind).scan(current, token)) {
+      final adapter = _adapter(current.kind);
+      if (changedPaths != null && adapter is! FileSourceAdapter) {
+        throw const SourceFailure('此来源不支持文件增量更新。');
+      }
+      final events = changedPaths == null
+          ? adapter.scan(current, token)
+          : (adapter as FileSourceAdapter).scanChanges(
+              current,
+              token,
+              changedPaths,
+            );
+      await for (final event in events) {
         token.check();
         switch (event) {
           case ScanCatalogued():
             total = event.totalFiles;
             publish(null);
+          case ScanFileRemoved():
+            removed.add(event.path);
+            processed++;
+            publish(event.path);
           case ScanFileProcessed():
             var error = event.error;
             if (error == null && event.item != null) {
@@ -1079,17 +1106,51 @@ class SourceRepository {
         }
         await database.transaction(() async {
           token.check();
-          await database.customStatement(
-            '''
-            DELETE FROM media WHERE source_id = ? AND local_id NOT IN
-              (SELECT local_id FROM scan_stage WHERE run_id = ?)
-          ''',
-            [id, runId],
-          );
-          await database.customStatement(
-            'UPDATE sources SET last_scan = ? WHERE id = ?',
-            [DateTime.now().toUtc().millisecondsSinceEpoch, id],
-          );
+          final latest = await source(id, includeCounts: false);
+          if (latest.location != current.location ||
+              latest.updatedAt != current.updatedAt) {
+            throw const SourceFailure('扫描期间来源设置已改变，已保留原索引。');
+          }
+          if (changedPaths == null) {
+            await database.customStatement(
+              '''
+              DELETE FROM media WHERE source_id = ? AND local_id NOT IN
+                (SELECT local_id FROM scan_stage WHERE run_id = ?)
+              ''',
+              [id, runId],
+            );
+            await database.customStatement(
+              'UPDATE sources SET last_scan = ? WHERE id = ?',
+              [DateTime.now().toUtc().millisecondsSinceEpoch, id],
+            );
+          } else {
+            // Never prune unrelated files, or label a partial update a full scan.
+            for (final path in removed) {
+              token.check();
+              final parent = Directory(p.dirname(path));
+              if (!p.equals(await parent.resolveSymbolicLinks(), parent.path)) {
+                throw const SourceFailure('文件父目录身份已改变，已保留索引。');
+              }
+              final entries = await Directory(p.dirname(path))
+                  .list(followLinks: false)
+                  .map((e) => e.path)
+                  .toList();
+              if (entries.any((entry) => p.equals(entry, path))) continue;
+              final relative = p.posix.joinAll(
+                p.split(p.relative(path, from: current.location)),
+              );
+              await database.customStatement(
+                'DELETE FROM media WHERE source_id=? AND local_id=? AND is_series=0',
+                [id, relative],
+              );
+            }
+            await database.customStatement(
+              '''DELETE FROM media WHERE source_id=? AND is_series=1
+                AND NOT EXISTS (SELECT 1 FROM media child
+                  WHERE child.source_id=media.source_id AND child.parent_id=media.local_id)''',
+              [id],
+            );
+          }
           token.check();
         });
       }

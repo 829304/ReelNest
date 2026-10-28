@@ -105,6 +105,57 @@ void main() {
     },
   );
 
+  test('file changes during a running full scan queue one follow-up; full events promote it', () async {
+    files.gates['/a'] = Completer<void>();
+    final controller = container.read(sourceScansProvider.notifier);
+    final active = controller.scan(sources.first.id);
+    await _until(() => files.started.isNotEmpty);
+    final first = controller.scanChanges(
+      sources.first.id,
+      paths: {'/a/one.mkv'},
+    );
+    final second = controller.scanChanges(
+      sources.first.id,
+      paths: {'/a/two.mkv'},
+    );
+    final full = controller.scanChanges(sources.first.id);
+    files.gates['/a']!.complete();
+    await Future.wait([active, first, second, full]);
+    expect(files.started, ['/a', '/a']);
+    expect(files.maximumParallel, 1);
+    expect(
+      container.read(sourceScansProvider)[sources.first.id]!.failed,
+      isFalse,
+    );
+  });
+
+  test('turning off a source skips its queued automatic scan', () async {
+    files.gates['/a'] = Completer<void>();
+    final controller = container.read(sourceScansProvider.notifier);
+    final active = controller.scan(sources.first.id);
+    await _until(() => files.started.isNotEmpty);
+    final automatic = controller.scanChanges(sources[1].id);
+    final current = await repository.source(sources[1].id);
+    await repository.updateSettings(
+      current.id,
+      mediaType: current.mediaType,
+      options: SourceSettingsDraft(
+        mediaType: current.mediaType,
+        autoScan: false,
+        includeInMetadataFetch: true,
+        includeInHealthCheck: true,
+        preferMetadataWriteToSource: false,
+      ).applyTo(current.options),
+    );
+    files.gates['/a']!.complete();
+    await Future.wait([active, automatic]);
+    expect(files.started, ['/a']);
+    expect(
+      container.read(sourceScansProvider)[sources[1].id]!.cancelled,
+      isTrue,
+    );
+  });
+
   SourceSettingsDraft settings() => const SourceSettingsDraft(
     mediaType: SourceMediaType.music,
     includeInMetadataFetch: true,

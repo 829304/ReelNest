@@ -9,6 +9,10 @@ import '../data/tmdb_artwork_store.dart';
 import '../data/tmdb_client.dart';
 import '../data/tmdb_settings_repository.dart';
 import '../domain/tmdb_models.dart';
+import '../domain/nfo_metadata_update.dart';
+import '../domain/supplemental_tmdb_metadata.dart';
+import '../data/video_nfo_policy.dart';
+import '../data/video_nfo_writer.dart';
 
 class TmdbVideoService {
   TmdbVideoService({
@@ -17,7 +21,12 @@ class TmdbVideoService {
     required this.client,
     required this.artwork,
     this.kind = TmdbMediaKind.movie,
-  });
+    this.onWriteFailure,
+    VideoNfoWriter? nfoWriter,
+  }) : nfoWriter = nfoWriter ?? VideoNfoWriter();
+  final VideoNfoWriter nfoWriter;
+  final void Function(Object, StackTrace)? onWriteFailure;
+
   final SourceRepository sources;
   final TmdbSettingsRepository settings;
   final TmdbClient client;
@@ -107,17 +116,31 @@ class TmdbVideoService {
     }
   }
 
+  /// Batch callers may supply cancellation and optimistic snapshot guards.
+  /// The final guard runs inside the transaction after all awaited writes so a
+  /// newly started scan rolls the entire metadata update back.
   Future<TmdbApplyResult> apply(
     MediaIdentity identity,
-    TmdbCandidate selected,
-  ) {
+    TmdbCandidate selected, {
+    ScanCancellation? cancellation,
+    Future<void> Function()? validate,
+    Future<void> Function()? validateCommit,
+    bool supplementOnly = false,
+  }) {
     if (_closed) return Future.error(const SourceFailure('应用正在关闭。'));
     if (_active.containsKey(identity)) {
       return Future.error(const SourceFailure('此影视正在应用资料，请稍候。'));
     }
-    final token = ScanCancellation();
+    final token = cancellation ?? ScanCancellation();
     _active[identity] = token;
-    final operation = _apply(identity, selected, token);
+    final operation = _apply(
+      identity,
+      selected,
+      token,
+      validate,
+      validateCommit,
+      supplementOnly,
+    );
     _pending.add(operation);
     unawaited(
       operation
@@ -134,8 +157,13 @@ class TmdbVideoService {
     MediaIdentity identity,
     TmdbCandidate selected,
     ScanCancellation token,
+    Future<void> Function()? validate,
+    Future<void> Function()? validateCommit,
+    bool supplementOnly,
   ) async {
     try {
+      token.check();
+      await validate?.call();
       if (selected.id <= 0 || selected.kind != kind) {
         throw const SourceFailure('请选择对应类型的 TMDB 影视资料。');
       }
@@ -143,6 +171,9 @@ class TmdbVideoService {
         identity.sourceId,
         includeCounts: false,
       );
+      if (supplementOnly && !source.options.includeInMetadataFetch) {
+        throw const SourceFailure('该来源未参与元数据补充。');
+      }
       final before = await sources.media(identity);
       if (!source.kind.isFileSource ||
           (_tv
@@ -155,7 +186,9 @@ class TmdbVideoService {
       final children = _tv
           ? await sources.indexedChildren(identity)
           : <IndexedMedia>[];
-      final previous = _tv ? await metadata(identity) : null;
+      final previous = (_tv || supplementOnly)
+          ? await metadata(identity)
+          : null;
       final config = await settings.read();
       final credential = await settings.credential();
       if (credential.isEmpty) {
@@ -177,7 +210,7 @@ class TmdbVideoService {
         detail = TmdbMetadata(candidate: selected, genres: selected.genres);
         warnings.add('TMDB 详情暂不可用，已使用所选搜索资料。');
       }
-      if (_tv) {
+      if (_tv && !supplementOnly) {
         detail = await _loadSeasons(
           detail,
           children,
@@ -187,6 +220,12 @@ class TmdbVideoService {
           warnings,
           previous?.candidate.id == selected.id ? previous : null,
         );
+      }
+      NfoMetadataUpdate? sidecar;
+      if (supplementOnly) {
+        final patch = supplementalTmdbMetadata(before, detail, previous);
+        detail = patch.metadata;
+        sidecar = patch.sidecar;
       }
       String? poster, backdrop;
       Future<String?> materialize(String? url, String label) async {
@@ -208,19 +247,29 @@ class TmdbVideoService {
       // Fetch outside SQLite transactions. Partial/failed downloads never
       // overwrite artwork references already used by the library.
       final images = await Future.wait([
-        materialize(detail.candidate.posterUrl, '海报'),
-        materialize(detail.candidate.backdropUrl, '背景图'),
+        supplementOnly && before.posterPath?.isNotEmpty == true
+            ? Future<String?>.value()
+            : materialize(detail.candidate.posterUrl, '海报'),
+        supplementOnly && before.backdropPath?.isNotEmpty == true
+            ? Future<String?>.value()
+            : materialize(detail.candidate.backdropUrl, '背景图'),
       ]);
       poster = images[0];
       backdrop = images[1];
       token.check();
       await sources.database.transaction(() async {
         token.check();
+        await validate?.call();
         final currentSource = await sources.source(
           identity.sourceId,
           includeCounts: false,
         );
         final current = await sources.media(identity);
+        if (supplementOnly &&
+            (!currentSource.options.includeInMetadataFetch ||
+                currentSource.updatedAt != source.updatedAt)) {
+          throw const SourceFailure('来源参与策略已改变，请重新补充。');
+        }
         if (currentSource.kind != source.kind ||
             currentSource.location != source.location ||
             currentSource.accessIdentity != source.accessIdentity ||
@@ -272,7 +321,7 @@ class TmdbVideoService {
           ON CONFLICT(source_id,local_id) DO UPDATE SET value=excluded.value''',
           [identity.sourceId, identity.localId, jsonEncode(detail.toJson())],
         );
-        if (_tv) {
+        if (_tv && !supplementOnly) {
           await _saveEpisodes(identity, detail, children, token, warnings);
         }
         await sources.database.customStatement(
@@ -284,7 +333,51 @@ class TmdbVideoService {
             DateTime.now().toUtc().millisecondsSinceEpoch,
           ],
         );
+        token.check();
+        await validateCommit?.call();
       });
+      if (supplementOnly && source.options.preferMetadataWriteToSource) {
+        try {
+          final expected = jsonEncode(detail.toJson());
+          Future<void> validateWrite() async {
+            token.check();
+            await validateCommit?.call();
+            final currentSource = await sources.source(
+              identity.sourceId,
+              includeCounts: false,
+            );
+            if (currentSource.updatedAt != source.updatedAt ||
+                currentSource.location != source.location ||
+                !currentSource.options.preferMetadataWriteToSource ||
+                !currentSource.options.includeInMetadataFetch ||
+                sources.isScanning(identity.sourceId) ||
+                !await sources.isSafeDirectory(currentSource) ||
+                jsonEncode((await metadata(identity))?.toJson()) != expected) {
+              throw const SourceFailure('媒体源或资料已改变，已跳过 NFO 写回。');
+            }
+          }
+
+          await validateWrite();
+          final target = await VideoNfoPolicy.resolve(source, before, children);
+          if (target == null) {
+            warnings.add('无法确认 NFO 归属，资料仅保存到 ReelNest 索引。');
+          } else {
+            final result = await nfoWriter.write(
+              root: source.location,
+              target: target,
+              rootTag: _tv ? 'tvshow' : 'movie',
+              fallbackTitle: before.title,
+              update: sidecar!,
+              cancellation: token,
+              validate: validateWrite,
+            );
+            if (result.warning != null) warnings.add(result.warning!);
+          }
+        } catch (error, stack) {
+          onWriteFailure?.call(error, stack);
+          warnings.add('NFO 写回未完成，资料已保存到 ReelNest 索引；原文件和安全副本已保留。');
+        }
+      }
       sources.traceChanged(sourceIds: [identity.sourceId]);
       return TmdbApplyResult(warnings: List.unmodifiable(warnings));
     } on ScanCancelled {

@@ -54,6 +54,27 @@ class FileSourceAdapter implements SourceAdapter {
   String _relative(String path, String root) =>
       p.posix.joinAll(p.split(p.relative(path, from: root)));
 
+  bool _isSidecar(String path) => const {
+    '.lrc',
+    '.txt',
+    '.srt',
+    '.ass',
+    '.ssa',
+    '.vtt',
+    '.nfo',
+    '.cue',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+    '.heic',
+    '.tif',
+    '.tiff',
+    '.gif',
+    '.bmp',
+    '.avif',
+  }.contains(p.extension(path).toLowerCase());
+
   String? _artwork(String? path, String root) =>
       path == null ? null : _relative(path, root);
 
@@ -91,10 +112,23 @@ class FileSourceAdapter implements SourceAdapter {
   Stream<SourceScanEvent> scan(
     MediaSource source,
     ScanCancellation cancellation,
-  ) async* {
+  ) => _scan(source, cancellation);
+
+  Stream<SourceScanEvent> scanChanges(
+    MediaSource source,
+    ScanCancellation cancellation,
+    Set<String> paths,
+  ) => _scan(source, cancellation, paths: paths);
+
+  Stream<SourceScanEvent> _scan(
+    MediaSource source,
+    ScanCancellation cancellation, {
+    Set<String>? paths,
+  }) async* {
     cancellation.check();
     final root = await validateLocation(source.location);
-    final pending = <Directory>[Directory(root)];
+    final pending = <Directory>[if (paths == null) Directory(root)];
+    final removed = <String>{};
     final files = <File>[];
     final seriesMetadata = <String, LocalMetadata>{};
     Future<void> collect(List<FileSystemEntity> entries) async {
@@ -115,6 +149,63 @@ class FileSourceAdapter implements SourceAdapter {
     }
 
     try {
+      if (paths != null) {
+        for (final path in paths.map(p.normalize).toSet()) {
+          cancellation.check();
+          if (!p.isAbsolute(path) || !p.isWithin(root, path)) continue;
+          final relative = p.relative(path, from: root);
+          if (!source.recursive && p.split(relative).length > 1) continue;
+          // Check every ancestor: a directory replaced by a symlink must never
+          // cause an incremental read (or a deletion) outside the source.
+          final ancestors = <String>[];
+          var parent = p.dirname(path);
+          var safe = true;
+          while (parent != root) {
+            if (await FileSystemEntity.type(parent, followLinks: false) !=
+                FileSystemEntityType.directory) {
+              safe = false;
+              break;
+            }
+            ancestors.add(parent);
+            parent = p.dirname(parent);
+          }
+          if (!safe) continue;
+          if (source.ignoreHidden &&
+              (await _hiddenPaths(ancestors)).isNotEmpty) {
+            continue;
+          }
+          final type = await FileSystemEntity.type(path, followLinks: false);
+          if (type == FileSystemEntityType.link) continue;
+          if (type == FileSystemEntityType.notFound) {
+            // Listing distinguishes an absent file from a permission failure.
+            final names = await Directory(p.dirname(path))
+                .list(followLinks: false)
+                .map((e) => p.basename(e.path))
+                .toSet();
+            if (names.contains(p.basename(path))) {
+              throw const SourceFailure('文件状态不可确认，已保留索引。');
+            }
+            if (MediaFilePolicy.accepts(path, source.mediaType)) {
+              removed.add(path);
+            }
+          } else if (source.ignoreHidden &&
+              (await _hiddenPaths([path])).isNotEmpty) {
+            continue;
+          } else if (type == FileSystemEntityType.directory) {
+            pending.add(Directory(path));
+          } else if (MediaFilePolicy.accepts(path, source.mediaType)) {
+            files.add(File(path));
+          }
+          // Sidecar additions, changes and deletions refresh neighbouring files.
+          if (_isSidecar(path)) {
+            final entries = await Directory(p.dirname(path))
+                .list(followLinks: false)
+                .where((e) => e is File)
+                .toList();
+            await collect(entries);
+          }
+        }
+      }
       while (pending.isNotEmpty) {
         cancellation.check();
         final directory = pending.removeLast();
@@ -131,8 +222,12 @@ class FileSourceAdapter implements SourceAdapter {
         }
         if (entries.isNotEmpty) await collect(entries);
       }
-      yield ScanCatalogued(files.length);
-      for (final entity in files) {
+      final uniqueFiles = {for (final file in files) file.path: file}.values;
+      yield ScanCatalogued(uniqueFiles.length + removed.length);
+      for (final path in removed) {
+        yield ScanFileRemoved(path);
+      }
+      for (final entity in uniqueFiles) {
         cancellation.check();
         ScanFileProcessed result;
         try {

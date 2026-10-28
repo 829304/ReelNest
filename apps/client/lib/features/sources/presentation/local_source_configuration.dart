@@ -134,6 +134,19 @@ class LocalSourceConfiguration extends StatelessWidget {
             onChanged: onMediaTypeChanged,
           ),
         ),
+        const SizedBox(height: 14),
+        AppInfoNote(
+          text: '添加后会立即进入扫描队列；更多参与策略会在下一步确认。',
+          icon: SourceLineIcon(
+            SourceGlyph.refresh,
+            size: 11,
+            color: palette.selectedTint,
+          ),
+          surface: palette.staticSurface,
+          border: palette.border,
+          iconTint: palette.selectedTint,
+          textColor: palette.secondary,
+        ),
       ],
     );
   }

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../features/sources/application/emby_providers.dart';
+import '../features/sources/application/automatic_scan_providers.dart';
+import '../features/metadata/application/automatic_tmdb_providers.dart';
 
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +26,8 @@ class _ReelNestAppState extends ConsumerState<ReelNestApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.read(automaticScanIntervalProvider);
+    ref.read(automaticTmdbMatcherProvider);
     unawaited(ref.read(embyOfflineProvider).start());
   }
 

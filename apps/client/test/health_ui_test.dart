@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageByteFormat;
 
@@ -21,6 +22,7 @@ import 'package:reelnest/features/health/application/missing_index_cleanup.dart'
 import 'package:reelnest/features/health/domain/local_health_evaluator.dart';
 import 'package:reelnest/features/health/presentation/library_health_page.dart';
 import 'package:reelnest/features/home/application/home_runtime_providers.dart';
+import 'package:reelnest/features/metadata/application/metadata_supplement_providers.dart';
 import 'package:reelnest/features/playback/application/online_subtitle_providers.dart';
 import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
 import 'package:reelnest/features/playback/data/player_preferences_repository.dart';
@@ -311,6 +313,68 @@ void main() {
   );
 
   testWidgets(
+    'metadata gaps start one supplement action and surface NFO warnings',
+    (tester) async {
+      final repository = await fixture(tester);
+      final source = (await repository.sources()).single;
+      await repository.scan(source.id);
+      final supplement = _SupplementController();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sourceRepositoryProvider.overrideWithValue(repository),
+            onlineSubtitleSettingsRepositoryProvider.overrideWithValue(
+              FakeOnlineSubtitleSettingsRepository(
+                PlayerPreferencesRepository(repository.database),
+              ),
+            ),
+            tmdbSettingsRepositoryProvider.overrideWithValue(
+              FakeTmdbSettingsRepository(repository.database),
+            ),
+            localHealthEvaluatorProvider.overrideWithValue(
+              LocalHealthEvaluator(
+                paths: p.Context(style: p.Style.posix),
+                exists: (_) async => true,
+              ),
+            ),
+            metadataSupplementProvider.overrideWith(() => supplement),
+          ],
+          child: const ReelNestApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-仪表盘')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('supplement-metadata-header')),
+        findsOneWidget,
+      );
+      final perItem = find.byTooltip('搜索并补充元数据');
+      await reveal(tester, perItem);
+      await tester.tap(perItem.first);
+      await tester.pump();
+      expect(supplement.starts, 1);
+      expect(
+        find.byKey(const ValueKey('supplement-metadata-progress')),
+        findsOneWidget,
+      );
+      expect(find.text('补充中…'), findsWidgets);
+
+      supplement.finishWithWarning();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('supplement-metadata-result')),
+        findsOneWidget,
+      );
+      expect(find.text('索引已更新；1 项 NFO 写回失败。'), findsOneWidget);
+      expect(find.text('取消补充'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets(
     'missing index confirmation cancels and then removes only the index',
     (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -533,6 +597,7 @@ void main() {
         );
         await tester.tap(find.text('打开'));
         await tester.pumpAndSettle();
+        expect(find.text('自动扫描'), findsOneWidget);
         expect(find.byKey(const ValueKey('media-type-photo')), findsNothing);
         await tester.tap(find.byKey(const ValueKey('media-type-homeVideo')));
         await tester.pumpAndSettle();
@@ -546,16 +611,74 @@ void main() {
         );
         await tester.tap(find.text('打开'));
         await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('自动扫描'));
+        await tester.tap(find.widgetWithText(TextButton, '自动扫描'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('参与元数据拉取'));
+        await tester.tap(find.widgetWithText(TextButton, '参与元数据拉取'));
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('参与健康检查'));
         await tester.tap(find.widgetWithText(TextButton, '参与健康检查'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('保存设置'));
         await tester.pumpAndSettle();
         expect(draft!.includeInHealthCheck, isFalse);
+        expect(draft!.includeInMetadataFetch, isFalse);
+        expect(draft!.preferMetadataWriteToSource, isFalse);
+        expect(draft!.autoScan, isFalse);
         expect(draft!.mediaType, SourceMediaType.auto);
+
+        draft = null;
+        await tester.tap(find.text('打开'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('元数据优先写入源目录'));
+        await tester.tap(find.widgetWithText(TextButton, '元数据优先写入源目录'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('保存设置'));
+        await tester.pumpAndSettle();
+        expect(draft!.includeInMetadataFetch, isTrue);
+        expect(draft!.preferMetadataWriteToSource, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
+  }
+}
+
+class _SupplementController extends MetadataSupplementController {
+  int starts = 0;
+  final _completion = Completer<void>();
+
+  @override
+  MetadataSupplementState build() => const MetadataSupplementState();
+
+  @override
+  Future<void> start() async {
+    starts++;
+    state = const MetadataSupplementState(
+      running: true,
+      total: 2,
+      processed: 1,
+      updated: 1,
+      message: '正在补充 1/2 项…',
+    );
+    await _completion.future;
+  }
+
+  @override
+  void cancel() {
+    state = const MetadataSupplementState();
+    if (!_completion.isCompleted) _completion.complete();
+  }
+
+  void finishWithWarning() {
+    state = const MetadataSupplementState(
+      total: 2,
+      processed: 2,
+      updated: 2,
+      warningCount: 1,
+      message: '索引已更新；1 项 NFO 写回失败。',
+    );
+    if (!_completion.isCompleted) _completion.complete();
   }
 }
 

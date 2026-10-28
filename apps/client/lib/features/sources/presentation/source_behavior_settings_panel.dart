@@ -9,19 +9,23 @@ import '../../../ui/widgets/source_policy_switch.dart';
 class SourceBehaviorSettingsPanel extends StatelessWidget {
   const SourceBehaviorSettingsPanel({
     required this.mediaType,
+    required this.autoScan,
     required this.includeInMetadataFetch,
     required this.includeInHealthCheck,
     required this.preferMetadataWriteToSource,
     this.onMetadataChanged,
+    this.onAutoScanChanged,
     this.onHealthChanged,
     this.onWriteChanged,
     super.key,
   });
   final SourceMediaType mediaType;
+  final bool autoScan;
   final bool includeInMetadataFetch;
   final bool includeInHealthCheck;
   final bool preferMetadataWriteToSource;
   final ValueChanged<bool>? onMetadataChanged;
+  final ValueChanged<bool>? onAutoScanChanged;
   final ValueChanged<bool>? onHealthChanged;
   final ValueChanged<bool>? onWriteChanged;
 
@@ -46,6 +50,13 @@ class SourceBehaviorSettingsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          SourcePolicySwitch(
+            label: '自动扫描',
+            value: autoScan,
+            unavailableReason: onAutoScanChanged == null ? '自动扫描设置暂不可用' : null,
+            onChanged: onAutoScanChanged,
+          ),
+          const SizedBox(height: 10),
           if (showsMetadata) ...[
             SourcePolicySwitch(
               label: '参与元数据拉取',

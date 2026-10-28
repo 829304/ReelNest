@@ -14,7 +14,7 @@ import '../data/emby_connection_repository.dart';
 import '../application/source_providers.dart';
 import 'media_server_brand_mark.dart';
 
-/// The migrated source-selection step; remaining connector cards are deferred.
+/// AddMediaSourceWizardSheet.sourceSelection for currently supported sources.
 class SourceKindSheet extends StatefulWidget {
   const SourceKindSheet({super.key});
   @override
@@ -84,10 +84,12 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                           width: 26,
                           child: kind.isRemoteVideoSource
                               ? MediaServerBrandMark(kind: kind, size: 19)
-                              : Icon(
-                                  Icons.folder_outlined,
+                              : SourceLineIcon(
+                                  SourceGlyph.drive,
                                   size: 19,
-                                  color: palette.selectedTint,
+                                  color: _kind == kind
+                                      ? palette.selectedTint
+                                      : palette.secondary,
                                 ),
                         ),
                         Expanded(
@@ -96,7 +98,9 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                             spacing: 4,
                             children: [
                               Text(
-                                kind.label,
+                                kind == MediaSourceKind.localFolder
+                                    ? '本地目录'
+                                    : kind.label,
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
@@ -104,7 +108,7 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
                               ),
                               Text(
                                 kind.isFileSource
-                                    ? '本地文件夹、移动硬盘与已挂载 NAS'
+                                    ? '本机硬盘、移动硬盘或已挂载目录'
                                     : kind == MediaSourceKind.plex
                                     ? '服务器地址与 Plex Token 直连'
                                     : '服务器地址与账号登录',

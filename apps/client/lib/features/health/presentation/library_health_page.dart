@@ -14,6 +14,7 @@ import '../../../ui/widgets/dashboard_surfaces.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
+import '../../metadata/application/metadata_supplement_providers.dart';
 import '../../sources/application/source_providers.dart';
 import '../application/health_providers.dart';
 import '../../../app/runtime_observations.dart';
@@ -116,6 +117,16 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     }
   }
 
+  Future<void> _supplementMetadata() async {
+    setState(() => _error = null);
+    try {
+      await ref.read(metadataSupplementProvider.notifier).start();
+      if (mounted) ref.invalidate(rawLibraryHealthProvider);
+    } catch (error) {
+      if (mounted) setState(() => _error = sourceErrorMessage(error));
+    }
+  }
+
   void _open(IndexedMedia item) => context.pushNamed(
     'local-media-detail',
     pathParameters: {
@@ -123,6 +134,20 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
       'mediaKey': base64Url.encode(utf8.encode(item.identity.localId)),
     },
   );
+  List<IndexedMedia> _supplementableGaps(LibraryHealthSnapshot snapshot) {
+    final sources = {
+      for (final source in snapshot.inventory.sources) source.id: source,
+    };
+    return snapshot.metadataGapItems
+        .where((item) {
+          final source = sources[item.identity.sourceId];
+          return source?.kind.isFileSource == true &&
+              source!.options.includeInMetadataFetch &&
+              const {'movie', 'tvShow', 'anime'}.contains(item.type);
+        })
+        .toList(growable: false);
+  }
+
   Widget _action(String label, SourceGlyph glyph, VoidCallback? onPressed) =>
       Tooltip(
         message: label,
@@ -151,12 +176,16 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
   @override
   Widget build(BuildContext context) {
     final health = ref.watch(libraryHealthProvider);
+    final supplement = ref.watch(metadataSupplementProvider);
     final scanning = ref.watch(
       sourceScansProvider.select((scans) => scans.values.any((s) => s.busy)),
     );
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
+    final hasSupplementableGaps = health.asData == null
+        ? false
+        : _supplementableGaps(health.requireValue).isNotEmpty;
     return PageContent(
       title: '仪表盘',
       subtitle: '汇总片库健康、后台任务和需要处理的维护事项。',
@@ -165,6 +194,13 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
         subtitle: '汇总片库健康、后台任务和需要处理的维护事项。',
         icon: const SourceTitleIcon(kind: SourceTitleIconKind.dashboard),
         actions: [
+          if (hasSupplementableGaps)
+            SourceSheetButton(
+              key: const ValueKey('supplement-metadata-header'),
+              label: supplement.running ? '补充中…' : '一键补充',
+              icon: const SourceLineIcon(SourceGlyph.plus, size: 15),
+              onPressed: supplement.running ? null : _supplementMetadata,
+            ),
           SourceSheetButton(
             label: '扫描全部',
             icon: const SourceLineIcon(SourceGlyph.refresh, size: 15),
@@ -251,6 +287,7 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     SourceSheetPalette palette,
     bool scanning,
   ) {
+    final supplement = ref.watch(metadataSupplementProvider);
     if (snapshot.inventory.sources.isEmpty) {
       return [
         DashboardEmptyState(
@@ -283,6 +320,10 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     final sources = snapshot.localSources;
     final missing = snapshot.missingItems;
     final gaps = snapshot.metadataGapItems;
+    final supplementable = _supplementableGaps(snapshot);
+    final supplementableIDs = {
+      for (final item in supplementable) item.identity,
+    };
     return [
       if (snapshot.evaluationComplete) ...[
         HealthOverview(
@@ -415,7 +456,16 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                               color: palette.secondary,
                             ),
                           ),
-                          _action('搜索并补充元数据尚未接入', SourceGlyph.search, null),
+                          _action(
+                            supplementableIDs.contains(item.identity)
+                                ? '搜索并补充元数据'
+                                : '此来源不参与本地元数据补充',
+                            SourceGlyph.search,
+                            supplement.running ||
+                                    !supplementableIDs.contains(item.identity)
+                                ? null
+                                : _supplementMetadata,
+                          ),
                           _action(
                             '永久忽略此检查结果，可在设置中恢复',
                             SourceGlyph.eyeOff,
@@ -434,6 +484,59 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
                 },
               ),
             ),
+          if (supplementable.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                SourceSheetButton(
+                  key: const ValueKey('supplement-metadata'),
+                  label: supplement.running ? '补充中…' : '一键补充',
+                  icon: const SourceLineIcon(SourceGlyph.plus, size: 13),
+                  prominent: true,
+                  height: 29,
+                  horizontalPadding: 11,
+                  onPressed: supplement.running ? null : _supplementMetadata,
+                ),
+                if (supplement.running) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      key: const ValueKey('supplement-metadata-progress'),
+                      value: supplement.total > 0
+                          ? (supplement.processed / supplement.total)
+                                .clamp(0.0, 1.0)
+                                .toDouble()
+                          : null,
+                      minHeight: 5,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Text(
+                    supplement.total > 0
+                        ? '${supplement.processed}/${supplement.total}'
+                        : '准备中…',
+                    style: TextStyle(fontSize: 10, color: palette.secondary),
+                  ),
+                ],
+              ],
+            ),
+          ],
+          if (supplement.message != null ||
+              (!supplement.running && supplement.processed > 0)) ...[
+            const SizedBox(height: 10),
+            AppInlineNotice(
+              key: const ValueKey('supplement-metadata-result'),
+              message:
+                  supplement.message ??
+                  '补充完成：已更新 ${supplement.updated} 项，跳过 ${supplement.skipped} 项，失败 ${supplement.failed} 项。',
+              kind: supplement.warningCount > 0 || supplement.failed > 0
+                  ? AppFeedbackKind.warning
+                  : supplement.running
+                  ? AppFeedbackKind.information
+                  : AppFeedbackKind.success,
+            ),
+          ],
         ],
       ),
       _heading(

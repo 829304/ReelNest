@@ -1,10 +1,12 @@
 import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
+import '../../../domain/automatic_scan_interval.dart';
 import '../../../platform/secure_credential_store.dart';
 import '../../../storage/credential_store.dart';
 import '../../../storage/library_database.dart';
 import '../../../storage/preference_store.dart';
 import '../domain/tmdb_models.dart';
+import '../domain/tmdb_match_tolerance.dart';
 
 class TmdbSettingsRepository {
   TmdbSettingsRepository(this.database, {CredentialStore? store})
@@ -15,6 +17,8 @@ class TmdbSettingsRepository {
           );
   final LibraryDatabase database;
   final CredentialStore store;
+  static const automaticIntervalKey = 'global.automaticTMDBMatchInterval';
+  static const toleranceKey = 'global.metadataMatchTolerance';
   static const languageKey = 'global.tmdbLanguage';
   final _writes = SerialTaskQueue();
   Future<String> credential() async {
@@ -29,6 +33,12 @@ class TmdbSettingsRepository {
     final language = await database.preferenceValue(languageKey);
     return TmdbSettings(
       language: normalizedLanguage(language ?? ''),
+      matchTolerance: TmdbMatchTolerance.parse(
+        await database.preferenceValue(toleranceKey),
+      ),
+      automaticMatchInterval: AutomaticScanInterval.parse(
+        await database.preferenceValue(automaticIntervalKey),
+      ),
       hasCredential: (await credential()).isNotEmpty,
     );
   }
@@ -58,6 +68,24 @@ class TmdbSettingsRepository {
       throw const SourceFailure('TMDB 凭据保存失败，原配置未更改，请重试。');
     }
   });
+  Future<void> setAutomaticMatchInterval(AutomaticScanInterval value) =>
+      _writes.run(() async {
+        try {
+          await database.writePreference(automaticIntervalKey, value.name);
+        } catch (_) {
+          throw const SourceFailure('自动拉取周期保存失败，请重试。');
+        }
+      });
+
+  Future<void> setMatchTolerance(TmdbMatchTolerance value) =>
+      _writes.run(() async {
+        try {
+          await database.writePreference(toleranceKey, value.name);
+        } catch (_) {
+          throw const SourceFailure('影视匹配宽容度保存失败，请重试。');
+        }
+      });
+
   Future<void> setLanguage(String raw) => _writes.run(() async {
     final value = normalizedLanguage(raw);
     try {

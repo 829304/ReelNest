@@ -7,12 +7,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:reelnest/domain/automatic_scan_interval.dart';
 import 'package:reelnest/domain/media_source.dart';
+import 'package:reelnest/features/metadata/application/tmdb_batch_providers.dart';
 import 'package:reelnest/features/metadata/application/tmdb_video_service.dart';
 import 'package:reelnest/features/metadata/application/tmdb_providers.dart';
 import 'package:reelnest/features/metadata/data/tmdb_artwork_store.dart';
 import 'package:reelnest/features/metadata/data/tmdb_settings_repository.dart';
 import 'package:reelnest/features/metadata/domain/tmdb_models.dart';
+import 'package:reelnest/features/metadata/domain/tmdb_match_tolerance.dart';
 import 'package:reelnest/features/metadata/presentation/tmdb_movie_detail_extras.dart';
 import 'package:reelnest/features/metadata/presentation/tmdb_movie_search_dialog.dart';
 import 'package:reelnest/features/metadata/presentation/tmdb_settings_panel.dart';
@@ -28,6 +31,8 @@ import 'support/tmdb_fixture.dart';
 class _CredentialStore implements CredentialStore {
   String? value = 'fixture-key';
   String language = 'zh-CN';
+  TmdbMatchTolerance tolerance = TmdbMatchTolerance.loose;
+  AutomaticScanInterval automaticInterval = AutomaticScanInterval.disabled;
 
   @override
   Future<String?> read() async => value;
@@ -47,6 +52,8 @@ class _SettingsController extends TmdbSettingsController {
   TmdbSettings get _value => TmdbSettings(
     language: store.language,
     hasCredential: store.value?.isNotEmpty == true,
+    matchTolerance: store.tolerance,
+    automaticMatchInterval: store.automaticInterval,
   );
 
   @override
@@ -64,6 +71,61 @@ class _SettingsController extends TmdbSettingsController {
     store.language = TmdbSettingsRepository.normalizedLanguage(value);
     state = AsyncData(_value);
   }
+
+  @override
+  Future<void> setMatchTolerance(TmdbMatchTolerance value) async {
+    store.tolerance = value;
+    state = AsyncData(_value);
+  }
+
+  @override
+  Future<void> setAutomaticMatchInterval(AutomaticScanInterval value) async {
+    store.automaticInterval = value;
+    state = AsyncData(_value);
+  }
+}
+
+class _BatchController extends TmdbBatchController {
+  bool failStart = false;
+  int starts = 0;
+
+  @override
+  TmdbBatchState build() => const TmdbBatchState();
+
+  @override
+  Future<void> start() async {
+    starts++;
+    if (failStart) throw const SourceFailure('所有电视剧 / 动漫都已匹配过 TMDB 信息。');
+    state = const TmdbBatchState(
+      running: true,
+      total: 4,
+      processed: 1,
+      matched: 1,
+      message: '正在匹配 1 / 4',
+    );
+  }
+
+  @override
+  void cancel() {
+    state = const TmdbBatchState(
+      total: 4,
+      processed: 1,
+      matched: 1,
+      cancelled: true,
+      message: '匹配已取消。',
+    );
+  }
+
+  void finish() {
+    state = const TmdbBatchState(
+      total: 4,
+      processed: 4,
+      matched: 2,
+      lowConfidence: 1,
+      failed: 1,
+      message: '匹配完成。',
+    );
+  }
 }
 
 void main() {
@@ -77,6 +139,7 @@ void main() {
   late TmdbVideoService service;
   late TmdbFixture fixture;
   late _CredentialStore credentials;
+  late _BatchController batch;
   late MediaSource source;
   late MediaIdentity identity;
 
@@ -101,6 +164,7 @@ void main() {
     await sources.scan(source.id);
     identity = (sourceId: source.id, localId: 'Film.2020.mkv');
     credentials = _CredentialStore();
+    batch = _BatchController();
     settings = TmdbSettingsRepository(sources.database, store: credentials);
     fixture = await TmdbFixture.start();
     service = TmdbVideoService(
@@ -124,10 +188,14 @@ void main() {
       sourceRepositoryProvider.overrideWithValue(sources),
       tmdbSettingsRepositoryProvider.overrideWithValue(settings),
       tmdbSettingsProvider.overrideWith(() => _SettingsController(credentials)),
+      tmdbBatchProvider.overrideWith(() => batch),
       tmdbMovieServiceProvider.overrideWithValue(service),
     ],
     child: MaterialApp(home: Scaffold(body: child)),
   );
+
+  Widget settingsPanel() =>
+      app(const SingleChildScrollView(child: TmdbSettingsPanel()));
 
   Future<void> pumpUntil(
     WidgetTester tester,
@@ -189,7 +257,7 @@ void main() {
   testWidgets(
     'settings never reveal the saved credential and require explicit clear',
     (tester) async {
-      await tester.pumpWidget(app(const TmdbSettingsPanel()));
+      await tester.pumpWidget(settingsPanel());
       await tester.pump();
       await pumpUntil(
         tester,
@@ -225,7 +293,7 @@ void main() {
   );
 
   testWidgets('language blank falls back to zh-CN', (tester) async {
-    await tester.pumpWidget(app(const TmdbSettingsPanel()));
+    await tester.pumpWidget(settingsPanel());
     await tester.pump();
     await pumpUntil(tester, find.byKey(const ValueKey('tmdb-language-input')));
     await tester.enterText(
@@ -243,6 +311,117 @@ void main() {
       'zh-CN',
     );
   });
+
+  testWidgets(
+    'settings save match tolerance and explain low-confidence review',
+    (tester) async {
+      await tester.pumpWidget(settingsPanel());
+      await tester.pump();
+      await pumpUntil(
+        tester,
+        find.byKey(const ValueKey('tmdb-match-tolerance')),
+      );
+
+      expect(find.text('宽松'), findsOneWidget);
+      expect(find.textContaining('置信度偏低的结果会跳过'), findsOneWidget);
+      expect(find.text('自动拉取周期'), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('tmdb-match-tolerance')),
+      );
+      await tester.tap(find.byKey(const ValueKey('tmdb-match-tolerance')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('严格').last);
+      await tester.pumpAndSettle();
+
+      expect(credentials.tolerance, TmdbMatchTolerance.strict);
+      expect(find.text('严格'), findsOneWidget);
+      expect(find.textContaining('仅高置信度才自动套用'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'automatic match interval keeps all original choices without credentials',
+    (tester) async {
+      credentials.value = null;
+      await tester.pumpWidget(settingsPanel());
+      await tester.pump();
+      await pumpUntil(
+        tester,
+        find.byKey(const ValueKey('tmdb-automatic-match-interval')),
+      );
+
+      final start = tester.widget<FilledButton>(
+        find.byKey(const ValueKey('start-tmdb-batch')),
+      );
+      expect(start.onPressed, isNull);
+      expect(find.text('关闭'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('tmdb-automatic-match-interval')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('tmdb-automatic-match-interval')),
+      );
+      await tester.pumpAndSettle();
+      for (final interval in AutomaticScanInterval.values) {
+        expect(find.text(interval.displayName), findsWidgets);
+      }
+      await tester.tap(find.text('每 6 小时').last);
+      await tester.pumpAndSettle();
+
+      expect(credentials.automaticInterval, AutomaticScanInterval.sixHours);
+      expect(find.text('每 6 小时'), findsOneWidget);
+      expect(find.text('独立于媒体库文件自动扫描'), findsOneWidget);
+    },
+  );
+
+  testWidgets('batch match exposes progress, result counts and cancellation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(settingsPanel());
+    await tester.pump();
+    await pumpUntil(tester, find.byKey(const ValueKey('start-tmdb-batch')));
+
+    await tester.ensureVisible(find.byKey(const ValueKey('start-tmdb-batch')));
+    await tester.tap(find.byKey(const ValueKey('start-tmdb-batch')));
+    await tester.pump();
+
+    expect(batch.starts, 1);
+    expect(find.byKey(const ValueKey('cancel-tmdb-batch')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tmdb-batch-progress')), findsOneWidget);
+    expect(find.text('已处理 1'), findsOneWidget);
+    expect(find.text('已匹配 1'), findsOneWidget);
+
+    batch.finish();
+    await tester.pump();
+    expect(find.text('匹配完成。'), findsOneWidget);
+    expect(find.text('低置信跳过 1'), findsOneWidget);
+    expect(find.text('失败 1'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('start-tmdb-batch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('cancel-tmdb-batch')));
+    await tester.pump();
+    expect(find.text('匹配已取消。'), findsOneWidget);
+  });
+
+  testWidgets(
+    'batch start failure is shown without inventing confirmation UI',
+    (tester) async {
+      batch.failStart = true;
+      await tester.pumpWidget(settingsPanel());
+      await tester.pump();
+      await pumpUntil(tester, find.byKey(const ValueKey('start-tmdb-batch')));
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('start-tmdb-batch')),
+      );
+      await tester.tap(find.byKey(const ValueKey('start-tmdb-batch')));
+      await tester.pump();
+      expect(find.text('所有电视剧 / 动漫都已匹配过 TMDB 信息。'), findsOneWidget);
+      expect(find.textContaining('候选确认'), findsNothing);
+    },
+  );
 
   testWidgets(
     'dialog auto searches title and renders original candidate fields',

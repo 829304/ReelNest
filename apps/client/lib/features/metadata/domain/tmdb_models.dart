@@ -1,7 +1,17 @@
+import 'tmdb_match_tolerance.dart';
+import '../../../domain/automatic_scan_interval.dart';
+
 class TmdbSettings {
-  const TmdbSettings({this.language = 'zh-CN', this.hasCredential = false});
+  const TmdbSettings({
+    this.language = 'zh-CN',
+    this.hasCredential = false,
+    this.matchTolerance = TmdbMatchTolerance.loose,
+    this.automaticMatchInterval = AutomaticScanInterval.disabled,
+  });
   final String language;
   final bool hasCredential;
+  final TmdbMatchTolerance matchTolerance;
+  final AutomaticScanInterval automaticMatchInterval;
 }
 
 enum TmdbMediaKind { movie, tv }

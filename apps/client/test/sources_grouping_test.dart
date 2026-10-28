@@ -103,6 +103,9 @@ void main() {
       await tester.tap(find.text('下一步'));
       await tester.pumpAndSettle();
       expect(find.text('选择文件夹并指定分类。'), findsOneWidget);
+      await tester.tap(find.text('上一步'));
+      await tester.pumpAndSettle();
+      expect(find.text('选择要接入 ReelNest 的来源类型。'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();

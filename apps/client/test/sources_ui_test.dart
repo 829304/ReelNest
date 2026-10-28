@@ -55,6 +55,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(TextButton, '选择文件夹'));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('下一步'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('添加并扫描'));
         await tester.pumpAndSettle();
       }
@@ -127,6 +129,12 @@ void main() {
       );
       await tester.tap(find.byKey(const ValueKey('media-type-music')));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('下一步'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '自动扫描'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '参与健康检查'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('添加并扫描'));
       await tester.pumpAndSettle();
       expect(find.text('local'), findsOneWidget);
@@ -136,7 +144,9 @@ void main() {
         (await repository.sources()).every(
           (s) =>
               s.mediaType == SourceMediaType.music &&
-              s.minimumFileSize == 512 * 1024,
+              s.minimumFileSize == 512 * 1024 &&
+              !s.options.autoScan &&
+              !s.options.includeInHealthCheck,
         ),
         isTrue,
       );

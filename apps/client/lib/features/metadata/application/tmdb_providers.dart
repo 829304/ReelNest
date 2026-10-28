@@ -4,11 +4,14 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../player/playback_diagnostics.dart';
+import '../../../domain/automatic_scan_interval.dart';
 import '../../sources/application/source_providers.dart';
 import '../data/tmdb_artwork_store.dart';
 import '../data/tmdb_client.dart';
 import '../data/tmdb_settings_repository.dart';
 import '../domain/tmdb_models.dart';
+import '../domain/tmdb_match_tolerance.dart';
 import 'tmdb_video_service.dart';
 
 final tmdbSettingsRepositoryProvider = Provider<TmdbSettingsRepository>(
@@ -44,6 +47,10 @@ class TmdbSettingsController extends AsyncNotifier<TmdbSettings> {
 
   Future<void> saveCredential(String value) =>
       _change((repository) => repository.saveCredential(value));
+  Future<void> setAutomaticMatchInterval(AutomaticScanInterval value) =>
+      _change((repository) => repository.setAutomaticMatchInterval(value));
+  Future<void> setMatchTolerance(TmdbMatchTolerance value) =>
+      _change((repository) => repository.setMatchTolerance(value));
   Future<void> setLanguage(String value) =>
       _change((repository) => repository.setLanguage(value));
 }
@@ -58,6 +65,8 @@ final tmdbMovieServiceProvider = Provider<TmdbVideoService>((ref) {
     settings: ref.watch(tmdbSettingsRepositoryProvider),
     client: ref.watch(tmdbClientProvider),
     artwork: ref.watch(tmdbArtworkStoreProvider),
+    onWriteFailure: (error, stack) =>
+        PlaybackDiagnostics().begin().failure('nfo_write_failed', error, stack),
   );
   ref.onDispose(() => unawaited(service.dispose()));
   return service;
@@ -73,6 +82,8 @@ final tmdbSeriesServiceProvider = Provider<TmdbVideoService>((ref) {
     settings: ref.watch(tmdbSettingsRepositoryProvider),
     client: ref.watch(tmdbClientProvider),
     artwork: ref.watch(tmdbArtworkStoreProvider),
+    onWriteFailure: (error, stack) =>
+        PlaybackDiagnostics().begin().failure('nfo_write_failed', error, stack),
     kind: TmdbMediaKind.tv,
   );
   ref.onDispose(() => unawaited(service.dispose()));

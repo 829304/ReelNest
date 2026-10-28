@@ -307,6 +307,82 @@ void main() {
     },
   );
 
+  test('batch persists wizard policies for each new source without updating duplicates', () async {
+    final old = await folder('policy-existing');
+    final a = await folder('policy-a');
+    final b = await folder('policy-b');
+    final original = await add(old);
+    final options = SourceOptions(
+      autoScan: false,
+      includeInMetadataFetch: true,
+      includeInHealthCheck: false,
+      preferMetadataWriteToSource: true,
+      readNFO: false,
+      preferLocalArtwork: false,
+    );
+    final result = await repository.addFolders(
+      locations: [old.path, a.path, b.path, a.path],
+      options: options,
+    );
+    expect(result.added, hasLength(2));
+    expect(result.skippedLocations, [old.path, a.path]);
+    expect(result.failures, isEmpty);
+    for (final source in result.added) {
+      final stored = await repository.source(source.id);
+      expect(stored.options.toJson(), options.toJson());
+    }
+    expect(
+      (await repository.source(original.id)).options.toJson(),
+      const SourceOptions.defaults().toJson(),
+    );
+  });
+
+  test(
+    'batch metadata opt-out also disables source write preference',
+    () async {
+      final root = await folder('no-metadata-policy');
+      final result = await repository.addFolders(
+        locations: [root.path],
+        options: SourceOptions(
+          autoScan: false,
+          includeInMetadataFetch: false,
+          includeInHealthCheck: false,
+          preferMetadataWriteToSource: true,
+        ),
+      );
+      final options = (await repository.source(result.added.single.id)).options;
+      expect(options.includeInMetadataFetch, isFalse);
+      expect(options.preferMetadataWriteToSource, isFalse);
+      expect(options.autoScan, isFalse);
+      expect(options.includeInHealthCheck, isFalse);
+    },
+  );
+
+  for (final mediaType in [SourceMediaType.photo, SourceMediaType.homeVideo]) {
+    test(
+      'batch enforces metadata exclusion for ${mediaType.name} with explicit policies',
+      () async {
+        final root = await folder('excluded-policy');
+        final result = await repository.addFolders(
+          locations: [root.path],
+          mediaType: mediaType,
+          options: SourceOptions(
+            includeInMetadataFetch: true,
+            preferMetadataWriteToSource: true,
+            autoScan: false,
+            includeInHealthCheck: false,
+          ),
+        );
+        final source = await repository.source(result.added.single.id);
+        expect(source.mediaType, mediaType);
+        expect(source.options.includeInMetadataFetch, isFalse);
+        expect(source.options.preferMetadataWriteToSource, isFalse);
+        expect(source.options.autoScan, isFalse);
+        expect(source.options.includeInHealthCheck, isFalse);
+      },
+    );
+  }
+
   test('batch adds only new directories in selection order with original music defaults', () async {
     final old = await folder('existing');
     final a = await folder('music-a');

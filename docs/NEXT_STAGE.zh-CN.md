@@ -1,6 +1,44 @@
 # 当前阶段与历史实施记录
-当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集验收仍待真实 TMDB 公服、macOS/Linux 原生及人工精确视觉。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
-更新：2026-10-27。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
+更新：2026-10-28。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-27 本地剧集/动漫 TMDB 手动批量匹配（Windows 定向交付验证通过）
+
+- 本阶段扩展 2026-10-26 已完成的单项手动匹配，单独实现人工启动的本地剧集/动漫批量匹配。候选仅取参与元数据拉取的文件来源顶层 `tvShow`/`anime` series；同语言已匹配项跳过，语言变化后可重匹配。远程服务器资料不修改。
+- 使用原版三档影视匹配宽容度：默认宽松，阈值 0.42/0.58/0.74，查询预算 16/10/6；标题/原名及集文件父/祖父目录生成清洗查询，评分含年份修正、保留相关性同分顺序，并迁移具体查询唯一命中规则（0.52置信下限只可直接满足宽松档）。评分在 isolate 运行并支持取消等待。
+- 批次支持共享进行中任务、HTTP 取消、进度分类和逐项失败隔离。复用现有 `TmdbVideoService` 和 artwork cache；任务前后对来源/索引/配置/元数据快照校验，避免扫描、来源移除/变化、手工编辑或语言变化期间提交过期结果。宽容度变更只影响后续批次。`SourceSettingsSheet` 可编辑并保存 `includeInMetadataFetch`；`preferMetadataWriteToSource` 和 NFO 写回仍禁用。
+- 范围不含自动周期、NFO/媒体文件写回或远程资料修改；仅本地文件来源系列参与，动漫分类与远程系列排除有专项覆盖。评分 isolate 对超过1024字符的标题拒绝单项处理；HTTP/单项 diagnostics 只保留脱敏 code/type/stack，不记录关键词、路径或凭据。最终13文件160/160通过（41秒，`apps/client/build/tmdb-batch-tests.log`），analyze clean（4.8秒），44个工作区变更 Dart 文件 format 0 changed、diff-check通过。首轮74项与159项为中间批次，不累计。Windows Release 52.7秒，`data/app.so` 为2026-10-27 21:48:27 +08、13,222,792 bytes；五秒 hidden smoke 于 `2026-10-27T21:49:11.0304196+08:00` 通过（响应、正常关闭、ExitCode 0）。
+- 本轮仅完成批量匹配相关 UI 和 `SourceSettingsSheet` 的元数据参与开关；来源列表 `SourceRow` 未修改。未跑全量测试、native Flutter drive、真实 TMDB 凭据/公服、macOS/Linux 原生、实体目录或可见 UI 验收；不宣称来源列表像素对齐。来源设置、专项验证与先前单项匹配结果分开记录，详见[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+
+## 2026-10-27 本地剧集/动漫 TMDB 定时自动匹配（Windows 定向交付验证通过）
+
+- 复用 `AutomaticScanInterval` 五档，使用独立 `global.automaticTMDBMatchInterval` 偏好，默认关闭且不改 SQLite schema。开启后等待完整周期才首次匹配；忙于扫描/匹配时跳过 tick、不追补；无凭据/无候选静默跳过并保留既有结果。
+- 自动请求使用独立取消 token。按用户确认的“关闭即取消”规则，关闭周期会取消当前自动任务但不影响手动批次；这是当前明确批准的行为，不据此推断原版关闭周期时一定会中断已运行任务。普通切换周期只重设 timer、不打断运行中的任务；同值、语言、宽容度变更不重设周期。退出时停止 timer、取消自动请求后再排空 batch/数据库。启动恢复偏好时不预建 HTTP/batch 服务或遍历媒体目录。
+- 自动匹配只覆盖本地、参与元数据的、未按当前语言匹配的 TV/anime 顶层项；沿用手动批次保护、宽容度与失败隔离，不修改远程资料。无 NFO 写回、无 SourceRow 和新连接器工作。15 文件整合回归 179/179 通过（48 秒），最终 `flutter analyze` clean（4.4 秒）；覆盖五档虚拟时间周期、忙碌跳过、重复 tick、改周期、取消 token、退出取消、loopback batch 取消提交保护、已存周期恢复及默认不触发 batch/HTTP 等。上一阶段手动批量 160 项与本轮有覆盖重叠，分批记录、不累计。Windows Release 构建 45.9 秒（`apps/client/build/tmdb-automatic-release.log`），`data/app.so` 时间为 2026-10-27 22:07:19 +08、13,239,176 bytes；五秒 hidden smoke 于 `2026-10-27T22:08:29.8982322+08:00` 通过（响应、正常关闭、ExitCode 0），报告为 `apps/client/build/tmdb-automatic-smoke.json`。48 个工作区变更 Dart 文件 format 0 changed，diff-check 通过。本阶段 Windows 定向交付验证通过。未运行 native Flutter drive、真实 TMDB 公服、macOS/Linux 原生、可见 UI、全量测试或真实 15 分钟墙钟等待；虚拟时间不能替代长期运行验收。详见[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
+
+## 2026-10-28 本地视频健康补充与 NFO 写回（Windows 定向交付验证通过）
+
+- 只读核对原版 `VideoMetadataSidecarPolicy`、`VideoMetadataSidecarWriter`、`AppState+MetadataSupplement.swift` 和健康中心入口。原版 NFO 写回仅从健康中心一键补充流程触发；普通 TMDB 单项、批量和定时匹配不写 NFO。原版侧车策略与安全限制、Dart 迁移范围和验收清单见[本地视频元数据写回计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。
+- 本批计划覆盖本地电影、电视剧与动漫缺失字段补充；来源写回默认关闭并要求来源参与元数据。电影写同 basename `.nfo`；剧集/动漫需确认所有 episode 属于共同系列目录后才写 `tvshow.nfo`。不扩展到原版其他视频类型，不修改媒体文件本体。
+- 实现：`MetadataSupplementService` 限定参与元数据的本地电影及 TV/anime series，复用现有 TMDB matcher；`TmdbVideoService.apply(..., supplementOnly: true)` 只补缺失字段并保留既有描述信息。先提交 ReelNest 索引，再独立执行 NFO 写回；写回失败保留索引并在健康结果中提示 warning，不宣称数据库与文件系统之间具备原子事务。普通单项/批量/定时匹配仍不调用 NFO writer。
+- `VideoNfoPolicy`/`VideoNfoWriter` 已接入路径归属、XML 安全合并、同目录临时文件与平台原子发布、并发检测和失败恢复。电影写同 basename `.nfo`；剧集/动漫仅在所有现有 episode 确认属于共同系列目录时写 `tvshow.nfo`。来源 `preferMetadataWriteToSource` 默认关闭，并受 `includeInMetadataFetch` 控制。健康中心已有一键入口、运行进度和 NFO 警告结果。
+- 原版顺序：`performMetadataSupplement` 先尝试调用 sidecar writer，写回失败只记 warning，随后更新 MediaLib 索引。当前 ReelNest 的安全实现顺序为先提交索引事务，再独立写 NFO；二者不是跨数据库/文件系统的原子事务。补充合并保留已有年份、简介、封面等资料；localized TMDB identity 相同时保留用户编辑标题，首次或更换匹配可更新标题。
+- 验证：15 个定向文件 164/164 通过（约 9 秒，`apps/client/build/nfo-final-tests.log`）；`flutter analyze` no issues（3.9 秒，`apps/client/build/nfo-final-analyze.log`）；61 个变更/新增 Dart 文件格式检查 0 更改，`git diff --check` 通过。覆盖 writer/policy/supplement、健康中心 UI、来源配置、TMDB movie/series/batch/automatic/UI、health evaluator 与 app 回归，并验证 NFO 写入后由 `LocalMetadataService` 读取及真实来源重扫恢复字段。此前失败/重复运行不累计。Windows 原生 writer 安全回归首轮通过；Release 构建 44.3 秒成功（`apps/client/build/nfo-release.log`）；五秒 hidden smoke 于 `2026-10-28T09:52:30.7252957+08:00` 通过，`apps/client/build/nfo-smoke.json` 确认窗口响应、正常关闭、ExitCode 0。
+- 状态：**Windows 定向交付验证通过。** 本批未运行全量测试；macOS/Linux 原生、真实 NAS/挂载、可见 UI 对照仍未验收，不宣称跨平台写回完成。详细边界见[本地视频元数据写回计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。
+
+## 2026-10-27 来源向导与来源设置 P0（Windows 验证通过）
+
+- 本地添加流程迁移为原版三步结构：来源选择 → 连接/目录与媒体分类 → 设置/参与策略；配置页上一步返回来源类型选择，设置页上一步返回配置页。当前仅开放已实现的本地目录、Emby、Jellyfin、Plex；网络视频 URL、网络位置和 ReelNest Server 等当前没有后端的入口未标成已完成，原版可选连接器也未作为永久删除处理。
+- 第三步可确认并持久化 `autoScan`、`includeInMetadataFetch`、`includeInHealthCheck`、`preferMetadataWriteToSource`。照片/家庭视频继续依现有约束规范化元数据选项；重复来源不覆盖原设置，部分失败和重试行为不变。SourceOptions schema 未变。补齐来源图标 `chevronRight`、本地来源说明文案和向导步骤视觉。
+- 验证：定向/核心测试90/90通过（后端策略测试包含在内）；`flutter analyze` 0 issues；Windows Release 41.9秒成功。`windows-smoke` 于 `2026-10-27T21:21:32.9178198+08:00` 通过，HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0。
+- 后续边界：来源主页 `SourceRow` 仍是过渡实现，未完成原版逐像素/逐交互对齐；真实系统目录选择器及 macOS/Linux 原生验收仍待。此批不等于所有原版来源连接器完成，也不把设置策略持久化等同于策略执行服务全部验收。见[本地来源文档](LOCAL_SOURCES.zh-CN.md#2026-10-27来源向导与来源设置-p0windows-验证通过)。
+
+## 2026-10-27 本地媒体自动监控与增量更新（Windows 自动化/Release 验证通过）
+
+- 自动扫描间隔沿用原版默认关闭与五档选项；开启后并行运行本地文件事件监控和周期扫描，来源设置可单独关闭 `autoScan`。本地文件来源（含移动盘、已挂载 NAS）参与，Emby/Jellyfin/Plex 不自动同步。事件按 1.2 秒合并，按最长根路径归属；目录结构变化及原生事件中断/溢出触发完整扫描，其余路径交 `scanChanges`。增量扫描复用文件解析、NFO/海报和隐藏过滤；同一现有扫描队列合并待执行路径，全扫覆盖局部请求，执行时重检来源参与状态。
+- Windows/macOS 递归监控；Linux 建立逐目录 inotify 树并在目录变化时重建。关闭自动扫描、移除来源、关闭来源参与时释放监听；退出先停监控再关数据库。监控错误日志脱敏，单源监控失败不阻塞其他来源；周期扫描用于兜底并恢复监听。
+- 验证：8 文件 78/78 通过（16 秒，`apps/client/build/automatic-scan-tests.log`）：`automatic_source_scanner_test` 8、`local_incremental_scan_test` 8、`local_file_monitor_test` 2、`source_scan_queue_test` 8、`source_repository_test` 20、`automatic_scan_frontend_test` 2、`health_ui_test` 12、`home_runtime_test` 18。增量链路覆盖真实文件通知经 `SourceScans` 到数据库新增/重命名/删除；另覆盖 watcher 原生错误回调将 error/stack 传至 scanner 错误处理、脱敏 diagnostics 并触发保护性全扫。`flutter analyze` clean（4.6 秒）；Windows Release 43.4 秒；hidden smoke 于 `2026-10-27T20:54:10.8061317+08:00` 观测5秒，窗口响应、正常关闭、ExitCode 0。来源 schema 未变。以上为最终一轮日志；前一轮77项/50.6秒/20:50 smoke 已被覆盖，不累计。
+- 边界：未跑全量测试、native Flutter drive、可见截图验收或真实 NAS/移动盘拔插。Windows 原生递归监控通过；另一个在 Windows 强制 `perDirectory` 的用例只验证该策略，不代表 Linux 原生验收。macOS/Linux 仍待设备实机；macOS 持久目录授权缺口未变。NAS 原生通知可靠性取决于挂载/系统，周期扫描提供兜底。详细边界见[本地来源文档](LOCAL_SOURCES.zh-CN.md#自动监控与增量更新2026-10-27windows-自动化release-验证通过)。
 
 ## 2026-10-27 原版侧边栏左下状态卡部分迁移（Windows 验证通过）
 

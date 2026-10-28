@@ -7,6 +7,7 @@ import 'source_options.dart';
 class SourceSettingsDraft {
   const SourceSettingsDraft({
     required this.mediaType,
+    this.autoScan,
     required this.includeInMetadataFetch,
     required this.includeInHealthCheck,
     required this.preferMetadataWriteToSource,
@@ -15,12 +16,14 @@ class SourceSettingsDraft {
   factory SourceSettingsDraft.fromSource(MediaSource source) =>
       SourceSettingsDraft(
         mediaType: source.mediaType,
+        autoScan: source.options.autoScan,
         includeInMetadataFetch: source.options.includeInMetadataFetch,
         includeInHealthCheck: source.options.includeInHealthCheck,
         preferMetadataWriteToSource: source.options.preferMetadataWriteToSource,
       );
 
   final SourceMediaType mediaType;
+  final bool? autoScan;
   final bool includeInMetadataFetch;
   final bool includeInHealthCheck;
   final bool preferMetadataWriteToSource;
@@ -32,6 +35,7 @@ class SourceSettingsDraft {
         includeInMetadataFetch;
     return SourceOptions.fromJson({
       ...current.toJson(),
+      if (autoScan != null) 'autoScan': autoScan,
       'includeInMetadataFetch': metadata,
       'includeInHealthCheck': includeInHealthCheck,
       'preferMetadataWriteToSource': metadata && preferMetadataWriteToSource,

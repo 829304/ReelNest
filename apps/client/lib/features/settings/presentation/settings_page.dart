@@ -7,6 +7,7 @@ import '../../../ui/widgets/settings_surfaces.dart';
 import '../../health/presentation/ignored_health_settings.dart';
 import '../../metadata/presentation/tmdb_settings_panel.dart';
 import '../application/appearance_controller.dart';
+import 'automatic_scan_settings.dart';
 import 'online_subtitle_settings.dart';
 import 'watched_settings.dart';
 
@@ -26,6 +27,8 @@ class SettingsPage extends ConsumerWidget {
       ),
       children: [
         const WatchedSettings(),
+        const SizedBox(height: 28),
+        const AutomaticScanSettingsPanel(),
         const SizedBox(height: 28),
         const TmdbSettingsPanel(),
         const SizedBox(height: 28),

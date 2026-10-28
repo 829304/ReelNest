@@ -9,6 +9,7 @@ import '../../../domain/media_source.dart';
 import '../../../domain/source_scan.dart';
 import '../../../domain/source_media_type.dart';
 import '../../../domain/source_settings_draft.dart';
+import '../../../domain/source_options.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/app_feedback.dart';
@@ -70,57 +71,71 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   }
 
   Future<void> _add() async {
-    final kind = await showDialog<MediaSourceKind>(
-      context: context,
-      builder: (_) => const SourceKindSheet(),
-    );
-    if (kind == null || !mounted) return;
-    if (kind.isRemoteVideoSource) {
-      final added = await showDialog<MediaSource>(
+    while (true) {
+      if (!mounted) return;
+      final kind = await showDialog<MediaSourceKind>(
         context: context,
-        barrierDismissible: false,
-        builder: (_) => EmbyConnectionSheet(
-          repository: ref.read(embyConnectionProvider),
-          kind: kind,
-        ),
+        builder: (_) => const SourceKindSheet(),
       );
-      if (mounted) {
-        ref.invalidate(sourceReachabilityProvider);
-        if (added != null) {
-          unawaited(ref.read(sourceScansProvider.notifier).scan(added.id));
+      if (kind == null || !mounted) return;
+      if (kind.isRemoteVideoSource) {
+        final added = await showDialog<MediaSource>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => EmbyConnectionSheet(
+            repository: ref.read(embyConnectionProvider),
+            kind: kind,
+          ),
+        );
+        if (mounted) {
+          ref.invalidate(sourceReachabilityProvider);
+          if (added != null) {
+            unawaited(ref.read(sourceScansProvider.notifier).scan(added.id));
+          }
         }
+        return;
       }
+      final draft = await showDialog<SourceDraft>(
+        context: context,
+        builder: (_) =>
+            AddSourceDialog(access: ref.read(directoryAccessProvider)),
+      );
+      if (draft == null || !mounted) return;
+      if (draft.backToSourceSelection) continue;
+      await _perform(() async {
+        final scans = ref.read(sourceScansProvider.notifier);
+        final result = await ref
+            .read(sourceRepositoryProvider)
+            .addFolders(
+              locations: draft.locations,
+              mediaType: draft.mediaType,
+              options: SourceOptions(
+                autoScan: draft.autoScan,
+                includeInMetadataFetch: draft.includeInMetadataFetch,
+                includeInHealthCheck: draft.includeInHealthCheck,
+                preferMetadataWriteToSource: draft.preferMetadataWriteToSource,
+              ),
+            );
+        if (result.added.isNotEmpty) {
+          unawaited(scans.scanAll(result.added));
+        }
+        if (mounted && result.failures.isNotEmpty) {
+          final private = draft.mediaType == SourceMediaType.privateCollection;
+          final details = result.failures
+              .map((failure) {
+                final name = private ? '保险库目录' : p.basename(failure.location);
+                return '$name：${sourceErrorMessage(failure.error)}';
+              })
+              .join('\n');
+          setState(() {
+            _error =
+                '已添加 ${result.added.length} 个来源，'
+                '${result.failures.length} 个目录添加失败。\n$details';
+          });
+        }
+      });
       return;
     }
-    final draft = await showDialog<SourceDraft>(
-      context: context,
-      builder: (_) =>
-          AddSourceDialog(access: ref.read(directoryAccessProvider)),
-    );
-    if (draft == null || !mounted) return;
-    await _perform(() async {
-      final scans = ref.read(sourceScansProvider.notifier);
-      final result = await ref
-          .read(sourceRepositoryProvider)
-          .addFolders(locations: draft.locations, mediaType: draft.mediaType);
-      if (result.added.isNotEmpty) {
-        unawaited(scans.scanAll(result.added));
-      }
-      if (mounted && result.failures.isNotEmpty) {
-        final private = draft.mediaType == SourceMediaType.privateCollection;
-        final details = result.failures
-            .map((failure) {
-              final name = private ? '保险库目录' : p.basename(failure.location);
-              return '$name：${sourceErrorMessage(failure.error)}';
-            })
-            .join('\n');
-        setState(() {
-          _error =
-              '已添加 ${result.added.length} 个来源，'
-              '${result.failures.length} 个目录添加失败。\n$details';
-        });
-      }
-    });
   }
 
   Future<void> _relocate(MediaSource source) => _perform(() async {

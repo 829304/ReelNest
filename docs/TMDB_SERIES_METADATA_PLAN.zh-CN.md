@@ -1,14 +1,51 @@
 # TMDB 本地剧集元数据手动匹配计划（2026-10-26）
 
-状态：**实现及定向验证完成；Windows 原生、Release/smoke 通过。** 本批没有运行全量 Flutter 测试。真实 TMDB 公服、macOS/Linux 原生与人工精确视觉验收仍待，不以 loopback fixture 或 Release 构建替代。
+状态：**2026-10-26 单项手动匹配完成；2026-10-27 手动批量匹配和定时自动匹配均已完成 Windows 定向交付验证。** 自动匹配 15 文件整合回归 179/179、最终 analyze、Windows Release 与五秒 smoke 通过。以下既有 102/102 后端、12/12 UI、Windows 原生及 Release/smoke 记录属于单项匹配批次；批量匹配 160/160 及其 Windows Release/smoke 属于上一阶段，均不替代当前自动匹配验收。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试与可见 UI 验收仍待。
 
-## 目标与范围
+## 2026-10-27：本地剧集/动漫 TMDB 手动批量匹配（Windows 定向交付验证通过）
+
+本节是对 2026-10-26 单项手动匹配之后的独立扩展；原先“本批不实现批量/自动匹配”的表述仍描述 10-26 单项匹配批次，不改写其历史范围与结果。本阶段实现已接入，但首轮后端测试及 UI 文案修正不是最终整合验收。
+
+### 范围与行为
+
+- 只由用户手动启动；目标限于 `localFolder`、`removableDrive`、`mountedNas` 文件来源中的顶层 series，且 `isSeries=true`、类型为 `tvShow` 或 `anime`。动漫分类专项明确覆盖；Emby/Jellyfin/Plex 等远程来源的 series 不进入批量目标，也不改写远程资料。只处理来源 `includeInMetadataFetch=true` 的条目。
+- 同语言且已有关联的 `TMDB[language]` 资料跳过；语言改变后可重新匹配。候选标题、原名及已有集文件的父/祖父目录生成去噪查询，按宽容度限制查询预算；重复查询和 TMDB ID 去重。
+- 沿用原版影视匹配宽容度，默认宽松：宽松/标准/严格阈值为 0.42/0.58/0.74，查询预算为 16/10/6。评分结合清洗后的标题/查询命中及年份，相关性同分保留原顺序；具体查询的单项唯一命中将置信度至少抬至 0.52，只有宽松阈值可由该下限直接放行，标准/严格仍需满足各自阈值。Levenshtein 评分在 isolate 执行，并可取消等待。
+- 批量任务同一时刻仅运行一次；重复启动共享进行中的 Future。用户可取消，HTTP 搜索随取消中断。逐项隔离失败，进度分别累计已处理、已匹配、低置信跳过与失败；已完成的条目保留。过长标题（超过 1024 字符）按单项失败处理，避免 edit-distance 评分的过量计算；评分 isolate 支持协作取消等待。HTTP 与单项异常写入 diagnostics 前脱敏，只保留脱敏 code/type/stack，不记录关键词、路径或凭据。
+- 复用 `TmdbVideoService.apply`、现有 series 数据与 artwork cache，不写媒体文件或 NFO，不建立周期任务。来源扫描/移除/配置变化、语言变化，或条目/现有元数据被手动编辑时，通过快照校验阻止过期结果提交；提交阶段再校验一次。批次候选仅保存 metadata JSON 的 SHA256 摘要用于变化检测，不复制整份元数据快照。
+- 宽容度偏好使用既有 `PreferenceStore` 键 `global.metadataMatchTolerance`；运行时变化不改变当前批次已读取的设置快照，后续新批次才使用新值，不改 SQLite schema。`SourceSettingsSheet` 可编辑并保存来源 `includeInMetadataFetch`，该选项参与后台候选过滤；`preferMetadataWriteToSource` 仍禁用，NFO 写回不在本批范围，界面说明此处来源参与开关用于本地剧集/动漫一键匹配。
+
+### 阶段性验证状态
+
+最终 13 文件定向回归 160/160 通过（41 秒，`apps/client/build/tmdb-batch-tests.log`；按日志计数，含 scorer、batch、既有 TMDB 服务/客户端、前端、健康、来源扫描/增量、仓储与 app 回归）。`flutter analyze` clean（4.8 秒，`apps/client/build/tmdb-batch-analyze.log`）；44 个工作区变更 Dart 文件 format 0 changed，`git diff --check` 通过。首轮 74 项及 159 项是中间验证，已由最终 160 项替代，不累加。Windows Release 成功（52.7 秒，`apps/client/build/tmdb-batch-release.log`）；`data/app.so` 于 2026-10-27 21:48:27 +08，13,222,792 bytes。五秒 hidden smoke 于 `2026-10-27T21:49:11.0304196+08:00` 通过（`apps/client/build/tmdb-batch-smoke.json`）：HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0。
+
+边界：没有运行全量测试、native Flutter drive；没有使用真实 TMDB 凭据/公服；没有 macOS/Linux 原生、实体目录选择器或可见 UI 验收。本轮仅改批量匹配相关 UI 与 `SourceSettingsSheet` 元数据参与开关；来源列表 `SourceRow` 未改，来源列表像素/交互一致性仍未验收。
+
+## 2026-10-27：本地剧集/动漫 TMDB 定时自动匹配（Windows 定向交付验证通过）
+
+本阶段在手动批量匹配之上增加独立的自动周期调度；不会把自动运行结果与上一阶段 13 文件 160/160 的手动批量验证合并。
+
+### 调度规则与范围
+
+- `TmdbSettings.automaticMatchInterval` 默认 `disabled`，复用 `AutomaticScanInterval` 的五档，但以独立 `PreferenceStore` 键 `global.automaticTMDBMatchInterval` 保存；不与文件自动扫描间隔共用偏好，不改 SQLite schema。
+- 开启周期后等待完整周期才第一次 tick，不立即执行；忙于媒体扫描、手动/自动匹配时跳过 tick，不追补。无 TMDB 凭据或无合格候选时静默跳过，并保留上次任务状态/结果。
+- 自动任务复用手动批次的本地来源/`includeInMetadataFetch`、当前语言未匹配筛选，宽容度、取消、逐项隔离失败与过期结果校验；Emby/Jellyfin/Plex 远程资料不参与、不改写。
+- 自动调度有独立取消 token。按用户确认的“关闭即取消”规则，关闭周期会取消当前自动任务但不影响手动批次；这条是当前明确批准的行为，不据此推断原版关闭周期时一定会中断已运行任务。切换非关闭周期只重设 timer，不打断正在运行的自动批次；同值、语言或宽容度变化不重设 timer。应用退出先停止 timer、取消自动请求，再排空批次并关闭数据库。原版基线是完整周期后触发、忙碌时跳过，不补跑。
+- 设置菜单允许无 TMDB 凭据时保存周期偏好；默认关闭且启动恢复偏好时不创建批次/HTTP 服务、不查询媒体目录。NFO/媒体文件写回、来源列表 `SourceRow`、新连接器均不在本阶段范围。
+
+### 阶段状态
+
+15 文件整合回归 179/179 通过（48 秒，`apps/client/build/tmdb-automatic-tests.log`）；最终 `flutter analyze` clean（4.4 秒，`apps/client/build/tmdb-automatic-analyze.log`）。覆盖五档虚拟时间周期、忙碌跳过、重复 tick、修改周期、禁用自动 token、退出取消；真实 loopback 自动 batch 验证取消时第一条已提交结果保留、后续条目不写入；provider 验证恢复已存周期、默认不创建 batch/HTTP 服务、语言变化不重置 timer，以及偏好写入失败保护。Windows Release 构建 45.9 秒（`apps/client/build/tmdb-automatic-release.log`）；`data/app.so` 时间为 2026-10-27 22:07:19 +08、13,239,176 bytes。五秒 hidden smoke 于 `2026-10-27T22:08:29.8982322+08:00` 通过：窗口响应、正常关闭、ExitCode 0；原始报告已复制并核对为 `apps/client/build/tmdb-automatic-smoke.json`。48 个工作区变更 Dart 文件 format 0 changed，`git diff --check` 通过。上一阶段 160 项与本轮 179 项存在覆盖重叠，分别记录、不累计。本阶段 Windows 定向交付验证通过。
+
+边界：未运行 native Flutter drive、真实 TMDB 公服、macOS/Linux 原生、可见 UI 验收、全量测试或真实 15 分钟墙钟等待。周期测试使用虚拟时间，不能据此宣称真实长期运行验收完成。
+
+## 上一阶段目标与范围（2026-10-26 单项手动匹配）
 
 用户可从本地剧集进入 TMDB 搜索，查看候选并明确选择匹配。选定剧集的 TMDB 资料本地保存，并依据 ReelNest 本地媒体已有的季号、集号关联已有剧集记录与对应元数据。
 
 匹配对象限于本地来源中已索引的剧集。关联只能使用已有本地剧集及其季号/集号；不得创建虚拟媒体或本地集记录，不修改媒体路径、文件身份、播放进度、播放记录、书签/章节或其他播放状态。
 
-Emby 继续使用 Emby 服务端资料。本批不实现剧集批量/自动匹配、NFO 写回、媒体文件写入、在线字幕、Emby 刮削或未获批的其他元数据源；不改变 TMDB 电影第一批的范围与验收结论。
+Emby 继续使用 Emby 服务端资料。**2026-10-26 单项手动匹配批次**不实现剧集批量/自动匹配、NFO 写回、媒体文件写入、在线字幕、Emby 刮削或未获批的其他元数据源；这条仅为上一批范围记录，不限制本页新批准的 2026-10-27 手动批量匹配扩展，也不改变 TMDB 电影第一批的范围与验收结论。
 
 ## 原版 Swift 行为基线
 
@@ -35,13 +72,13 @@ TMDB 凭据沿用电影批次既有 API Key / Read Access Token 行为，语言�
 
 本轮新增的季详情请求只用于关联并丰富本地已有季号/集号；这是获批的本地剧集实现行为，不是原版 Swift season endpoint 行为。
 
-## 开发分工与当前实现状态
+## 上一阶段实现与验证（2026-10-26 单项手动匹配）
 
 - 后端：负责 TV 搜索/详情映射、剧集与集资料持久化、已有季号/集号关联及数据边界。公共模型已全局重命名为 `TmdbCandidate` / `TmdbMetadata`，增加 `kind`（movie/tv）及 TV、season、episode DTO；这些接线不等于本功能验收完成。
 - 前端：负责本地剧集详情入口、搜索/候选选择/确认流程、剧集/季/集资料展示与状态反馈，并逐项对照原版 Swift。
-- 实现及本批定向验证完成：后端102/102、UI12/12、Windows Profile 原生、Release/smoke 与 analyze/format 通过。本批未运行全量测试；真实 TMDB 公服、macOS/Linux 原生和人工精确视觉验收仍待。各专项与全量结果按批次分别记录，不累计重叠计数。
+- 上一批单项手动匹配及其定向验证完成：后端102/102、UI12/12、Windows Profile 原生、Release/smoke 与 analyze/format 通过。该批未运行全量测试；真实 TMDB 公服、macOS/Linux 原生和人工精确视觉验收仍待。此结果不作为当前批量匹配的验收证据；各专项与全量结果按批次分别记录，不累计重叠计数。
 
-## 验收清单
+## 上一阶段单项匹配验收清单
 
 - 本地剧集可手动搜索 TMDB TV 候选；搜索取消、空结果、缺凭据及 API 错误均有清楚状态。
 - 用户明确确认后，保存所选 TV 身份与剧集级资料；关闭并重开详情后仍可读回。
@@ -52,7 +89,7 @@ TMDB 凭据沿用电影批次既有 API Key / Read Access Token 行为，语言�
 - 对照原版完成剧集详情、搜索 UI、候选与加载/错误/已匹配各状态的逐项布局和交互验收。
 - Windows、macOS、Linux 分别记录实际验证；真实公服认证和可见人工 UI 验收单独记录，构建通过不替代这些验收。
 
-## 验证记录
+## 上一阶段验证记录（2026-10-26）
 
 | 验证项 | 状态 | 证据与边界 |
 |---|---|---|

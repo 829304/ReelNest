@@ -26,6 +26,13 @@ class ScanFileProcessed extends SourceScanEvent {
   final String? error;
 }
 
+/// A missing media file, only published by incremental discovery. The repository
+/// verifies the source again before committing any removals.
+class ScanFileRemoved extends SourceScanEvent {
+  const ScanFileRemoved(this.path);
+  final String path;
+}
+
 enum SourceScanPhase { reading, persisting }
 
 class SourceScanProgress {

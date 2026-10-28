@@ -13,6 +13,9 @@ import '../features/playback/application/playback_providers.dart';
 import '../features/playback/application/external_playback_providers.dart';
 import '../features/playback/application/external_playback_service.dart';
 import '../features/metadata/application/tmdb_providers.dart';
+import '../features/metadata/application/tmdb_batch_providers.dart';
+import '../features/metadata/application/metadata_supplement_providers.dart';
+import '../features/metadata/application/automatic_tmdb_providers.dart';
 import '../features/playback/domain/transient_playback_target.dart';
 import '../domain/media_source.dart';
 import '../features/playback/application/marker_analysis_providers.dart';
@@ -20,6 +23,7 @@ import '../features/playback/presentation/player_window_app.dart';
 import '../features/sources/application/source_providers.dart';
 import '../features/sources/application/emby_library_providers.dart';
 import 'reelnest_app.dart';
+import '../features/sources/application/automatic_scan_providers.dart';
 import '../features/sources/application/emby_providers.dart';
 import '../features/home/application/home_providers.dart';
 import '../player/playback_diagnostics.dart';
@@ -147,6 +151,23 @@ class _MainWindowClose with WindowListener {
           return; // User kept the player open after a checkpoint failure.
         }
       }
+      // Stop automatic matching before draining metadata jobs/database writes.
+      if (container.exists(automaticTmdbMatcherProvider)) {
+        await _step(
+          trace,
+          'close_automatic_tmdb',
+          () => container.read(automaticTmdbMatcherProvider).dispose(),
+        );
+      }
+      // Stop file-event producers before database shutdown; dispose does not
+      // wait for slow filesystem discovery and late watcher starts self-cancel.
+      if (container.exists(automaticSourceScannerProvider)) {
+        await _step(
+          trace,
+          'close_file_monitors',
+          () => container.read(automaticSourceScannerProvider).dispose(),
+        );
+      }
       // Cancel every active producer before waiting for any one to drain. Do
       // not construct unused services just because the application is exiting.
       await _step(trace, 'close_external_playback', () async {
@@ -159,6 +180,18 @@ class _MainWindowClose with WindowListener {
         trace,
         'close_background_tasks',
         () => Future.wait<void>([
+          if (container.exists(metadataSupplementServiceProvider))
+            _closeTask(
+              trace,
+              'metadata_supplement',
+              () => container.read(metadataSupplementServiceProvider).dispose(),
+            ),
+          if (container.exists(tmdbBatchServiceProvider))
+            _closeTask(
+              trace,
+              'tmdb_batch',
+              () => container.read(tmdbBatchServiceProvider).dispose(),
+            ),
           if (container.exists(tmdbMovieServiceProvider))
             _closeTask(
               trace,

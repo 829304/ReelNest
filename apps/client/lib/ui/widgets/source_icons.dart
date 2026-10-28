@@ -17,6 +17,7 @@ enum SourceGlyph {
   info,
   search,
   chevronDown,
+  chevronRight,
   eyeOff,
   dashboard,
   server,
@@ -119,6 +120,10 @@ class _LinePainter extends CustomPainter {
         path.moveTo(6, 9);
         path.lineTo(12, 15);
         path.lineTo(18, 9);
+      case SourceGlyph.chevronRight:
+        path.moveTo(9, 6);
+        path.lineTo(15, 12);
+        path.lineTo(9, 18);
       case SourceGlyph.eyeOff:
         path.moveTo(3, 3);
         path.lineTo(21, 21);

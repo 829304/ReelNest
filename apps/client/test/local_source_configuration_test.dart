@@ -50,7 +50,7 @@ void main() {
         );
         expect(
           tester
-              .widget<TextButton>(find.widgetWithText(TextButton, '添加并扫描'))
+              .widget<TextButton>(find.widgetWithText(TextButton, '下一步'))
               .onPressed,
           isNull,
         );
@@ -80,10 +80,24 @@ void main() {
         picker.pending.completeError(const SourceFailure('选择器读取失败'));
         await tester.pumpAndSettle();
         expect(find.text('选择器读取失败'), findsOneWidget);
+        await tester.tap(find.text('下一步'));
+        await tester.pumpAndSettle();
+        expect(find.text('确认扫描、健康检查和元数据策略。'), findsOneWidget);
+        await tester.tap(find.widgetWithText(TextButton, '自动扫描'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, '参与健康检查'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('元数据优先写入源目录'));
+        await tester.tap(find.widgetWithText(TextButton, '元数据优先写入源目录'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('添加并扫描'));
         await tester.pumpAndSettle();
         expect(result!.locations, List.generate(6, (i) => '/folder$i'));
         expect(result!.mediaType, SourceMediaType.music);
+        expect(result!.autoScan, isFalse);
+        expect(result!.includeInHealthCheck, isFalse);
+        expect(result!.includeInMetadataFetch, isTrue);
+        expect(result!.preferMetadataWriteToSource, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
