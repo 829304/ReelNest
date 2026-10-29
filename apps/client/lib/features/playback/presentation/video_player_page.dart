@@ -106,6 +106,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   Timer? _noticeTimer;
   Timer? _volumeHudTimer;
   String? _notice;
+  PlayerInlineNoticeKind _noticeKind = PlayerInlineNoticeKind.information;
   double? _volumeHud;
   bool _popoverActive = false;
   bool _controlsLocked = false;
@@ -230,9 +231,20 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   void _showNotice(String message) {
+    _setNotice(message, PlayerInlineNoticeKind.information);
+  }
+
+  void _showErrorNotice(String message) {
+    _setNotice(message, PlayerInlineNoticeKind.error);
+  }
+
+  void _setNotice(String message, PlayerInlineNoticeKind kind) {
     if (!mounted) return;
     _noticeTimer?.cancel();
-    setState(() => _notice = message);
+    setState(() {
+      _notice = message;
+      _noticeKind = kind;
+    });
     _noticeTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _notice = null);
     });
@@ -375,7 +387,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       await openExternal();
     } catch (error) {
       if (!mounted) return;
-      _showNotice(
+      _showErrorNotice(
         error is SourceFailure ? error.message : '外部播放器不可用，请检查设置后重试。',
       );
     }
@@ -439,7 +451,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       } else {
         final entered = await coordinator.enterMiniMode(_videoAspectRatio);
         if (!entered) {
-          _showNotice('请先退出全屏，再进入迷你悬浮窗');
+          _showErrorNotice('请先退出全屏，再进入迷你悬浮窗');
           return;
         }
       }
@@ -451,7 +463,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       });
       _show();
     } catch (_) {
-      if (mounted) _showNotice('无法切换迷你悬浮窗，请重试');
+      if (mounted) _showErrorNotice('无法切换迷你悬浮窗，请重试');
     }
   }
 
@@ -500,10 +512,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       await widget.setFullscreen(next);
       updateFullscreen(next);
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('无法切换全屏，请重试。')));
-      }
+      if (mounted) _showErrorNotice('无法切换全屏，请重试。');
     }
     _show();
   }
@@ -537,22 +546,14 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     try {
       await session.close();
       if (session.saveError != null && mounted) {
-        final leave = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('播放进度未保存'),
-            content: Text(session.saveError!),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('重试'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('仍然关闭'),
-              ),
-            ],
-          ),
+        final leave = await showPlayerDecisionDialog(
+          context,
+          title: '播放进度未保存',
+          message: session.saveError!,
+          secondaryLabel: '重试',
+          primaryLabel: '仍然关闭',
+          palette: _palette,
+          destructive: true,
         );
         if (!mounted || leave == null) return;
         if (leave == true) {
@@ -960,8 +961,25 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                         spacing: 7,
                         children: [
                           Icon(
-                            Icons.check_circle_rounded,
-                            color: Theme.of(context).colorScheme.primary,
+                            switch (_noticeKind) {
+                              PlayerInlineNoticeKind.information =>
+                                Icons.info_outline_rounded,
+                              PlayerInlineNoticeKind.warning =>
+                                Icons.warning_amber_rounded,
+                              PlayerInlineNoticeKind.error =>
+                                Icons.error_outline_rounded,
+                            },
+                            color: switch (_noticeKind) {
+                              PlayerInlineNoticeKind.information => const Color(
+                                0xFF7CB7FF,
+                              ),
+                              PlayerInlineNoticeKind.warning => const Color(
+                                0xFFFFC66D,
+                              ),
+                              PlayerInlineNoticeKind.error => const Color(
+                                0xFFFF8E8E,
+                              ),
+                            },
                             size: 15,
                           ),
                           Text(

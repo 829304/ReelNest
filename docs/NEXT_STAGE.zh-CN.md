@@ -2,6 +2,14 @@
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 更新：2026-10-29。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 
+## 2026-10-29 播放器错误反馈与决策弹窗 P0（Windows 定向验证通过）
+
+- 播放进度保存失败时改用播放器专用 `PlayerDecisionDialog`：深色/玻璃表面、最大宽430px、160ms fade+scale；Esc和遮罩可关闭，默认聚焦安全的“重试”，危险的“仍然关闭”使用红色。行为保持不变：重试再次保存，仍然关闭则放弃保存并退出，取消则留在播放器。
+- 全屏切换、迷你模式和外部播放器失败改为播放器内通知，按 information/error 展示对应图标与颜色，不再错误显示成功勾；外部字幕文件选择失败改为字幕面板内联错误，不再用 SnackBar。
+- 网络串流专用输入弹层维持现状：虽然使用 `showDialog`，其内容已采用项目统一 `AppSheet`，不属于默认白色 Material 弹层断层。
+- 相关6个测试文件共87项通过；`flutter analyze` 无问题；Windows Release 37.9秒成功；五秒 smoke 于2026-10-29 15:33:38 +08通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0），无残留进程。
+- 未完成真实文件选择器失败注入的可见验收、macOS/Linux实机及真实媒体逐项视觉验收；本轮未改变播放业务、持久化或后端。详情见[播放器状态盘点](PLAYER_STATUS.zh-CN.md#2026-10-29-播放器错误反馈与决策弹窗-p0)。
+
 ## 2026-10-29 播放器窗口尺寸与自适应 P0（Windows 定向验证通过）
 
 - 对照原 `PlayerView.swift` 的 `VideoPlayerWindowPresenter` / `VideoWindowSizing`：移除 `player_window_app` 固定960×540，改为可用屏幕区域内居中；横屏默认优选宽1120、最多98.5%可用宽/94%可用高，竖屏按可用高度约90%定尺寸。记忆宽度、横竖屏切换、真实解码比例修正及独立全屏/最大化/迷你窗恢复按原版规则处理。

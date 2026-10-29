@@ -117,6 +117,7 @@ class PlayerTrackPopover extends StatefulWidget {
 
 class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
   double? _draftVolume;
+  String? _filePickerError;
   final _markerPanelUpdates = ValueNotifier<int>(0);
   Object? _onlineSubtitleIdentity;
   bool _didAutoSearchOnlineSubtitles = false;
@@ -235,6 +236,13 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
                     PlayerMarkerPanel(session: session, palette: palette),
                   ],
                 },
+                if (widget.panel == PlayerPanel.subtitles &&
+                    _filePickerError != null)
+                  PlayerInlineNotice(
+                    key: const ValueKey('subtitle-file-picker-error'),
+                    message: _filePickerError!,
+                    palette: palette,
+                  ),
                 if (session.controlError != null)
                   PlayerInlineNotice(
                     message: session.controlError!,
@@ -945,6 +953,9 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
     ),
   );
   Future<void> _openSubtitle() async {
+    if (_filePickerError != null) {
+      setState(() => _filePickerError = null);
+    }
     try {
       final file = await openFile(
         acceptedTypeGroups: [
@@ -966,8 +977,7 @@ class _PlayerTrackPopoverState extends State<PlayerTrackPopover> {
       if (file != null && mounted) await session.addSubtitle(file.path);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('无法选择字幕文件，请重试。')));
+        setState(() => _filePickerError = '无法选择字幕文件，请重试。');
       }
     }
   }

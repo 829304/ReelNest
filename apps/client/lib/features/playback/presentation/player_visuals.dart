@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// PlayerView.swift VideoControlPalette. Missing artwork resolves to dark
 /// content; poster luminance below .46 resolves to light content.
@@ -334,6 +335,207 @@ class PlayerPanelEntrance extends StatelessWidget {
         child: Transform.translate(
           offset: Offset(0, (1 - value) * 5),
           child: child,
+        ),
+      ),
+    );
+  }
+}
+
+Future<bool?> showPlayerDecisionDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String secondaryLabel,
+  required String primaryLabel,
+  required PlayerPalette palette,
+  bool destructive = false,
+}) => showGeneralDialog<bool>(
+  context: context,
+  barrierDismissible: true,
+  barrierLabel: '关闭确认',
+  barrierColor: Colors.black.withValues(alpha: .46),
+  transitionDuration: const Duration(milliseconds: 160),
+  pageBuilder: (context, _, _) => Theme(
+    data: playerOverlayThemeData(Theme.of(context)),
+    child: CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.pop(context),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Center(
+          child: PlayerDecisionDialog(
+            title: title,
+            message: message,
+            secondaryLabel: secondaryLabel,
+            primaryLabel: primaryLabel,
+            palette: palette,
+            destructive: destructive,
+          ),
+        ),
+      ),
+    ),
+  ),
+  transitionBuilder: (context, animation, _, child) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: .975, end: 1).animate(curved),
+        child: child,
+      ),
+    );
+  },
+);
+
+/// Compact confirmation chrome for player-only decisions. It avoids the
+/// default Material alert surface while keeping the safe action focused.
+class PlayerDecisionDialog extends StatelessWidget {
+  const PlayerDecisionDialog({
+    required this.title,
+    required this.message,
+    required this.secondaryLabel,
+    required this.primaryLabel,
+    required this.palette,
+    this.destructive = false,
+    super.key,
+  });
+
+  final String title;
+  final String message;
+  final String secondaryLabel;
+  final String primaryLabel;
+  final PlayerPalette palette;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = (MediaQuery.sizeOf(context).width - 32)
+        .clamp(0, 430)
+        .toDouble();
+    final danger = const Color(0xFFFF8E8E);
+    return Material(
+      type: MaterialType.transparency,
+      child: SizedBox(
+        key: const ValueKey('player-decision-dialog'),
+        width: width,
+        child: PlayerPanelSurface(
+          palette: palette,
+          radius: 20,
+          shadowRadius: 26,
+          shadowOffset: const Offset(0, 12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 19, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 16,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 12,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: danger.withValues(alpha: .11),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: danger.withValues(alpha: .22),
+                          width: .8,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.sync_problem_rounded,
+                        size: 19,
+                        color: danger,
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        spacing: 5,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: palette.primary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            message,
+                            style: TextStyle(
+                              color: palette.secondary,
+                              fontSize: 12,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  spacing: 9,
+                  children: [
+                    TextButton(
+                      key: const ValueKey('player-decision-secondary'),
+                      autofocus: true,
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 15),
+                        foregroundColor: palette.primary,
+                        backgroundColor: palette.choiceFill,
+                        side: BorderSide(color: palette.rowStroke, width: .8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: Text(secondaryLabel),
+                    ),
+                    FilledButton(
+                      key: const ValueKey('player-decision-primary'),
+                      onPressed: () => Navigator.pop(context, true),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 15),
+                        backgroundColor: destructive
+                            ? const Color(0xFFD84A4A)
+                            : palette.choiceSelectedFill,
+                        foregroundColor: destructive
+                            ? Colors.white
+                            : palette.choiceSelectedForeground,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      child: Text(primaryLabel),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

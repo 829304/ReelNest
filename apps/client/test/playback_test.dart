@@ -1030,7 +1030,20 @@ void main() {
             ),
           );
           await tester.tap(find.byTooltip('关闭播放器'));
-          await waitUntil(() => find.byType(AlertDialog).evaluate().isNotEmpty);
+          await waitUntil(
+            () => find
+                .byKey(const ValueKey('player-decision-dialog'))
+                .evaluate()
+                .isNotEmpty,
+          );
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(find.text('播放进度未保存'), findsOneWidget);
+          expect(
+            tester
+                .getSize(find.byKey(const ValueKey('player-decision-dialog')))
+                .width,
+            430,
+          );
           expect(closed, isFalse);
           expect(session.engine, same(decoder));
           expect(decoder.disposals, 0);
@@ -1039,7 +1052,12 @@ void main() {
             await waitUntil(() => closed);
             expect(decoder.disposals, 1);
           } else {
-            await waitUntil(() => find.byType(AlertDialog).evaluate().isEmpty);
+            await waitUntil(
+              () => find
+                  .byKey(const ValueKey('player-decision-dialog'))
+                  .evaluate()
+                  .isEmpty,
+            );
             // Drain the actual retry write before checking commands/window state.
             await finish(session.save());
             expect(closed, isFalse);
