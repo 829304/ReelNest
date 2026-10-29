@@ -1,18 +1,24 @@
 # ReelNest 文档
 
-更新时间：2026-10-28。
+更新时间：2026-10-29。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
+- 播放器窗口尺寸与自适应 P0（2026-10-29）：默认1120优选宽度，横竖屏与真实视频比例自适应，记忆普通横屏宽度并正确恢复全屏/最大化/迷你窗状态；360px窄窗 Dock 约束已覆盖。5文件54/54、analyze、Windows Release38.5秒及正常关闭 smoke通过。未验可见真实窗口、实体缩放、竖屏真实视频、macOS/Linux或全量测试。详见[播放器状态](PLAYER_STATUS.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0)与[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0windows-定向验证通过)。
+- 来源主页 P0 以原版 Swift `SourcesView.SourceRowView` 为基线，Windows 定向交付验证通过：8文件82/82、analyze clean、33个Dart文件format 0 changed、diff-check通过；Windows Release52.7秒及五秒 smoke（21:32:15 +08，响应/正常关闭/ExitCode 0）通过。严格84px常态/hover行高与52×52头像断言通过。真实可见UI逐像素复核、macOS/Linux原生、系统目录选择器和真实远程服务仍待，不宣称全局UI一致。见[本地来源文档](LOCAL_SOURCES.zh-CN.md#2026-10-28来源主页-p0windows定向交付验证通过)及[当前阶段记录](NEXT_STAGE.zh-CN.md#2026-10-28-来源主页-p0windows定向交付验证通过)。
+- 媒体源系统 P1 首批已按原 Swift 对齐 SourcesPage 空态、加载态及来源类型卡；14个前端用例、全项目analyze和Windows Release34.7秒通过。隐藏启动探针5秒响应，但未能正常关闭窗口，不计smoke通过；可见像素人工验收待。详情见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源系统-p1-首批windows-前端与-release-验证通过smoke-未完成正常关闭)。
+- 媒体源系统 P1 第二批已统一本地向导、来源类型选择及 Emby/Jellyfin/Plex 的共享三步指示器，并补齐步骤无障碍语义、Reduce Motion 与单焦点类型卡交互。7文件41/41、全项目analyze、Windows Release38.0秒和正常关闭 hidden smoke通过（10:38:42 +08，ExitCode 0，无进程残留）；可见像素人工验收及 macOS/Linux仍待。与首批结果分批记录。详见[第二批阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源系统-p1-第二批windows-定向交付验证通过)。
+- 远程媒体源设置 P0 已按原版收口：同步全部/单库卡、来源类型图标、加载/空态和独立错误重试状态已实现；7文件57/57、全项目analyze、Windows Release46.2秒及正常关闭 hidden smoke通过（14:54:06 +08，ExitCode 0），diff-check通过且无进程残留。可见像素人工验收、macOS/Linux仍待。详见[设置 P0 阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源设置-p0windows-定向交付验证通过)。
 - TMDB 本地剧集/动漫：手动批量阶段 13 文件 160/160、analyze、Windows Release/smoke 通过；定时自动匹配阶段 15 文件 179/179（48秒）、最终 analyze（4.4秒）、Windows Release（45.9秒）及五秒 hidden smoke（22:08:29 +08，响应/正常关闭/ExitCode 0）通过。自动批次 `data/app.so` 为 2026-10-27 22:07:19 +08、13,239,176 bytes；48个工作区变更 Dart 文件 format 0 changed、diff-check通过。两阶段测试有覆盖重叠，分别记录、不累计；未跑全量/native Flutter drive、真实公服、macOS/Linux、真实15分钟墙钟周期或可见UI验收，SourceRow视觉对照仍待。详见[剧集 TMDB 计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
 - 本地视频健康补充与 NFO 写回：15 个定向文件 164/164、analyze、61 个 Dart 文件格式检查及 diff-check 通过；包含写回后 LocalMetadataService 读取和真实来源重扫恢复字段。Windows Release 44.3 秒及五秒 hidden smoke（09:52:30 +08，响应/正常关闭/ExitCode 0）通过。先提交 ReelNest 索引，再独立尝试 NFO，失败保留索引并提示 warning；普通 TMDB 单项/批量/定时匹配不写 NFO。macOS/Linux、真实 NAS 与可见 UI 验收仍待。详见[本地视频元数据写回计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。
+- 持久 URL 视频来源管理弹窗 P0 已对照原版收口：URL/UI/数据/来源联动21项通过、2项native mpv conditional skipped、analyze clean、Windows Release38.5秒及正常关闭 smoke通过（15:05:46 +08，ExitCode 0，无残留进程）。管理/删除确认、视觉表面、交互和静态加载态已纳入本批；macOS/Linux、可见逐像素 UI、真实服务和全量测试仍待。封面修订和离线下载等未迁移范围见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
 - 来源向导与来源设置 P0（2026-10-27）：已接入原版三步结构及四种当前实现的来源类型；第三步策略保存经 `SourceOptions` 持久化，schema 不变。定向/核心90/90、analyze 0 issues、Windows Release 41.9秒、smoke 21:21:32 +08通过。未实现连接器仍保留迁移范围；来源主页 `SourceRow` 尚未完成原版逐像素/逐交互对照。详见[本地来源阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-来源向导与来源设置-p0windows-验证通过)。
 - 本地媒体自动监控与增量更新（2026-10-27）：8文件78/78通过（16秒），analyze clean（4.6秒）、Windows Release 43.4秒、五秒 hidden smoke 通过（20:54:10 +08，响应/正常关闭/ExitCode 0）；来源 schema 未变。未跑全量/native Flutter drive/可见截图/真实 NAS 或移动盘拔插；Windows 强制 `perDirectory` 用例不代表 Linux 原生验收，macOS/Linux 实机与 macOS 持久目录授权仍待。详见[本地来源文档](LOCAL_SOURCES.zh-CN.md#自动监控与增量更新2026-10-27windows-自动化release-验证通过)。
 - 媒体库主界面页头 P0 对齐原版：共享页头恢复原版标题簇、TV 图标、动作对齐与窄布局；移除额外页头卡片/管理按钮并保留原版筛选条双层表面。跨来源63项及补充22项通过，format/analyze、Windows Release41.0秒和五秒 smoke通过。未做真实服务器可见 UI、实体输入、高 DPI、macOS/Linux 精确视觉验收；不代表全局 UI 一致。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-媒体库主界面-p0-页头对齐原版windows-验证通过)。
 - 公共逻辑提取（2026-10-27）：第一批净减48行，176项相关测试通过，Windows Release 47.4秒及20:10 +08 五秒 smoke 通过；第二批净减62行，97/97相关测试通过（8秒）、analyze clean、format 0 changed，Windows Release 46.3秒及20:21:52 +08 五秒 smoke 通过（隐藏窗口响应、正常关闭、ExitCode 0）。两批验证分别记录，不与前端41秒构建混用；不代表全量测试或三平台验收。详见[公共逻辑提取记录](COMMON_LOGIC_EXTRACTION_2026-10-27.zh-CN.md)。
-- 原版侧边栏状态卡 P0 第一、二批部分迁移：固定底部卡片、继续观看、被动缓存统计快照与任务完成提示已接入。第二批专项20/20、交叉回归117/117、analyze、Windows Release 38.9秒和隐藏 smoke通过。音乐迷你控制、更新、保险库锁定、赞赏、缺失/重复项卡及任务重试/取消仍待，详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-侧边栏状态卡-p0-第二批部分迁移windows-验证通过)。
+- 原版侧边栏状态卡 P0 第三批 Windows 定向交付验证通过：缺失文件/疑似重复 attention 轮换及原版卡体、glyph、渐变、动画、进度条约束已实现；最终交叉组59/59、复核7/7、analyze clean、format/diff-check通过，Windows Release44.7秒及五秒 hidden smoke通过。可见逐像素、真实健康数据长时轮换、macOS/Linux仍待；音乐、更新、保险库、赞赏和任务操作尚未迁移，侧栏整体未完成。详见[第三批阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-侧边栏状态卡-p0-第三批收口windows-定向交付验证通过)及[状态总览](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md#状态基线)。
 - P0 本地媒体卡视觉一致性收口已按 `PosterGridView.swift` / `HomeVividTokens` 修正：专项1/1、核心 UI 35/35、Jellyfin/Plex 前端4/4、全项目 analyze、Windows Release 40.9秒及五秒 smoke（10:38:12 +08，响应/关闭/exit 0）与人工窗口复核通过。缺图占位内标题与卡片底部标题为原版设计，均保留。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-本地媒体卡视觉一致性修正windows-验证通过)。
 - 原版视觉纠偏第一批已完成：复用 PointerInspectTilt、媒体海报倾斜、详情 hero/海报与收藏和书签动作回归原版布局。定向16/16、跨来源47/47、analyze、Windows Release 41.0秒及隐藏 smoke 通过。此批不代表全局像素一致；来源/设置/首页逐页审计与 macOS/Linux 实机视觉仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-原版视觉纠偏第一批windows-验证通过)。
 - P0 媒体网格悬浮阴影层级已修正：视觉专项最终2/2、跨来源组合最终63/63，analyze、diff-check、Windows Release 39.7秒和隐藏 smoke通过。首次63项组合因新退出断言少 pump 一帧失败，调整时序后同一组合通过。此项只解决主悬浮阴影遮挡，不代表工具栏/图标/全页面像素审计完成。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-媒体网格悬浮阴影绘制层级修正)。
@@ -120,6 +126,7 @@
 | 文档 | 内容 |
 |---|---|
 | [本地媒体源与索引](LOCAL_SOURCES.zh-CN.md) | 目录来源、扫描、SQLite、来源隔离和平台边界 |
+| [持久 URL 视频媒体源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md) | 封面修订8文件52/52；管理弹窗P0 21项通过、2 native conditional skip、analyze、Windows Release/smoke通过；URL离线缓存仍为候选 |
 | [媒体源别名与 Emby 图标](SOURCE_ALIASES.zh-CN.md) | 侧栏 Logo、来源别名和持久化 |
 | [来源刷新与页面生命周期](SOURCE_PAGE_LIFECYCLE_FIX_2026-10-12.zh-CN.md) | 刷新期间保留滚动、多选、分页游标和详情状态 |
 | [媒体库进入详情的海报闪烁修复](POSTER_TRANSITION_2026-10-12.zh-CN.md) | 页面切换时的海报占位与过渡修复 |

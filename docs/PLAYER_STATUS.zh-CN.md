@@ -1,6 +1,13 @@
 # 共用视频播放器实现盘点
 
-本页最近更新：2026-10-26。最新实现/缺口总表及路线请先看[统一实现状态盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)；本页保留共用视频播放器历史批次与专项索引，历史验证数字不表示当前完整全平台状态。
+本页最近更新：2026-10-29。最新实现/缺口总表及路线请先看[统一实现状态盘点](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md)；本页保留共用视频播放器历史批次与专项索引，历史验证数字不表示当前完整全平台状态。
+
+## 2026-10-29 播放器窗口尺寸与自适应 P0
+
+- 对照 `PlayerView.swift` 的 `VideoPlayerWindowPresenter` / `VideoWindowSizing` 完成 Windows 实现与自动化：默认优选宽1120，横屏按记忆宽度和可用屏幕区，竖屏约90%可用高度；真实引擎比例/远程分辨率到达后更新约束和位置；横屏普通窗口用户调整后延迟保存宽度，全屏/最大化/迷你窗不误写；全屏/最大化事件同步图标；迷你窗往返恢复普通窗约束。
+- 窄窗Dock在360px窗口下保持324×72且不溢出，保留字幕/音轨、三键、设置、迷你窗和全屏；其余低优先操作可通过二级菜单或扩大窗口访问。
+- 播放器窗口、播放、基础设置、画面设置、快捷键5文件54/54 passed；`flutter analyze` 0 issue；Windows Release38.5秒；hidden smoke于15:20:25 +08正常响应、关闭且ExitCode=0；无残留进程，SDK临时修改已还原，diff-check无错误（仅既有CRLF提示）。
+- 未验证可见真实播放器窗口、实体拖拽缩放、竖屏真实视频、macOS/Linux原生或全量Flutter测试。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0windows-定向验证通过)。
 
 2026-10-26 TMDB 本地电影元数据第一批实现及 Windows Delivery Release/smoke 验证完成。最终定向合并复跑 `tmdb-final-targeted.log` 为 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）。全量记录为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不可称全量通过。后续缓存关闭取消专项46项通过，Windows Release/smoke 通过；该次后台收尾199ms、数据库关闭1ms，未重现先前约4.9秒的具体任务状态，不代表所有负载耗时保证。真实 TMDB 公服、macOS/Linux 原生和精确视觉验收待完成，完整证据见[TMDB 专项计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)和[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 

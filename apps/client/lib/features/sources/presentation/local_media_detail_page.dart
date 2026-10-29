@@ -24,6 +24,7 @@ import 'local_media_artwork.dart';
 import 'emby_media_actions.dart';
 import 'emby_video_context_menu.dart';
 import 'external_playback_actions.dart';
+import 'url_video_context_menu.dart';
 import 'marker_analysis_menu.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
@@ -789,7 +790,7 @@ class _DetailHero extends StatelessWidget {
     ];
     final titleActions = source.kind.isRemoteVideoSource
         ? EmbyMediaActions(item: item, favoriteOnly: true)
-        : source.kind.isFileSource
+        : source.kind.isFileSource || source.kind == MediaSourceKind.url
         ? LocalVideoActions(identity: item.identity)
         : null;
     final artworkSurface = PointerInspectTilt(
@@ -837,7 +838,9 @@ class _DetailHero extends StatelessWidget {
         ),
       ),
     );
-    final artwork = source.kind.isFileSource
+    final artwork = source.kind == MediaSourceKind.url
+        ? UrlVideoContextMenu(item: item, child: artworkSurface)
+        : source.kind.isFileSource
         ? LocalVideoContextMenu(item: item, child: artworkSurface)
         : MarkerAnalysisContextMenu(
             identity: item.identity,
@@ -970,9 +973,13 @@ class _DetailHero extends StatelessWidget {
               _PlaybackButton(
                 item: item,
                 enabled:
-                    source.kind.isFileSource || source.kind.isRemoteVideoSource,
+                    source.kind.isFileSource ||
+                    source.kind.isRemoteVideoSource ||
+                    source.kind == MediaSourceKind.url,
               ),
-              if (source.kind.isFileSource || source.kind.isRemoteVideoSource)
+              if (source.kind.isFileSource ||
+                  source.kind.isRemoteVideoSource ||
+                  source.kind == MediaSourceKind.url)
                 ExternalPlaybackButton(item: item),
               if (source.kind.isFileSource &&
                   item.type == 'movie' &&
@@ -1704,7 +1711,9 @@ class _RemoteFileStatus extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.cloud_outlined,
+                  source.kind == MediaSourceKind.url
+                      ? Icons.link_rounded
+                      : Icons.cloud_outlined,
                   size: 17,
                   color: palette.selectedTint,
                 ),
@@ -1712,7 +1721,9 @@ class _RemoteFileStatus extends ConsumerWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '${source.kind.label} 流媒体 · ${item.title}',
+                  source.kind == MediaSourceKind.url
+                      ? '网络视频 · ${item.title}'
+                      : '${source.kind.label} 流媒体 · ${item.title}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

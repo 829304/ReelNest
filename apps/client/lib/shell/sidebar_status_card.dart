@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../app/runtime_observations.dart';
+import '../domain/library_health.dart';
 import '../domain/media_source.dart';
+import '../domain/source_media_type.dart';
 import '../features/home/application/home_runtime_providers.dart';
 import '../features/home/application/home_actions.dart';
 import '../features/home/application/home_providers.dart';
@@ -57,6 +60,13 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
     final observations = ref.watch(observedReachabilityProvider);
     final tasks = ref.watch(homeRuntimeTasksProvider);
     final health = ref.watch(homeRuntimeHealthProvider);
+    final healthObservation = ref.watch(observedHealthProvider);
+    final sourceRevision = ref.watch(sourceChangesProvider).value ?? 0;
+    final healthSnapshot = _currentHealthSnapshot(
+      healthObservation,
+      sourceRevision,
+      sources,
+    );
     final continueWatching = ref
         .watch(homeCollectionProvider(HomeCollection.continueWatching))
         .items
@@ -70,6 +80,7 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
           observations,
           tasks,
           health,
+          healthSnapshot,
           continueWatching,
           cache,
         );
@@ -84,7 +95,13 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
         child: Material(
           key: const ValueKey('sidebar-status-card'),
           color: palette.surface,
-          borderRadius: BorderRadius.circular(14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: palette.border.withValues(alpha: .82),
+              width: .8,
+            ),
+          ),
           elevation: 0,
           child: InkWell(
             key: const ValueKey('sidebar-status-card-action'),
@@ -96,10 +113,6 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: palette.border.withValues(alpha: .82),
-                  width: .8,
-                ),
                 boxShadow: [
                   BoxShadow(
                     color: palette.shadow.withValues(alpha: .10),
@@ -108,53 +121,74 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
                   ),
                 ],
               ),
-              child: Stack(
-                alignment: Alignment.bottomLeft,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 58),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: reduceMotion
-                            ? Duration.zero
-                            : DesignTokens.fastMotion,
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeOut,
-                        transitionBuilder: (child, animation) => FadeTransition(
-                          opacity: animation,
-                          child: SlideTransition(
-                            position: Tween<Offset>(
-                              begin: const Offset(0, .12),
-                              end: Offset.zero,
-                            ).animate(animation),
-                            child: child,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Stack(
+                  alignment: Alignment.bottomLeft,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 58),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: AnimatedSwitcher(
+                          duration: reduceMotion
+                              ? Duration.zero
+                              : DesignTokens.fastMotion,
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeOut,
+                          transitionBuilder: (child, animation) =>
+                              FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(0, .12),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: child,
+                                ),
+                              ),
+                          child: _SidebarStatusContent(
+                            key: ValueKey(
+                              '${status.kind.name}|${status.title}',
+                            ),
+                            status: status,
                           ),
                         ),
-                        child: _SidebarStatusContent(
-                          key: ValueKey('${status.kind.name}|${status.title}'),
-                          status: status,
-                        ),
                       ),
                     ),
-                  ),
-                  if (status.progress case final progress?)
-                    FractionallySizedBox(
-                      widthFactor: progress.clamp(0, 1),
-                      child: Container(
-                        key: const ValueKey('sidebar-status-progress'),
-                        height: 3,
-                        margin: const EdgeInsets.symmetric(horizontal: 1),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: status.colors),
-                          borderRadius: BorderRadius.circular(1.5),
+                    if (status.progress case final progress?)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Container(
+                              key: const ValueKey('sidebar-status-progress'),
+                              width: math.max(
+                                10,
+                                constraints.maxWidth * progress.clamp(0, 1),
+                              ),
+                              height: 3,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    for (final color in status.colors)
+                                      color.withValues(alpha: .72),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(1.5),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -168,6 +202,7 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
     Map<String, ReachabilityObservation> observations,
     List<RuntimeTask> tasks,
     HomeRuntimeHealth health,
+    LibraryHealthSnapshot? healthSnapshot,
     HomeVideo? continueWatching,
     VideoCacheStorageObservation? cache,
   ) {
@@ -186,31 +221,65 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
       );
     }
 
+    final attention = <_SidebarStatus>[];
     final offlineCount = sources.where((source) {
       final observation = observations[source.id];
       return observation?.sourceKey == runtimeSourceKey(source) &&
           !observation!.online;
     }).length;
     if (offlineCount > 0) {
-      return _SidebarStatus(
-        kind: _SidebarStatusKind.issue,
-        title: '$offlineCount 个媒体源离线',
-        subtitle: '点击查看连接状态',
-        colors: const [Color(0xFFFF786B), DesignTokens.orange],
-        route: '/sources',
+      attention.add(
+        _SidebarStatus(
+          kind: _SidebarStatusKind.issue,
+          title: '$offlineCount 个媒体源离线',
+          subtitle: '点击查看连接状态',
+          colors: const [Color(0xFFFF786B), DesignTokens.orange],
+          route: '/sources',
+        ),
+      );
+    }
+
+    final missingCount = healthSnapshot?.missingItems.length ?? 0;
+    if (missingCount > 0) {
+      attention.add(
+        _SidebarStatus(
+          kind: _SidebarStatusKind.missingFiles,
+          title: '$missingCount 个文件已失效',
+          subtitle: '点击查看详情',
+          colors: const [Color(0xFFFF7A59), Color(0xFFFFB857)],
+          route: '/health',
+        ),
+      );
+    }
+
+    final duplicateCount = healthSnapshot?.duplicates.length ?? 0;
+    if (duplicateCount > 0) {
+      attention.add(
+        _SidebarStatus(
+          kind: _SidebarStatusKind.duplicates,
+          title: '发现 $duplicateCount 组疑似重复',
+          subtitle: '点击查看详情',
+          colors: const [Color(0xFFFF7A59), Color(0xFFFFB857)],
+          route: '/health',
+        ),
       );
     }
 
     final score = health.totalScore;
     if (score != null && score < 85) {
-      return _SidebarStatus(
-        kind: _SidebarStatusKind.health,
-        title: '媒体健康度 $score',
-        subtitle: '点击查看仪表盘',
-        colors: const [Color(0xFF40CFAE), DesignTokens.blue],
-        progress: score / 100,
-        route: '/health',
+      attention.add(
+        _SidebarStatus(
+          kind: _SidebarStatusKind.health,
+          title: '媒体健康度 $score',
+          subtitle: '点击查看仪表盘',
+          colors: const [Color(0xFF40CFAE), DesignTokens.blue],
+          progress: score / 100,
+          route: '/health',
+        ),
       );
+    }
+    if (attention.isNotEmpty) {
+      return attention[_rotationTick.abs() % attention.length];
     }
 
     final ambient = <_SidebarStatus>[];
@@ -280,6 +349,38 @@ class _SidebarStatusCardState extends ConsumerState<SidebarStatusCard> {
     return ambient[_rotationTick.abs() % ambient.length];
   }
 
+  LibraryHealthSnapshot? _currentHealthSnapshot(
+    HealthObservation? observation,
+    int revision,
+    List<MediaSource> sources,
+  ) {
+    final snapshot = observation?.revision == revision
+        ? observation?.snapshot
+        : null;
+    if (snapshot == null || !snapshot.evaluationComplete) return null;
+    final scope = sources
+        .where(
+          (source) =>
+              HomeRuntimePolicy.visible(source) &&
+              source.mediaType != SourceMediaType.music &&
+              source.mediaType != SourceMediaType.photo,
+        )
+        .toList();
+    final indexed = {
+      for (final source in snapshot.inventory.sources) source.id: source,
+    };
+    if (scope.isEmpty || indexed.length != scope.length) return null;
+    for (final source in scope) {
+      final scanned = indexed[source.id];
+      if (scanned == null ||
+          runtimeSourceKey(scanned) != runtimeSourceKey(source) ||
+          scanned.lastScan != source.lastScan) {
+        return null;
+      }
+    }
+    return snapshot;
+  }
+
   void _observeTasks(List<RuntimeTask>? previous, List<RuntimeTask> next) {
     if (previous == null || previous.isEmpty) return;
     final active = {
@@ -330,6 +431,7 @@ class _SidebarStatusContent extends StatelessWidget {
     return Row(
       children: [
         DecoratedBox(
+          key: const ValueKey('sidebar-status-leading'),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: LinearGradient(colors: status.colors),
@@ -348,6 +450,8 @@ class _SidebarStatusContent extends StatelessWidget {
                 switch (status.kind) {
                   _SidebarStatusKind.sources => SourceGlyph.server,
                   _SidebarStatusKind.issue => SourceGlyph.warning,
+                  _SidebarStatusKind.missingFiles => SourceGlyph.missingFolder,
+                  _SidebarStatusKind.duplicates => SourceGlyph.duplicates,
                   _SidebarStatusKind.task => SourceGlyph.refresh,
                   _SidebarStatusKind.health => SourceGlyph.dashboard,
                   _SidebarStatusKind.continueWatching =>
@@ -355,7 +459,7 @@ class _SidebarStatusContent extends StatelessWidget {
                   _SidebarStatusKind.cache => SourceGlyph.downloadCircle,
                   _SidebarStatusKind.completedTask => SourceGlyph.checkCircle,
                 },
-                size: 15,
+                size: 14,
                 lineWidth: 2.2,
                 color: Colors.white,
               ),
@@ -398,15 +502,17 @@ class _SidebarStatusContent extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         DecoratedBox(
+          key: const ValueKey('sidebar-status-trailing'),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: palette.hoverFill.withValues(alpha: .82),
           ),
           child: SizedBox.square(
             dimension: 25,
-            child: Icon(
-              Icons.chevron_right_rounded,
-              size: 17,
+            child: SourceLineIcon(
+              SourceGlyph.chevronRight,
+              size: 12,
+              lineWidth: 2.2,
               color: palette.secondary.withValues(alpha: .76),
             ),
           ),
@@ -419,6 +525,8 @@ class _SidebarStatusContent extends StatelessWidget {
 enum _SidebarStatusKind {
   sources,
   issue,
+  missingFiles,
+  duplicates,
   task,
   health,
   continueWatching,

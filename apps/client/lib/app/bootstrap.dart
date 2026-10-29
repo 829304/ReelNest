@@ -21,6 +21,7 @@ import '../domain/media_source.dart';
 import '../features/playback/application/marker_analysis_providers.dart';
 import '../features/playback/presentation/player_window_app.dart';
 import '../features/sources/application/source_providers.dart';
+import '../features/sources/application/url_video_providers.dart';
 import '../features/sources/application/emby_library_providers.dart';
 import 'reelnest_app.dart';
 import '../features/sources/application/automatic_scan_providers.dart';
@@ -180,6 +181,18 @@ class _MainWindowClose with WindowListener {
         trace,
         'close_background_tasks',
         () => Future.wait<void>([
+          if (container.exists(urlVideoCoverServiceProvider))
+            _closeTask(
+              trace,
+              'url_covers',
+              () => container.read(urlVideoCoverServiceProvider).dispose(),
+            ),
+          if (container.exists(urlVideoHealthProvider))
+            _closeTask(
+              trace,
+              'url_health',
+              () => container.read(urlVideoHealthProvider.notifier).dispose(),
+            ),
           if (container.exists(metadataSupplementServiceProvider))
             _closeTask(
               trace,

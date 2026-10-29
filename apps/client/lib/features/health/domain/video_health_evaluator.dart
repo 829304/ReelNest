@@ -15,6 +15,7 @@ class VideoHealthEvaluator {
   Future<LibraryHealthSnapshot> evaluate(
     LibraryInventory inventory, {
     required ScanCancellation cancellation,
+    Map<MediaIdentity, String> unhealthyURLs = const {},
   }) async {
     final sources = inventory.sources
         .where(
@@ -106,7 +107,7 @@ class VideoHealthEvaluator {
       cancellation.check();
       if (++n % 128 == 0) await Future<void>.delayed(Duration.zero);
       final source = byId[item.identity.sourceId]!;
-      if (!source.kind.isFileSource &&
+      if (source.kind.isRemoteVideoSource &&
           source.options.includeInHealthCheck &&
           !item.isSeries &&
           item.remote?.externalId.trim().isNotEmpty != true) {
@@ -170,11 +171,18 @@ class VideoHealthEvaluator {
       metadataGaps: core,
       detailGaps: detail,
       duplicates: duplicates,
+      unhealthyURLs: {
+        for (final item in items)
+          if (byId[item.identity.sourceId]?.kind == MediaSourceKind.url &&
+              byId[item.identity.sourceId]!.options.includeInHealthCheck &&
+              unhealthyURLs.containsKey(item.identity))
+            item.identity: unhealthyURLs[item.identity]!,
+      },
       evaluationComplete: true,
       // Emby lastScan certifies the current selection: settings invalidate it
       // on expansion, and only a complete snapshot commit can restore it.
       partialIndex: sources.any(
-        (s) => !s.kind.isFileSource && s.lastScan == null,
+        (s) => s.kind.isRemoteVideoSource && s.lastScan == null,
       ),
     );
   }

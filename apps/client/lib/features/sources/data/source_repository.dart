@@ -120,6 +120,15 @@ class SourceRepository {
   void traceChanged({Iterable<String>? sourceIds}) =>
       _changed(sourceIds: sourceIds, configuration: sourceIds == null);
 
+  void configurationChanged(Iterable<String> sourceIds) =>
+      _changed(sourceIds: sourceIds);
+
+  /// Module-owned writers share the same maintenance/shutdown mutation gate.
+  void requireMutationAllowed(String id) {
+    if (_closed) throw const SourceFailure('媒体库已关闭。');
+    _requireIdle(id);
+  }
+
   Future<void> setRemoteFavorite(MediaIdentity identity, bool favorite) async {
     final item = await media(identity);
     if (item.remote == null) throw const SourceFailure('此媒体没有远程状态。');
@@ -215,6 +224,7 @@ class SourceRepository {
       DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
 
   Future<bool> isReachable(MediaSource source) async {
+    if (source.kind == MediaSourceKind.url) return true;
     if (!source.kind.isFileSource) {
       return false; // Remote reachability is owned by its connection service.
     }
@@ -390,7 +400,15 @@ class SourceRepository {
       if (type == SourceMediaType.music && minimum > 5 * 1024 * 1024) {
         minimum = 512 * 1024;
       }
-      final nextOptions = options ?? current.options;
+      var nextOptions = options ?? current.options;
+      if (current.kind == MediaSourceKind.url) {
+        nextOptions = SourceOptions.fromJson({
+          ...nextOptions.toJson(),
+          'autoScan': false,
+          'includeInMetadataFetch': false,
+          'preferMetadataWriteToSource': false,
+        });
+      }
       final previousLibraries = current.options.selectedEmbyLibraryIDs.toSet();
       final nextLibraries = nextOptions.selectedEmbyLibraryIDs.toSet();
       // An empty selection means all libraries. A completed narrower snapshot

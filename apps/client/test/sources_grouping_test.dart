@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:drift/native.dart';
@@ -14,6 +15,60 @@ import 'package:reelnest/storage/library_database.dart';
 import 'package:reelnest/ui/theme/app_theme.dart';
 
 void main() {
+  testWidgets('empty and loading states preserve the original page geometry', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(836, 720);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = SourceRepository(
+      database: LibraryDatabase(NativeDatabase.memory()),
+      adapters: const {},
+    );
+    addTearDown(repository.close);
+
+    Future<void> pumpWith(Future<List<MediaSource>> Function() load) =>
+        tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              sourceRepositoryProvider.overrideWithValue(repository),
+              sourcesProvider.overrideWith((ref) => load()),
+            ],
+            child: MaterialApp(
+              theme: AppTheme.light,
+              home: const Scaffold(body: SourcesPage()),
+            ),
+          ),
+        );
+
+    await pumpWith(() async => const []);
+    await tester.pumpAndSettle();
+    final empty = find.byKey(const ValueKey('sources-empty-state'));
+    expect(empty, findsOneWidget);
+    expect(tester.getSize(empty).height, 320);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('sources-empty-icon-glow'))),
+      const Size.square(104),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('sources-empty-icon-tile'))),
+      const Size.square(76),
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpWith(() => Completer<List<MediaSource>>().future);
+    await tester.pump();
+    final loading = find.byKey(const ValueKey('sources-loading-state'));
+    expect(loading, findsOneWidget);
+    expect(tester.getSize(loading).height, greaterThanOrEqualTo(320));
+    expect(
+      tester.getSize(find.byKey(const ValueKey('sources-loading-row-0'))),
+      const Size(736, 72),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'connected/offline groups, scan-all and focus refresh use actual reachability',
     (tester) async {
@@ -65,17 +120,52 @@ void main() {
         find.descendant(of: firstCard, matching: find.byType(Card)),
         findsNothing,
       );
+      final firstSource = persistedSources.first;
+      expect(
+        tester.getSize(find.byKey(ValueKey('source-avatar-${firstSource.id}'))),
+        const Size.square(52),
+      );
+      expect(
+        find.byKey(ValueKey('source-actions-${firstSource.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: firstCard, matching: find.text('浏览媒体')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: firstCard, matching: find.text('重新扫描')),
+        findsNothing,
+      );
+      // The original has 16-point vertical insets around a 52-point avatar.
+      expect(tester.getSize(firstCard).height, 84);
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       addTearDown(mouse.removePointer);
       await mouse.moveTo(tester.getCenter(firstCard));
       await tester.pump(const Duration(milliseconds: 220));
+      expect(tester.getSize(firstCard).height, 84);
       expect(tester.takeException(), isNull);
-      final rowScans = tester
-          .widgetList<OutlinedButton>(
-            find.widgetWithText(OutlinedButton, '重新扫描'),
-          )
-          .toList();
+      final localSource = persistedSources.first;
+      await tester.tap(find.byKey(ValueKey('source-more-${localSource.id}')));
+      await tester.pumpAndSettle();
+      final relocate = find.byKey(
+        ValueKey('source-relocate-${localSource.id}'),
+      );
+      expect(relocate, findsOneWidget);
+      expect(tester.widget<MenuItemButton>(relocate).onPressed, isNotNull);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final rowScans = [
+        for (final source in persistedSources)
+          tester.widget<IconButton>(
+            find.descendant(
+              of: find.byKey(ValueKey('source-scan-${source.id}')),
+              matching: find.byType(IconButton),
+            ),
+          ),
+      ];
       expect(
         rowScans.where((button) => button.onPressed != null),
         hasLength(1),

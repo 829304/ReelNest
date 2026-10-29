@@ -8,6 +8,7 @@ import '../../../app/runtime_observations.dart';
 import '../../../domain/library_health.dart';
 import '../../../domain/media_source.dart';
 import '../../sources/application/source_providers.dart';
+import '../../sources/application/url_video_providers.dart';
 import '../data/health_repository.dart';
 import '../domain/local_health_evaluator.dart';
 import '../domain/video_health_evaluator.dart';
@@ -38,6 +39,7 @@ final rawLibraryHealthProvider = FutureProvider<LibraryHealthSnapshot>((
 ) async {
   final repository = ref.watch(sourceRepositoryProvider);
   final evaluator = ref.watch(localHealthEvaluatorProvider);
+  final urlHealth = ref.watch(urlVideoHealthProvider);
   final cancellation = ScanCancellation();
   // Library reloads (including save/delete/relocate/scan completion) retire old
   // results. A disposed generation cannot publish even if NAS I/O finishes late.
@@ -51,8 +53,14 @@ final rawLibraryHealthProvider = FutureProvider<LibraryHealthSnapshot>((
   });
   final inventory = await repository.inventory();
   cancellation.check();
-  return VideoHealthEvaluator(evaluator)
-      .evaluate(inventory, cancellation: cancellation);
+  return VideoHealthEvaluator(evaluator).evaluate(
+    inventory,
+    cancellation: cancellation,
+    unhealthyURLs: {
+      for (final entry in urlHealth.entries)
+        if (entry.value.isUnhealthy) entry.key: entry.value.label,
+    },
+  );
 });
 
 final ignoredHealthIssuesProvider = FutureProvider<Set<HealthIssueKey>>((ref) {

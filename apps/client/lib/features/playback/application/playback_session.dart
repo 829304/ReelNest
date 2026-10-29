@@ -32,6 +32,7 @@ import '../../../platform/subtitle_font_catalog.dart';
 import '../../../storage/runtime_storage_paths.dart';
 import '../../../player/mpv_video_frame_preview.dart';
 import '../../sources/data/source_repository.dart';
+import '../../sources/data/url_video_repository.dart';
 import '../data/playback_repository.dart';
 import '../data/player_preferences_repository.dart';
 import '../data/video_screenshot_store.dart';
@@ -1024,6 +1025,9 @@ class PlaybackSession extends ChangeNotifier {
           throw const SourceFailure('媒体文件不存在，可能是 NAS 未挂载、移动硬盘断开，或文件已被移动。');
         }
         resource = localPath;
+      } else if (source.kind == MediaSourceKind.url) {
+        trace?.stage('stream_resource');
+        resource = await UrlVideoRepository(sources).location(identity);
       } else if (source.kind.isRemoteVideoSource && emby != null) {
         ({String path, String lease})? cached;
         if (!force) {

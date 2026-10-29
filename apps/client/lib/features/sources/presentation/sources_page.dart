@@ -19,11 +19,13 @@ import '../application/source_providers.dart';
 import 'add_source_dialog.dart';
 import 'emby_sheets.dart';
 import '../application/emby_providers.dart';
+import '../application/url_video_providers.dart';
 import 'media_server_brand_mark.dart';
 import 'source_page_sections.dart';
 import 'source_settings_sheet.dart';
 import 'source_alias_dialog.dart';
 import 'source_confirmation_dialog.dart';
+import 'url_source_sheet.dart';
 
 class SourcesPage extends ConsumerStatefulWidget {
   const SourcesPage({super.key});
@@ -78,6 +80,18 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
         builder: (_) => const SourceKindSheet(),
       );
       if (kind == null || !mounted) return;
+      if (kind == MediaSourceKind.url) {
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const UrlSourceAddSheet(),
+        );
+        if (mounted) {
+          ref.invalidate(sourcesProvider);
+          ref.invalidate(sourceReachabilityProvider);
+        }
+        return;
+      }
       if (kind.isRemoteVideoSource) {
         final added = await showDialog<MediaSource>(
           context: context,
@@ -159,6 +173,17 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   });
 
   Future<void> _settings(MediaSource source) async {
+    if (source.kind == MediaSourceKind.url) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => const UrlSourceManagementSheet(),
+      );
+      if (mounted) {
+        ref.invalidate(sourcesProvider);
+        ref.invalidate(sourceReachabilityProvider);
+      }
+      return;
+    }
     if (source.kind.isRemoteVideoSource) {
       final scopeChanged = await showDialog<bool>(
         context: context,
@@ -190,6 +215,18 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     });
   }
 
+  Future<void> _reauthenticate(MediaSource source) async {
+    await showDialog<MediaSource>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => EmbyConnectionSheet(
+        source: source,
+        repository: ref.read(embyConnectionProvider),
+      ),
+    );
+    if (mounted) ref.invalidate(sourceReachabilityProvider);
+  }
+
   Future<void> _remove(MediaSource source) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -202,11 +239,19 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
       ),
     );
     if (confirmed == true && mounted) {
-      await _perform(
-        () => source.kind.isRemoteVideoSource
-            ? ref.read(embyConnectionProvider).remove(source.id)
-            : ref.read(sourceRepositoryProvider).remove(source.id),
-      );
+      await _perform(() async {
+        if (source.kind == MediaSourceKind.url) {
+          final items = await ref.read(urlVideoRepositoryProvider).list();
+          await ref
+              .read(urlVideoRepositoryProvider)
+              .remove(items.map((item) => item.identity).toSet());
+          ref.invalidate(urlVideosProvider);
+        } else if (source.kind.isRemoteVideoSource) {
+          await ref.read(embyConnectionProvider).remove(source.id);
+        } else {
+          await ref.read(sourceRepositoryProvider).remove(source.id);
+        }
+      });
     }
   }
 
@@ -337,8 +382,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     );
   }
 
-  // This remains the transitional index card. The original compact SourceRow
-  // and full original SourceRow layout still needs visual parity work.
+  // SourcesView.SourceRowView: one compact row, with state and actions kept at
+  // the same visual level instead of the earlier dashboard-card treatment.
   Widget _sourceCard(
     MediaSource source,
     SourceScanState scan, {
@@ -346,7 +391,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
     required bool isScanning,
     required bool canChoose,
   }) {
-    final colors = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final palette = SourceSheetPalette(dark);
     final statusColor = connected
@@ -354,31 +398,42 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
         : Color(dark ? 0xFFFFB84D : 0xFFD98A00);
     final accent = !connected
         ? statusColor
+        : source.kind == MediaSourceKind.url
+        ? const Color(0xFF22CDA4)
         : source.kind.isRemoteVideoSource
         ? mediaServerBrandColor(source.kind)
+        : source.kind == MediaSourceKind.mountedNas ||
+              source.mediaType == SourceMediaType.homeVideo
+        ? const Color(0xFF38BDF8)
+        : source.mediaType == SourceMediaType.music
+        ? Color(dark ? 0xFFFFC66D : 0xFFD98A00)
         : palette.selectedTint;
-    final compactButtonStyle = ButtonStyle(
-      minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
-      padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 12),
-      ),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: const WidgetStatePropertyAll(
-        TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-      shape: WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-      side: WidgetStatePropertyAll(BorderSide(color: palette.border)),
-    );
     final secondaryTextStyle = TextStyle(
       fontSize: 11.5,
       height: 1.4,
-      color: colors.onSurfaceVariant,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
     );
+    final urlItems = source.kind == MediaSourceKind.url
+        ? ref.watch(urlVideosProvider).value
+        : null;
+    final urlHealth = source.kind == MediaSourceKind.url
+        ? ref.watch(urlVideoHealthProvider)
+        : const <MediaIdentity, UrlVideoHealth>{};
+    final unhealthyUrls = urlHealth.values
+        .where((state) => state.isUnhealthy)
+        .length;
+    final sourceStatusLabel = source.kind == MediaSourceKind.url
+        ? unhealthyUrls == 0
+              ? '链接正常'
+              : '$unhealthyUrls 个链接失效'
+        : connected
+        ? '可访问'
+        : '不可访问';
     return _SourceCardSurface(
       key: ValueKey('source-${source.id}'),
+      sourceId: source.id,
       accent: accent,
+      onTap: () => context.go('/sources/${source.id}'),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: Column(
@@ -388,6 +443,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _SourceAvatar(
+                  key: ValueKey('source-avatar-${source.id}'),
                   source: source,
                   connected: connected,
                   accent: accent,
@@ -403,7 +459,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
-                            source.name,
+                            source.kind.isRemoteVideoSource
+                                ? source.kind.label
+                                : source.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -412,43 +470,104 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                             ),
                           ),
                           _SourceBadge(
-                            label: connected ? '可访问' : '不可访问',
-                            color: statusColor,
-                            icon: connected
-                                ? SourceGlyph.checkCircle
-                                : SourceGlyph.warning,
+                            label: sourceStatusLabel,
+                            color:
+                                source.kind == MediaSourceKind.url &&
+                                    unhealthyUrls > 0
+                                ? Color(dark ? 0xFFFFB84D : 0xFFD98A00)
+                                : statusColor,
+                            icon: SourceLineIcon(
+                              source.kind == MediaSourceKind.url &&
+                                      unhealthyUrls > 0
+                                  ? SourceGlyph.warning
+                                  : connected
+                                  ? SourceGlyph.checkCircle
+                                  : SourceGlyph.warning,
+                              size: 11.5,
+                              lineWidth: 1.9,
+                            ),
                           ),
                           _SourceBadge(
                             label: source.kind.label,
                             color: accent,
-                            icon: source.kind.isRemoteVideoSource
-                                ? SourceGlyph.dashboard
-                                : SourceGlyph.drive,
+                            icon: source.kind == MediaSourceKind.url
+                                ? const Icon(Icons.link_rounded, size: 12)
+                                : SourceLineIcon(
+                                    source.kind.isRemoteVideoSource
+                                        ? SourceGlyph.server
+                                        : SourceGlyph.drive,
+                                    size: 11.5,
+                                    lineWidth: 1.9,
+                                  ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Tooltip(
-                        message: source.location,
-                        waitDuration: const Duration(milliseconds: 550),
-                        child: Text(
-                          source.location,
+                      if (source.kind == MediaSourceKind.url)
+                        Text(
+                          '${urlItems?.length ?? source.itemCount} 个视频地址 · 在「其他视频」中查看',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: secondaryTextStyle,
+                        )
+                      else
+                        Tooltip(
+                          message: source.location,
+                          waitDuration: const Duration(milliseconds: 550),
+                          child: Text(
+                            source.location,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: secondaryTextStyle,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        source.lastScan == null
-                            ? '${source.itemCount} 项 · ${source.kind.isRemoteVideoSource ? '尚未完成同步' : '尚未完成扫描'}'
-                            : '${source.itemCount} 项 · 上次完整${source.kind.isRemoteVideoSource ? '同步' : '扫描'} ${source.lastScan!.toLocal().toString().split('.').first}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: secondaryTextStyle,
-                      ),
                     ],
                   ),
+                ),
+                const SizedBox(width: 12),
+                _SourceRowActions(
+                  key: ValueKey('source-actions-${source.id}'),
+                  source: source,
+                  scan: scan,
+                  showAlias: source.kind != MediaSourceKind.url,
+                  showRelocate: source.kind.isFileSource,
+                  showReauthenticate: source.kind.isRemoteVideoSource,
+                  onSettings:
+                      _busy ||
+                          (source.kind.isRemoteVideoSource && scan.busy) ||
+                          source.mediaType == SourceMediaType.privateCollection
+                      ? null
+                      : () => _settings(source),
+                  onScan: source.kind == MediaSourceKind.url
+                      ? null
+                      : scan.busy
+                      ? () => ref
+                            .read(sourceScansProvider.notifier)
+                            .cancel(source.id)
+                      : _busy || isScanning || !connected
+                      ? null
+                      : () => ref
+                            .read(sourceScansProvider.notifier)
+                            .scan(source.id),
+                  onAlias: _busy || scan.busy
+                      ? null
+                      : () => showSourceAliasDialog(
+                          context,
+                          source: source,
+                          repository: ref.read(sourceRepositoryProvider),
+                        ),
+                  onRelocate:
+                      _busy ||
+                          scan.busy ||
+                          !canChoose ||
+                          !source.kind.isFileSource
+                      ? null
+                      : () => _relocate(source),
+                  onReauthenticate:
+                      _busy || scan.busy || !source.kind.isRemoteVideoSource
+                      ? null
+                      : () => _reauthenticate(source),
+                  onRemove: _busy || scan.busy ? null : () => _remove(source),
                 ),
               ],
             ),
@@ -471,137 +590,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
                 padding: const EdgeInsets.only(top: 10),
                 child: _SourceMessagePill(message: scan.message!),
               ),
-            const SizedBox(height: 14),
-            Divider(height: 1, color: palette.border),
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  OutlinedButton.icon(
-                    key: ValueKey('source-alias-${source.id}'),
-                    style: compactButtonStyle,
-                    onPressed: _busy || scan.busy
-                        ? null
-                        : () => showSourceAliasDialog(
-                            context,
-                            source: source,
-                            repository: ref.read(sourceRepositoryProvider),
-                          ),
-                    icon: const Icon(Icons.edit_outlined, size: 15),
-                    label: const Text('设置别名'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonalIcon(
-                    style: compactButtonStyle.copyWith(
-                      side: const WidgetStatePropertyAll(BorderSide.none),
-                    ),
-                    onPressed:
-                        !source.kind.isFileSource &&
-                            !source.kind.isRemoteVideoSource
-                        ? null
-                        : () => context.go('/sources/${source.id}'),
-                    icon: const Icon(Icons.video_library_outlined, size: 15),
-                    label: const Text('浏览媒体'),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: '设置',
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(36, 36),
-                      maximumSize: const Size(36, 36),
-                      side: BorderSide(color: palette.border),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed:
-                        _busy ||
-                            (source.kind.isRemoteVideoSource && scan.busy) ||
-                            (!source.kind.isFileSource &&
-                                !source.kind.isRemoteVideoSource) ||
-                            source.mediaType ==
-                                SourceMediaType.privateCollection
-                        ? null
-                        : () => _settings(source),
-                    icon: const SourceLineIcon(SourceGlyph.sliders, size: 17),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    style: compactButtonStyle,
-                    onPressed: scan.busy
-                        ? () => ref
-                              .read(sourceScansProvider.notifier)
-                              .cancel(source.id)
-                        : _busy ||
-                              isScanning ||
-                              !connected ||
-                              (!source.kind.isFileSource &&
-                                  !source.kind.isRemoteVideoSource)
-                        ? null
-                        : () => ref
-                              .read(sourceScansProvider.notifier)
-                              .scan(source.id),
-                    child: Text(
-                      scan.busy
-                          ? (source.kind.isRemoteVideoSource ? '取消同步' : '取消扫描')
-                          : source.kind.isFileSource
-                          ? '重新扫描'
-                          : '同步媒体',
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    style: compactButtonStyle.copyWith(
-                      side: const WidgetStatePropertyAll(BorderSide.none),
-                    ),
-                    onPressed:
-                        _busy ||
-                            scan.busy ||
-                            !canChoose ||
-                            !source.kind.isFileSource
-                        ? null
-                        : () => _relocate(source),
-                    child: const Text('重新定位'),
-                  ),
-                  if (source.kind.isRemoteVideoSource) ...[
-                    const SizedBox(width: 8),
-                    TextButton(
-                      style: compactButtonStyle.copyWith(
-                        side: const WidgetStatePropertyAll(BorderSide.none),
-                      ),
-                      onPressed: _busy || scan.busy
-                          ? null
-                          : () async {
-                              await showDialog<MediaSource>(
-                                context: context,
-                                barrierDismissible: false,
-                                builder: (_) => EmbyConnectionSheet(
-                                  source: source,
-                                  repository: ref.read(embyConnectionProvider),
-                                ),
-                              );
-                              if (mounted) {
-                                ref.invalidate(sourceReachabilityProvider);
-                              }
-                            },
-                      child: const Text('重新认证'),
-                    ),
-                  ],
-                  const SizedBox(width: 8),
-                  TextButton(
-                    style: compactButtonStyle.copyWith(
-                      foregroundColor: WidgetStatePropertyAll(colors.error),
-                      side: const WidgetStatePropertyAll(BorderSide.none),
-                    ),
-                    onPressed: _busy || scan.busy
-                        ? null
-                        : () => _remove(source),
-                    child: const Text('移除来源'),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -609,14 +597,172 @@ class _SourcesPageState extends ConsumerState<SourcesPage>
   }
 }
 
+class _SourceRowActions extends StatelessWidget {
+  const _SourceRowActions({
+    required this.source,
+    required this.scan,
+    required this.showAlias,
+    required this.showRelocate,
+    required this.showReauthenticate,
+    required this.onSettings,
+    required this.onScan,
+    required this.onAlias,
+    required this.onRelocate,
+    required this.onReauthenticate,
+    required this.onRemove,
+    super.key,
+  });
+
+  final MediaSource source;
+  final SourceScanState scan;
+  final bool showAlias;
+  final bool showRelocate;
+  final bool showReauthenticate;
+  final VoidCallback? onSettings;
+  final VoidCallback? onScan;
+  final VoidCallback? onAlias;
+  final VoidCallback? onRelocate;
+  final VoidCallback? onReauthenticate;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasMore = showAlias || showRelocate || showReauthenticate;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SourceRowIconButton(
+          key: ValueKey('source-settings-${source.id}'),
+          tooltip: source.kind == MediaSourceKind.url ? '管理 URL 视频地址' : '设置',
+          onPressed: onSettings,
+          child: const SourceLineIcon(SourceGlyph.sliders, size: 17),
+        ),
+        if (source.kind != MediaSourceKind.url) ...[
+          const SizedBox(width: 14),
+          _SourceRowIconButton(
+            key: ValueKey('source-scan-${source.id}'),
+            tooltip: scan.busy
+                ? (source.kind.isRemoteVideoSource ? '取消同步' : '取消扫描')
+                : source.kind.isRemoteVideoSource
+                ? '同步媒体'
+                : '扫描',
+            onPressed: onScan,
+            child: Icon(
+              scan.busy ? Icons.close_rounded : Icons.refresh_rounded,
+              size: 18,
+            ),
+          ),
+        ],
+        if (hasMore) ...[
+          const SizedBox(width: 14),
+          MenuAnchor(
+            menuChildren: [
+              if (showAlias)
+                MenuItemButton(
+                  key: ValueKey('source-alias-${source.id}'),
+                  leadingIcon: const Icon(Icons.edit_outlined, size: 17),
+                  onPressed: onAlias,
+                  child: const Text('设置别名'),
+                ),
+              if (showRelocate)
+                MenuItemButton(
+                  key: ValueKey('source-relocate-${source.id}'),
+                  leadingIcon: const Icon(
+                    Icons.drive_file_move_outline,
+                    size: 17,
+                  ),
+                  onPressed: onRelocate,
+                  child: const Text('重新定位'),
+                ),
+              if (showReauthenticate)
+                MenuItemButton(
+                  key: ValueKey('source-reauthenticate-${source.id}'),
+                  leadingIcon: const Icon(Icons.key_rounded, size: 17),
+                  onPressed: onReauthenticate,
+                  child: const Text('重新认证'),
+                ),
+            ],
+            builder: (context, controller, child) => _SourceRowIconButton(
+              key: ValueKey('source-more-${source.id}'),
+              tooltip: '更多操作',
+              onPressed: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+              child: const Icon(Icons.more_horiz_rounded, size: 19),
+            ),
+          ),
+        ],
+        const SizedBox(width: 14),
+        _SourceRowIconButton(
+          key: ValueKey('source-remove-${source.id}'),
+          tooltip: '删除',
+          onPressed: onRemove,
+          foreground: const Color(0xFFFF4D6B),
+          child: const Icon(Icons.delete_outline_rounded, size: 18),
+        ),
+      ],
+    );
+  }
+}
+
+class _SourceRowIconButton extends StatelessWidget {
+  const _SourceRowIconButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.child,
+    this.foreground,
+    super.key,
+  });
+
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final Widget child;
+  final Color? foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: ButtonStyle(
+        minimumSize: const WidgetStatePropertyAll(Size.square(34)),
+        maximumSize: const WidgetStatePropertyAll(Size.square(34)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.disabled)
+              ? (foreground ?? palette.secondary).withValues(alpha: .34)
+              : foreground ?? palette.secondary,
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.hovered)
+              ? palette.control.withValues(alpha: .86)
+              : Colors.transparent,
+        ),
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      icon: child,
+    );
+  }
+}
+
 class _SourceCardSurface extends StatefulWidget {
   const _SourceCardSurface({
+    required this.sourceId,
     required this.accent,
+    required this.onTap,
     required this.child,
     super.key,
   });
 
+  final String sourceId;
   final Color accent;
+  final VoidCallback onTap;
   final Widget child;
 
   @override
@@ -642,20 +788,14 @@ class _SourceCardSurfaceState extends State<_SourceCardSurface> {
         curve: Curves.easeOutCubic,
         transform: Matrix4.translationValues(
           0,
-          active && !reduceMotion ? -3 : 0,
+          active && !reduceMotion ? -4 : 0,
           0,
         ),
         decoration: BoxDecoration(
-          color: palette.staticSurface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _focused
-                ? widget.accent.withValues(alpha: .72)
-                : active
-                ? widget.accent.withValues(alpha: .24)
-                : palette.border,
-            width: _focused ? 1.4 : 1,
-          ),
+          color: active
+              ? Color.lerp(palette.staticSurface, palette.iconChip, .16)
+              : palette.staticSurface,
+          borderRadius: BorderRadius.circular(16),
           boxShadow: active
               ? [
                   BoxShadow(
@@ -668,7 +808,30 @@ class _SourceCardSurfaceState extends State<_SourceCardSurface> {
                 ]
               : const [],
         ),
-        child: widget.child,
+        // Swift strokeBorder overlays the row without adding layout insets.
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _focused
+                ? widget.accent.withValues(alpha: .72)
+                : active
+                ? widget.accent.withValues(alpha: .24)
+                : palette.border,
+            width: _focused ? 1.4 : 1,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: ValueKey('source-browse-${widget.sourceId}'),
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(16),
+            hoverColor: Colors.transparent,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }
@@ -679,6 +842,7 @@ class _SourceAvatar extends StatelessWidget {
     required this.source,
     required this.connected,
     required this.accent,
+    super.key,
   });
 
   final MediaSource source;
@@ -707,9 +871,15 @@ class _SourceAvatar extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: accent.withValues(alpha: connected ? .22 : .10),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: accent.withValues(alpha: connected ? .30 : .14),
+            blurRadius: 16,
+            offset: const Offset(-5, 8),
+          ),
+          BoxShadow(
+            color: const Color(0xFF2E90FA)
+                .withValues(alpha: connected ? .16 : .08),
+            blurRadius: 10,
+            offset: const Offset(5, -4),
           ),
         ],
       ),
@@ -720,7 +890,13 @@ class _SourceAvatar extends StatelessWidget {
               color: Colors.white,
             )
           : source.kind.isRemoteVideoSource
-          ? MediaServerBrandMark(kind: source.kind, size: 29)
+          ? const SourceLineIcon(
+              SourceGlyph.server,
+              size: 25,
+              color: Colors.white,
+            )
+          : source.kind == MediaSourceKind.url
+          ? const Icon(Icons.link_rounded, size: 27, color: Colors.white)
           : const SourceLineIcon(
               SourceGlyph.drive,
               size: 25,
@@ -739,7 +915,7 @@ class _SourceBadge extends StatelessWidget {
 
   final String label;
   final Color color;
-  final SourceGlyph icon;
+  final Widget icon;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -752,7 +928,10 @@ class _SourceBadge extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SourceLineIcon(icon, size: 11.5, lineWidth: 1.9, color: color),
+        IconTheme(
+          data: IconThemeData(color: color),
+          child: icon,
+        ),
         const SizedBox(width: 4),
         Text(
           label,
@@ -958,58 +1137,113 @@ class _SourcesLoadingStateState extends State<_SourcesLoadingState>
     );
     return FadeTransition(
       opacity: _controller,
-      child: Column(
+      child: Container(
         key: const ValueKey('sources-loading-state'),
-        children: [
-          for (var index = 0; index < widget.rows; index++) ...[
-            Container(
-              height: 116,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: palette.staticSurface,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: palette.border),
-              ),
-              child: Row(
-                children: [
-                  _SourceSkeletonBlock(
-                    width: 52,
-                    height: 52,
-                    radius: 14,
-                    color: palette.control,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _SourceSkeletonBlock(
-                          width: 180,
-                          height: 14,
-                          color: palette.control,
-                        ),
-                        const SizedBox(height: 10),
-                        _SourceSkeletonBlock(
-                          width: double.infinity,
-                          height: 10,
-                          color: palette.control,
-                        ),
-                        const SizedBox(height: 8),
-                        _SourceSkeletonBlock(
-                          width: 240,
-                          height: 10,
-                          color: palette.control,
-                        ),
-                      ],
+        constraints: const BoxConstraints(minHeight: 320),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: palette.staticSurface,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: palette.shadow.withValues(alpha: palette.dark ? .10 : .05),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: palette.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox.square(
+                  dimension: 38,
+                  child: Center(
+                    child: SourceLineIcon(
+                      SourceGlyph.drive,
+                      size: 32,
+                      color: palette.selectedTint.withValues(alpha: .90),
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '正在加载媒体源',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '正在准备当前页面',
+                      style: TextStyle(fontSize: 11, color: palette.secondary),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            if (index != widget.rows - 1) const SizedBox(height: 14),
+            const SizedBox(height: 14),
+            for (var index = 0; index < widget.rows; index++) ...[
+              Container(
+                key: ValueKey('sources-loading-row-$index'),
+                height: 72,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: palette.control.withValues(alpha: .34),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                foregroundDecoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: palette.border.withValues(alpha: .86),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    _SourceSkeletonBlock(
+                      width: 52,
+                      height: 52,
+                      radius: 8,
+                      color: palette.control,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SourceSkeletonBlock(
+                            width: 180 + index * 18,
+                            height: 10,
+                            radius: 4,
+                            color: palette.control,
+                          ),
+                          const SizedBox(height: 7),
+                          _SourceSkeletonBlock(
+                            width: 120 + index * 11,
+                            height: 8,
+                            radius: 4,
+                            color: palette.control.withValues(alpha: .72),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index != widget.rows - 1) const SizedBox(height: 10),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1039,60 +1273,131 @@ class _SourceSkeletonBlock extends StatelessWidget {
   );
 }
 
-class _SourcesEmptyState extends StatelessWidget {
+class _SourcesEmptyState extends StatefulWidget {
   const _SourcesEmptyState();
+
+  @override
+  State<_SourcesEmptyState> createState() => _SourcesEmptyStateState();
+}
+
+class _SourcesEmptyStateState extends State<_SourcesEmptyState> {
+  bool _appeared = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_appeared) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _appeared = true;
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _appeared = true);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = SourceSheetPalette(
       Theme.of(context).brightness == Brightness.dark,
     );
-    return Container(
-      constraints: const BoxConstraints(minHeight: 320),
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: palette.staticSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: palette.border),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 112,
-            height: 104,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: palette.iconChip.withValues(alpha: .66),
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: SourceLineIcon(
-              SourceGlyph.drive,
-              size: 46,
-              lineWidth: 2.2,
-              color: palette.selectedTint,
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            '媒体源待添加',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 14),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Text(
-              '接入本地文件夹、移动硬盘、网络挂载、ReelNest Server、Emby、Jellyfin 或 Plex 媒体库后，ReelNest 会整理索引。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.5,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return AnimatedOpacity(
+      key: const ValueKey('sources-empty-state'),
+      opacity: _appeared ? 1 : 0,
+      duration: Duration(milliseconds: reduceMotion ? 0 : 240),
+      curve: Curves.easeOutCubic,
+      child: AnimatedSlide(
+        offset: _appeared ? Offset.zero : const Offset(0, .035),
+        duration: Duration(milliseconds: reduceMotion ? 0 : 240),
+        curve: Curves.easeOutCubic,
+        child: _buildContent(context, palette),
       ),
     );
   }
+
+  Widget _buildContent(
+    BuildContext context,
+    SourceSheetPalette palette,
+  ) => Container(
+    constraints: const BoxConstraints(minHeight: 320),
+    padding: const EdgeInsets.all(32),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 112,
+          height: 104,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                key: const ValueKey('sources-empty-icon-glow'),
+                width: 104,
+                height: 104,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    center: const Alignment(-.28, -.44),
+                    radius: .72,
+                    colors: [
+                      Colors.white.withValues(alpha: palette.dark ? .12 : .64),
+                      palette.selectedTint.withValues(
+                        alpha: palette.dark ? .14 : .20,
+                      ),
+                      palette.solar.withValues(alpha: palette.dark ? .08 : .16),
+                      Colors.transparent,
+                    ],
+                    stops: const [0, .34, .68, 1],
+                  ),
+                ),
+              ),
+              Container(
+                key: const ValueKey('sources-empty-icon-tile'),
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: palette.control.withValues(
+                    alpha: palette.dark ? .40 : .72,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Colors.white.withValues(
+                      alpha: palette.dark ? .22 : .74,
+                    ),
+                  ),
+                ),
+                child: SourceLineIcon(
+                  SourceGlyph.drive,
+                  size: 46,
+                  lineWidth: 2.2,
+                  color: palette.selectedTint.withValues(alpha: .92),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          '媒体源待添加',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 14),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Text(
+            '接入本地文件夹、移动硬盘、网络挂载、URL 视频、ReelNest Server、Emby、Jellyfin 或 Plex 媒体库后，ReelNest 会整理索引。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

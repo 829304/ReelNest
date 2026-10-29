@@ -3,6 +3,51 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reelnest/features/playback/presentation/player_window_coordinator.dart';
 
 void main() {
+  test('normal sizing follows original landscape and portrait geometry', () {
+    const screen = Rect.fromLTWH(0, 0, 1920, 1080);
+    expect(
+      PlayerWindowCoordinator.preferredNormalSize(
+        aspect: 16 / 9,
+        visibleScreenBounds: screen,
+      ),
+      const Size(1120, 630),
+    );
+    expect(
+      PlayerWindowCoordinator.preferredNormalSize(
+        aspect: 9 / 16,
+        visibleScreenBounds: screen,
+      ),
+      const Size(546.75, 972),
+    );
+    expect(
+      PlayerWindowCoordinator.normalMinimumSizeForAspect(16 / 9),
+      const Size(680, 382.5),
+    );
+    expect(
+      PlayerWindowCoordinator.normalMinimumSizeForAspect(9 / 16),
+      const Size(360, 640),
+    );
+  });
+
+  test(
+    'normal window centers, updates aspect and remembers user width',
+    () async {
+      final gateway = _FakeGateway();
+      final coordinator = PlayerWindowCoordinator(gateway);
+
+      await coordinator.configureNormalWindow(aspect: 16 / 9);
+      expect(gateway.aspectRatio, 16 / 9);
+      expect(gateway.minimumSize, const Size(680, 382.5));
+      expect(gateway.bounds, const Rect.fromLTWH(400, 225, 1120, 630));
+
+      coordinator.rememberPreferredWidth(1280);
+      await coordinator.applyMediaAspect(9 / 16);
+      expect(gateway.aspectRatio, 9 / 16);
+      expect(gateway.minimumSize, const Size(360, 640));
+      expect(gateway.bounds, const Rect.fromLTWH(686.625, 54, 546.75, 972));
+    },
+  );
+
   test('mini sizing preserves aspect and original minimums', () {
     expect(
       PlayerWindowCoordinator.preferredMiniSize(16 / 9),
@@ -75,6 +120,7 @@ class _FakeGateway implements PlayerWindowGateway {
   bool maximized = false;
   bool alwaysOnTop = false;
   bool visibleOnAllWorkspaces = false;
+  double aspectRatio = 16 / 9;
   int unmaximizeCount = 0;
   int maximizeCount = 0;
   int focusCount = 0;
@@ -108,6 +154,9 @@ class _FakeGateway implements PlayerWindowGateway {
 
   @override
   Future<void> setMinimumSize(Size value) async => minimumSize = value;
+
+  @override
+  Future<void> setAspectRatio(double value) async => aspectRatio = value;
 
   @override
   Future<void> setAlwaysOnTop(bool enabled) async => alwaysOnTop = enabled;

@@ -1,6 +1,18 @@
 # 本地媒体源与索引
 
-状态：Active。首批实现日期：2026-10-05；最后更新：2026-10-27。本文维护本地目录来源、扫描、索引、浏览、设置与文件保护边界；播放器和远程连接器的当前状态分别见对应模块文档。
+状态：Active。首批实现日期：2026-10-05；最后更新：2026-10-28。本文维护本地目录来源、扫描、索引、浏览、设置与文件保护边界；播放器和远程连接器的当前状态分别见对应模块文档。
+
+## 2026-10-28：来源主页 P0（Windows 定向交付验证通过）
+
+本轮严格按原版 Swift `SourcesView.SourceRowView` 对照修订 `sources_page.dart` 与 `source_page_sections.dart`，属于原版迁移，不是产品重新设计。来源列表改为紧凑单行：52×52 avatar、水平18/垂直16 padding，常态/hover行高严格84px；状态与来源类型badge同层；34×34轻量操作内嵌行内，移除旧底部文字工具栏。hover上浮-4px、180ms、22 blur。边框移至 `foregroundDecoration` 模拟 Swift `strokeBorder`，避免占布局多2px。Emby/Jellyfin/Plex行用原版通用server glyph，品牌mark保留于连接流程；别名、重新定位、重新认证入口由「更多」菜单保留。Flutter未使用Material `Card` widget，但行仍以 `_SourceCardSurface` 表现原版静态surface；真实可见UI逐像素验收仍待。
+
+原版参考：`E:\workspace\829304\MediaLib\Sources\MediaLib\Views\SourcesView.swift` 的 `SourceRowView`（约1379行起）。原版行含52×52来源图标、标题与状态徽标/路径（URL来源显示地址数）、同行右侧操作；采用14pt操作间距、水平18/垂直16 padding，hover时才上浮并显示柔影。URL来源显示管理入口；其他来源显示设置/扫描，网络来源按状态提供重新挂载，删除有确认对话框。
+
+首轮六文件回归曾报58/3；已修复行容器边框占布局2px导致86px高的问题，将border移至 `foregroundDecoration` 模拟Swift `strokeBorder`。静止/hover严格84px断言通过，未放宽断言。Jellyfin/Plex用例改为等待参与策略sheet关闭且来源头像出现，再验证源行；provider名称保持原sourceTitle。更多菜单、重新认证通过；另补本地「更多→重新定位」可用且点击不被整行导航抢占的回归。
+
+最终8文件交付组82/82（18秒，`apps/client/build/source-row-delivery-tests.log`）通过，覆盖来源6文件及URL UI/app；别名保存与导航名保持、Jellyfin/Plex重新认证、本地更多菜单重新定位、来源扫描、URL管理与空态均通过。严格常态/hover 84px、头像52×52断言通过。首轮58/3与三文件中间5/5是中间结果，不累计。33个工作区Dart文件format检查0变化，`diff-check`通过；analyze no issues（`apps/client/build/source-row-analyze.log`）。Windows Release 52.7秒（`apps/client/build/source-row-release.log`）；五秒hidden smoke于`2026-10-28T21:32:15.4742902+08:00`通过，窗口响应、正常关闭、ExitCode 0（`apps/client/build/source-row-smoke.json`）。
+
+状态：**Windows 本批定向交付验证通过。** macOS/Linux原生、系统目录选择器、真实远程服务及真实可见UI逐像素验收仍待；不宣称全局UI一致。本轮不改写2026-10-27来源向导历史，也不影响URL视频来源专项记录。
 
 最新要求见[项目边界](PROJECT_SCOPE.zh-CN.md)：第一阶段三桌面端，功能与 UI 完全对照原版。本文仅记录当前代码，不是产品规范；简化页面、扫描默认值变化、缺失能力和 Mlink 入口移除均需审核纠正，不能视为用户同意的功能修改。
 
@@ -24,11 +36,11 @@
 
 本轮定向/核心测试 90/90 通过（包含来源策略后端测试），`flutter analyze` 0 issues；Windows Release 41.9 秒成功；`windows-smoke` 于 `2026-10-27T21:21:32.9178198+08:00` 五秒通过，HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0。
 
-此交付不代表来源主页已完成原版逐像素/逐交互验收：当前来源卡片 `SourceRow` 仍是过渡实现，继续作为后续视觉与交互对照项。真实目录选择器、macOS/Linux 原生验收及未接入后端的其他原版连接器仍按各自边界跟踪。
+此交付记录的是 2026-10-27 批次状态：当时来源主页卡片 `SourceRow` 仍是过渡实现，未完成原版逐像素/逐交互验收。后续接入见 2026-10-28 来源主页 P0 记录；真实目录选择器、macOS/Linux 原生验收及未接入后端的其他原版连接器仍按各自边界跟踪。
 
 ## 已实现的流程
 
-首页“管理媒体源” → 添加媒体源三步向导（来源选择 → 连接/目录与分类 → 设置/参与策略）→ 添加并扫描 → 浏览顶层媒体 → 电影详情或系列季集列表。来源行可打开设置、修改分类与参与策略并保存；来源主页的 `SourceRow` 仍待原版逐像素/逐交互对照。系列/NFO/浏览和设置已接入；自动化、原生和三端验收状态以[平台验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md)为准。
+首页“管理媒体源” → 添加媒体源三步向导（来源选择 → 连接/目录与分类 → 设置/参与策略）→ 添加并扫描 → 浏览顶层媒体 → 电影详情或系列季集列表。来源行可打开设置、修改分类与参与策略并保存；来源主页 `SourceRow` 的 P0 实现已接入，但仍待原版逐像素/逐交互对照。系列/NFO/浏览和设置已接入；自动化、原生和三端验收状态以[平台验收矩阵](PLATFORM_VERIFICATION_MATRIX.zh-CN.md)为准。
 
 文件来源使用同一个文件适配器，不需要 MediaLib 服务端、Mlink 登录或账号。一次多选目录，按目录名自动命名，跳过已有目录，新增目录按选择顺序扫描。每个来源使用随机生成的稳定 ID，文件主键为来源 ID 加目录内相对路径；系列用来源内系列目录（根目录散集则用剧名）编码生成独立键。重新定位根目录时保留来源 ID；相对路径不变的文件和系列保留身份。
 

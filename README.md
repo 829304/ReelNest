@@ -8,7 +8,9 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 ## 当前状态
 
-截至 2026-10-26（下列模块记录各自最后验证批次）：
+截至 2026-10-29（下列模块记录各自最后验证批次）：
+
+- 原版侧边栏状态卡 P0 第三批 Windows 定向交付验证通过：失效文件/疑似重复状态轮换及原版卡片尺寸、glyph、渐变、转场和进度条已收口；最终交叉组59/59、复核7/7、analyze、Windows Release44.7秒和五秒 hidden smoke通过。可见窗口逐像素、真实健康数据长时轮换及 macOS/Linux 仍待；音乐迷你控制、更新、保险库、赞赏和任务操作仍未迁移。详见[阶段记录](docs/NEXT_STAGE.zh-CN.md#2026-10-29-侧边栏状态卡-p0-第三批收口windows-定向交付验证通过)。
 
 - Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke。共享协议定向 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未运行全量 Flutter 测试。真实 Jellyfin、macOS/Linux 和人工精确视觉验收仍待。范围与证据见[Jellyfin 计划](docs/JELLYFIN_PLAN.zh-CN.md)。
 - Plex 基础视频来源闭环实施中；前端 2/2 与 Windows Native mpv 单业务用例通过，后端最终定向 21/21 通过，Release/smoke 待回报。不使用真实 Token；真实 Plex、macOS/Linux、人工精确视觉待验。范围见[Plex 计划](docs/PLEX_PLAN.zh-CN.md)。

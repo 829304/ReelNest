@@ -53,7 +53,9 @@ class HomeRepository {
   final SourceRepository sources;
 
   static bool accepts(MediaSource source) =>
-      (source.kind.isFileSource || source.kind.isRemoteVideoSource) &&
+      (source.kind.isFileSource ||
+          source.kind.isRemoteVideoSource ||
+          source.kind == MediaSourceKind.url) &&
       !{
         SourceMediaType.privateCollection,
         SourceMediaType.photo,

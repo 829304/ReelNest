@@ -496,8 +496,9 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
       return;
     }
     try {
-      await widget.setFullscreen(!_fullscreen);
-      if (mounted) setState(() => _fullscreen = !_fullscreen);
+      final next = !_fullscreen;
+      await widget.setFullscreen(next);
+      updateFullscreen(next);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -509,6 +510,16 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Future<void> _minimize() => windowManager.minimize();
 
+  void updateFullscreen(bool value) {
+    if (!mounted || _fullscreen == value) return;
+    setState(() => _fullscreen = value);
+  }
+
+  void updateMaximized(bool value) {
+    if (!mounted || _maximized == value) return;
+    setState(() => _maximized = value);
+  }
+
   Future<void> _toggleMaximize() async {
     final maximized = await windowManager.isMaximized();
     if (maximized) {
@@ -516,7 +527,7 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
     } else {
       await windowManager.maximize();
     }
-    if (mounted) setState(() => _maximized = !maximized);
+    updateMaximized(!maximized);
     _show();
   }
 
@@ -1373,9 +1384,21 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
   );
 
   Widget _bar(VideoClock value, PlaybackTimelineState precision) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
-    final leadingWidth = compact ? 180.0 : 216.0;
-    final trailingWidth = widget.windowCoordinator == null ? 106.0 : 143.0;
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final compact = windowWidth < 760;
+    final narrowPortrait = windowWidth < 520;
+    final leadingWidth = narrowPortrait
+        ? 69.0
+        : compact
+        ? 180.0
+        : 216.0;
+    final trailingWidth = narrowPortrait
+        ? widget.windowCoordinator == null
+              ? 69.0
+              : 106.0
+        : widget.windowCoordinator == null
+        ? 106.0
+        : 143.0;
     final transportReady =
         !session.loading && session.error == null && session.engine != null;
     final canSeek = transportReady && value.duration > Duration.zero;
@@ -1637,14 +1660,13 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                           children: [
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: AnimatedContainer(
+                              child: SizedBox(
                                 key: const ValueKey('player-leading-actions'),
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOutCubic,
                                 width: leadingWidth,
                                 child: Row(
                                   children: [
-                                    if (session.qualityOptions.length > 1) ...[
+                                    if (!narrowPortrait &&
+                                        session.qualityOptions.length > 1) ...[
                                       SizedBox(
                                         key: _qualityButton,
                                         width: compact ? 32 : 60,
@@ -1708,7 +1730,8 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       ),
                                       const SizedBox(width: 5),
                                     ],
-                                    if (session.queue.items.length > 1) ...[
+                                    if (!narrowPortrait &&
+                                        session.queue.items.length > 1) ...[
                                       _panelButton(
                                         '剧集列表',
                                         PlayerSymbol.episodes,
@@ -1733,14 +1756,16 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                                       _audioButton,
                                       transportReady,
                                     ),
-                                    const SizedBox(width: 5),
-                                    _panelButton(
-                                      '章节与播放标记',
-                                      PlayerSymbol.bookmark,
-                                      PlayerPanel.markers,
-                                      _markerButton,
-                                      canSeek && precision.identity != null,
-                                    ),
+                                    if (!narrowPortrait) ...[
+                                      const SizedBox(width: 5),
+                                      _panelButton(
+                                        '章节与播放标记',
+                                        PlayerSymbol.bookmark,
+                                        PlayerPanel.markers,
+                                        _markerButton,
+                                        canSeek && precision.identity != null,
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -1780,24 +1805,24 @@ class VideoPlayerPageState extends State<VideoPlayerPage> {
                             ),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: AnimatedContainer(
+                              child: SizedBox(
                                 key: const ValueKey('player-trailing-actions'),
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOutCubic,
                                 width: trailingWidth,
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
-                                    _panelButton(
-                                      '音量',
-                                      value.volume == 0
-                                          ? PlayerSymbol.muted
-                                          : PlayerSymbol.speaker,
-                                      PlayerPanel.volume,
-                                      _volumeButton,
-                                      transportReady,
-                                    ),
-                                    const SizedBox(width: 5),
+                                    if (!narrowPortrait) ...[
+                                      _panelButton(
+                                        '音量',
+                                        value.volume == 0
+                                            ? PlayerSymbol.muted
+                                            : PlayerSymbol.speaker,
+                                        PlayerPanel.volume,
+                                        _volumeButton,
+                                        transportReady,
+                                      ),
+                                      const SizedBox(width: 5),
+                                    ],
                                     _panelButton(
                                       '播放器设置',
                                       PlayerSymbol.settings,

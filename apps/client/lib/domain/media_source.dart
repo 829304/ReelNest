@@ -9,7 +9,8 @@ enum MediaSourceKind {
   mountedNas('已挂载 NAS'),
   emby('Emby'),
   jellyfin('Jellyfin'),
-  plex('Plex');
+  plex('Plex'),
+  url('URL 媒体源');
 
   const MediaSourceKind(this.label);
   final String label;
@@ -170,6 +171,7 @@ class ScanCancelled implements Exception {
 
 class ScanCancellation {
   bool _cancelled = false;
+  bool get isCancelled => _cancelled;
   final _listeners = <void Function()>{};
   void cancel() {
     if (_cancelled) return;

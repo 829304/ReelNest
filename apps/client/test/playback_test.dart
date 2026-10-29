@@ -513,6 +513,25 @@ void main() {
         tester.getSize(find.byKey(const ValueKey('player-control-dock'))),
         const Size(664, 72),
       );
+      tester.view.physicalSize = const Size(360, 640);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 180));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-control-dock'))),
+        const Size(324, 72),
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-leading-actions'))),
+        const Size(69, 32),
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('player-trailing-actions'))),
+        const Size(106, 32),
+      );
+      expect(tester.takeException(), isNull);
+      tester.view.physicalSize = const Size(700, 600);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 180));
       expect(tester.getSize(find.byTooltip('播放/暂停')), const Size(34, 34));
       final playerTooltipTheme = tester
           .widget<TooltipTheme>(
@@ -1116,6 +1135,9 @@ class _FakePlayerWindowGateway implements PlayerWindowGateway {
 
   @override
   Future<void> setMinimumSize(Size value) async {}
+
+  @override
+  Future<void> setAspectRatio(double aspectRatio) async {}
 
   @override
   Future<void> setAlwaysOnTop(bool enabled) async => alwaysOnTop = enabled;

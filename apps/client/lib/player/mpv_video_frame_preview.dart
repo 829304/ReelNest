@@ -22,6 +22,7 @@ Future<Uint8List?> generateMpvVideoPreview(
   Duration sampleTime,
   VideoPreviewCancellation cancellation, {
   void Function(String code)? onIssue,
+  double? coverRatio,
 }) async {
   if (cancellation.isCancelled || sampleTime < resource.offset) return null;
   BoundedVideoPreviewProxy? proxy;
@@ -47,7 +48,7 @@ Future<Uint8List?> generateMpvVideoPreview(
     final format = resource.remote
         ? previewDemuxer(Uri.parse(location).path)
         : null;
-    if (resource.remote) {
+    if (resource.remote && coverRatio == null) {
       if (format == null) {
         onIssue?.call('container_unknown');
         return null;
@@ -68,14 +69,16 @@ Future<Uint8List?> generateMpvVideoPreview(
         position: sampleTime - resource.offset,
         format: format,
         ready: ready.sendPort,
+        sampleRatio: coverRatio,
+        protocols: coverRatio == null ? 'file,http,tcp' : 'http,https,tcp,tls,rtsp,rtmp,rtp,udp,srt,mms,mmsh,mmst,ftp,crypto',
       ),
     );
     if (rgba == null || cancellation.isCancelled) return null;
     final image = Completer<ui.Image>();
     ui.decodeImageFromPixels(
-      rgba,
-      312,
-      176,
+      rgba.bytes,
+      rgba.width,
+      rgba.height,
       ui.PixelFormat.rgba8888,
       image.complete,
     );

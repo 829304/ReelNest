@@ -9,6 +9,7 @@ import '../../../platform/external_player_gateway.dart';
 import '../../../platform/transient_file_access.dart';
 import '../../../player/playback_diagnostics.dart';
 import '../../sources/data/source_repository.dart';
+import '../../sources/data/url_video_repository.dart';
 import '../data/external_player_settings_repository.dart';
 import '../domain/transient_playback_target.dart';
 
@@ -86,6 +87,8 @@ class ExternalPlaybackService implements ExternalPlaybackLauncher {
           !await sources.isReachable(source)) {
         throw const SourceFailure('视频文件不存在或 NAS 未连接。');
       }
+    } else if (source.kind == MediaSourceKind.url) {
+      location = await UrlVideoRepository(sources).location(identity);
     } else if (source.kind.isRemoteVideoSource) {
       try {
         cached = await acquireCache?.call(identity);

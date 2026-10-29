@@ -159,6 +159,15 @@ class LibraryDatabase extends GeneratedDatabase {
       await customStatement('PRAGMA foreign_keys = ON');
       await customStatement('PRAGMA busy_timeout = 5000');
       await customStatement('''
+        CREATE TABLE IF NOT EXISTS url_video_entries (
+          source_id TEXT NOT NULL, local_id TEXT NOT NULL, url TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          PRIMARY KEY(source_id,local_id),
+          FOREIGN KEY(source_id,local_id) REFERENCES media(source_id,local_id)
+            ON DELETE CASCADE
+        )
+      ''');
+      await customStatement('''
         CREATE TABLE IF NOT EXISTS media_activity (
           source_id TEXT NOT NULL, local_id TEXT NOT NULL,
           updated_at INTEGER NOT NULL,

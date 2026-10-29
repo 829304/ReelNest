@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -446,6 +447,10 @@ void main() {
   testWidgets(
     'remote settings reads libraries and saves selected scope through the dialog',
     (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(900, 820);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
       late MediaSource source;
       Future<void> finish(Future<void> work) async {
         var done = false;
@@ -476,14 +481,40 @@ void main() {
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
-      for (var n = 0; n < 150 && find.text('电影').evaluate().isEmpty; n++) {
+      final libraryList = find.byKey(
+        const ValueKey('remote-libraries-list'),
+        skipOffstage: false,
+      );
+      for (var n = 0; n < 150 && libraryList.evaluate().isEmpty; n++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 20));
       }
+      expect(libraryList, findsOneWidget);
       expect(find.text('同步全部媒体库'), findsOneWidget);
-      await tester.tap(find.text('电影').first);
+      final offstageMovies = find.byKey(
+        const ValueKey('remote-library-movies'),
+        skipOffstage: false,
+      );
+      await tester.ensureVisible(offstageMovies);
+      await tester.pumpAndSettle();
+      final all = find.byKey(const ValueKey('remote-library-all'));
+      final movies = find.byKey(const ValueKey('remote-library-movies'));
+      expect(all, findsOneWidget);
+      expect(movies, findsOneWidget);
+      expect(
+        tester.getSize(all).height,
+        greaterThan(tester.getSize(movies).height),
+      );
+      final movieSize = tester.getSize(movies);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(movies));
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(tester.getSize(movies), movieSize);
+      await tester.tap(movies);
       await tester.pump();
       expect(find.text('已选 1 个库'), findsOneWidget);
       await tester.tap(find.text('保存并同步'));

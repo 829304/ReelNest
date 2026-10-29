@@ -182,23 +182,36 @@ void main() {
       await tester.tap(find.text('登录并同步'));
       await pumpUntil(
         tester,
-        () => find.text('Jellyfin 媒体库').evaluate().isNotEmpty,
+        () =>
+            find.text('参与策略').evaluate().isEmpty &&
+            find.byKey(const ValueKey('add-source')).evaluate().isNotEmpty,
       );
 
-      expect(find.text('Jellyfin'), findsWidgets);
-      expect(find.byKey(const ValueKey('jellyfin-brand-mark')), findsWidgets);
-      expect(find.text('Emby 媒体库'), findsNothing);
       final saved = (await tester.runAsync(() => sources.sources()))!.single;
+      await pumpUntil(
+        tester,
+        () => find
+            .byKey(ValueKey('source-avatar-${saved.id}'))
+            .evaluate()
+            .isNotEmpty,
+      );
+      expect(find.text('Jellyfin'), findsWidgets);
+      expect(find.text('Emby 媒体库'), findsNothing);
       expect(saved.kind, MediaSourceKind.jellyfin);
       expect(saved.name, 'Jellyfin 媒体库');
       expect(saved.location, startsWith('jellyfin://'));
+      // SourceRow follows the original and uses the generic server glyph;
+      // provider marks remain in the source picker and connection flow.
+      expect(find.byKey(ValueKey('source-avatar-${saved.id}')), findsOneWidget);
 
-      final reauthenticate = find.widgetWithText(TextButton, '重新认证');
+      await tester.tap(find.byKey(ValueKey('source-more-${saved.id}')));
+      await tester.pumpAndSettle();
+      final reauthenticate = find.widgetWithText(MenuItemButton, '重新认证');
       await pumpUntil(
         tester,
         () =>
             reauthenticate.evaluate().isNotEmpty &&
-            tester.widget<TextButton>(reauthenticate).onPressed != null,
+            tester.widget<MenuItemButton>(reauthenticate).onPressed != null,
       );
       await tester.tap(reauthenticate);
       await tester.pumpAndSettle();

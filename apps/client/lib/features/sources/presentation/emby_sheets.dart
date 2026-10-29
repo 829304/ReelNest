@@ -13,6 +13,7 @@ import '../../../ui/widgets/source_sheet_button.dart';
 import '../data/emby_connection_repository.dart';
 import '../application/source_providers.dart';
 import 'media_server_brand_mark.dart';
+import 'source_wizard_steps.dart';
 
 /// AddMediaSourceWizardSheet.sourceSelection for currently supported sources.
 class SourceKindSheet extends StatefulWidget {
@@ -44,7 +45,10 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
         ),
       ],
       children: [
-        const _Steps(0),
+        const SourceWizardSteps(
+          key: ValueKey('source-kind-wizard-steps'),
+          current: 0,
+        ),
         const SizedBox(height: 14),
         Wrap(
           spacing: 10,
@@ -52,77 +56,19 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
           children: [
             for (final kind in [
               MediaSourceKind.localFolder,
+              MediaSourceKind.url,
               MediaSourceKind.emby,
               MediaSourceKind.jellyfin,
               MediaSourceKind.plex,
             ])
               SizedBox(
                 width: 264,
-                child: InkWell(
+                child: _SourceKindCard(
                   key: ValueKey('source-kind-${kind.name}'),
+                  kind: kind,
+                  selected: _kind == kind,
+                  palette: palette,
                   onTap: () => setState(() => _kind = kind),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    constraints: const BoxConstraints(minHeight: 88),
-                    decoration: BoxDecoration(
-                      color: _kind == kind
-                          ? palette.iconChip
-                          : palette.staticSurface,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: _kind == kind
-                            ? palette.selectedTint
-                            : palette.border,
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      spacing: 11,
-                      children: [
-                        SizedBox(
-                          width: 26,
-                          child: kind.isRemoteVideoSource
-                              ? MediaServerBrandMark(kind: kind, size: 19)
-                              : SourceLineIcon(
-                                  SourceGlyph.drive,
-                                  size: 19,
-                                  color: _kind == kind
-                                      ? palette.selectedTint
-                                      : palette.secondary,
-                                ),
-                        ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            spacing: 4,
-                            children: [
-                              Text(
-                                kind == MediaSourceKind.localFolder
-                                    ? '本地目录'
-                                    : kind.label,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                kind.isFileSource
-                                    ? '本机硬盘、移动硬盘或已挂载目录'
-                                    : kind == MediaSourceKind.plex
-                                    ? '服务器地址与 Plex Token 直连'
-                                    : '服务器地址与账号登录',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: palette.secondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
           ],
@@ -132,55 +78,154 @@ class _SourceKindSheetState extends State<SourceKindSheet> {
   }
 }
 
-class _Steps extends StatelessWidget {
-  const _Steps(this.current);
-  final int current;
+/// AddMediaSourceWizardSheet.sourceKindCard. The original card has one
+/// continuous hover/focus surface: selection changes the stroke and tint,
+/// while pointer focus adds a restrained lift without nesting another card.
+class _SourceKindCard extends StatefulWidget {
+  const _SourceKindCard({
+    required this.kind,
+    required this.selected,
+    required this.palette,
+    required this.onTap,
+    super.key,
+  });
+
+  final MediaSourceKind kind;
+  final bool selected;
+  final SourceSheetPalette palette;
+  final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    decoration: BoxDecoration(
-      color: SourceSheetPalette(Theme.of(context).brightness == Brightness.dark)
-          .staticSurface,
-      borderRadius: BorderRadius.circular(14),
-    ),
-    child: Row(
-      children: [
-        for (var n = 0; n < 3; n++) ...[
-          if (n > 0)
-            const Expanded(
-              child: Divider(thickness: 2, indent: 8, endIndent: 8),
-            ),
-          SizedBox(
-            width: 92,
-            child: Row(
-              spacing: 7,
-              mainAxisAlignment: n == 0
-                  ? MainAxisAlignment.start
-                  : n == 2
-                  ? MainAxisAlignment.end
-                  : MainAxisAlignment.center,
-              children: [
-                Icon(
-                  n < current ? Icons.check_circle : Icons.radio_button_checked,
-                  size: 16,
-                  color: n <= current
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).disabledColor,
-                ),
-                Text(
-                  ['来源', '连接', '设置'][n],
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+  State<_SourceKindCard> createState() => _SourceKindCardState();
+}
+
+class _SourceKindCardState extends State<_SourceKindCard> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final active = _hovered || _focused;
+    final palette = widget.palette;
+    final kind = widget.kind;
+    final tint = widget.selected ? palette.selectedTint : palette.secondary;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      label: kind == MediaSourceKind.localFolder ? '本地目录' : kind.label,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: reduceMotion ? 0 : 160),
+        curve: Curves.easeOutCubic,
+        transform: Matrix4.translationValues(
+          0,
+          active && !reduceMotion ? -2 : 0,
+          0,
+        ),
+        constraints: const BoxConstraints(minHeight: 88),
+        decoration: BoxDecoration(
+          color: widget.selected
+              ? palette.iconChip
+              : active
+              ? Color.lerp(palette.staticSurface, palette.iconChip, .14)
+              : palette.staticSurface,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: palette.shadow.withValues(
+                      alpha: palette.dark ? .16 : .08,
+                    ),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
                   ),
-                ),
-              ],
+                ]
+              : const [],
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _focused
+                ? palette.selectedTint.withValues(alpha: .78)
+                : widget.selected
+                ? palette.selectedTint
+                : active
+                ? palette.selectedTint.withValues(alpha: .22)
+                : palette.border,
+            width: _focused ? 1.4 : 1,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            mouseCursor: SystemMouseCursors.click,
+            onHover: (value) => setState(() => _hovered = value),
+            onFocusChange: (value) => setState(() => _focused = value),
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(14),
+            hoverColor: Colors.transparent,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 11,
+                children: [
+                  SizedBox(
+                    width: 26,
+                    child: kind == MediaSourceKind.url
+                        ? Icon(Icons.link_rounded, size: 20, color: tint)
+                        : kind.isRemoteVideoSource
+                        ? MediaServerBrandMark(kind: kind, size: 19)
+                        : SourceLineIcon(
+                            SourceGlyph.drive,
+                            size: 19,
+                            color: tint,
+                          ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 4,
+                      children: [
+                        Text(
+                          kind == MediaSourceKind.localFolder
+                              ? '本地目录'
+                              : kind.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          kind.isFileSource
+                              ? '本机硬盘、移动硬盘或已挂载目录'
+                              : kind == MediaSourceKind.url
+                              ? '持久保存网络视频地址'
+                              : kind == MediaSourceKind.plex
+                              ? '服务器地址与 Plex Token 直连'
+                              : '服务器地址与账号登录',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: palette.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
-      ],
-    ),
-  );
+        ),
+      ),
+    );
+  }
 }
 
 class EmbySheetFrame extends StatelessWidget {
@@ -398,56 +443,75 @@ class _EmbyConnectionSheetState extends State<EmbyConnectionSheet> {
         ),
       ],
       children: [
-        if (!reauth) ...[_Steps(_settings ? 2 : 1), const SizedBox(height: 14)],
-        if (!_settings)
-          AppSheetSection(
-            title: '服务器连接',
-            subtitle: _plex ? '填写服务器地址和 Plex Token。' : '填写服务器地址和登录凭据。',
-            icon: const Icon(Icons.dns_outlined, size: 17),
-            colors: palette.section,
-            child: Column(
-              spacing: 12,
-              children: [
-                if (!reauth)
-                  _field(
-                    _server,
-                    _plex
-                        ? '服务器地址，例如 http://192.168.1.20:32400'
-                        : '服务器地址，例如 http://192.168.1.20:8096',
-                    '${_kind.name}-server',
-                  ),
-                if (_plex)
-                  _field(_token, 'Plex Token', 'plex-token', password: true)
-                else ...[
-                  _field(_username, '用户名', '${_kind.name}-username'),
-                  _field(
-                    _password,
-                    '密码',
-                    '${_kind.name}-password',
-                    password: true,
-                  ),
-                ],
-              ],
-            ),
+        if (!reauth) ...[
+          SourceWizardSteps(
+            key: const ValueKey('remote-source-wizard-steps'),
+            current: _settings ? 2 : 1,
           ),
-        if (_settings)
-          AppSheetSection(
-            title: '参与策略',
-            subtitle: '控制此媒体源是否参与元数据拉取、健康检查和同步。',
-            icon: const Icon(Icons.tune, size: 17),
-            colors: palette.section,
-            child: IgnorePointer(
-              ignoring: _busy,
-              child: RemotePolicyPanel(
-                metadata: _metadata,
-                health: _health,
-                trace: _trace,
-                onMetadata: (v) => setState(() => _metadata = v),
-                onHealth: (v) => setState(() => _health = v),
-                onTrace: (v) => setState(() => _trace = v),
-              ),
-            ),
-          ),
+          const SizedBox(height: 14),
+        ],
+        AnimatedSwitcher(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: !_settings
+              ? AppSheetSection(
+                  key: const ValueKey('remote-source-connect-step'),
+                  title: '服务器连接',
+                  subtitle: _plex ? '填写服务器地址和 Plex Token。' : '填写服务器地址和登录凭据。',
+                  icon: const Icon(Icons.dns_outlined, size: 17),
+                  colors: palette.section,
+                  child: Column(
+                    spacing: 12,
+                    children: [
+                      if (!reauth)
+                        _field(
+                          _server,
+                          _plex
+                              ? '服务器地址，例如 http://192.168.1.20:32400'
+                              : '服务器地址，例如 http://192.168.1.20:8096',
+                          '${_kind.name}-server',
+                        ),
+                      if (_plex)
+                        _field(
+                          _token,
+                          'Plex Token',
+                          'plex-token',
+                          password: true,
+                        )
+                      else ...[
+                        _field(_username, '用户名', '${_kind.name}-username'),
+                        _field(
+                          _password,
+                          '密码',
+                          '${_kind.name}-password',
+                          password: true,
+                        ),
+                      ],
+                    ],
+                  ),
+                )
+              : AppSheetSection(
+                  key: const ValueKey('remote-source-settings-step'),
+                  title: '参与策略',
+                  subtitle: '控制此媒体源是否参与元数据拉取、健康检查和同步。',
+                  icon: const Icon(Icons.tune, size: 17),
+                  colors: palette.section,
+                  child: IgnorePointer(
+                    ignoring: _busy,
+                    child: RemotePolicyPanel(
+                      metadata: _metadata,
+                      health: _health,
+                      trace: _trace,
+                      onMetadata: (v) => setState(() => _metadata = v),
+                      onHealth: (v) => setState(() => _health = v),
+                      onTrace: (v) => setState(() => _trace = v),
+                    ),
+                  ),
+                ),
+        ),
         const SizedBox(height: 14),
         Text(
           _plex ? 'Plex Token 仅保存在本机安全存储中。' : '凭据仅保存在本机安全存储中。',
@@ -668,109 +732,23 @@ class _EmbyLibrarySheetState extends State<EmbyLibrarySheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             spacing: 8,
             children: [
-              InkWell(
-                onTap: _saving ? null : () => setState(() => _all = true),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    spacing: 10,
-                    children: [
-                      Icon(
-                        _all ? Icons.check_circle : Icons.circle_outlined,
-                        size: 18,
-                      ),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          spacing: 2,
-                          children: [
-                            Text(
-                              '同步全部媒体库',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              '服务器新增库也会自动纳入。',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              _RemoteLibraryChoiceRow(
+                key: const ValueKey('remote-library-all'),
+                selected: _all,
+                enabled: !_saving,
+                title: '同步全部媒体库',
+                subtitle: '服务器新增库也会自动纳入。',
+                radio: true,
+                onTap: () => setState(() => _all = true),
               ),
-              if (_loading) const _SheetStatusNotice(message: '正在读取媒体库列表…'),
-              if (_error != null) ...[
-                _SheetStatusNotice(
-                  message: '媒体库列表读取失败\n$_error',
-                  error: true,
-                  actionLabel: '重试',
-                  onAction: _loading || _saving ? null : _load,
-                ),
-              ],
-              if (!_loading && _error == null && _libraries.isEmpty) ...[
-                const _SheetStatusNotice(
-                  message: '服务器未返回媒体库。可以保持同步全部，稍后再重新打开设置。',
-                ),
-              ],
-              if (!_loading && _error == null)
-                for (final library in _libraries)
-                  InkWell(
-                    onTap: _saving
-                        ? null
-                        : () => setState(() {
-                            _all = false;
-                            if (!_selected.add(library.id)) {
-                              _selected.remove(library.id);
-                            }
-                          }),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: !_all && _selected.contains(library.id)
-                            ? palette.iconChip
-                            : palette.staticSurface,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        spacing: 10,
-                        children: [
-                          Icon(
-                            !_all && _selected.contains(library.id)
-                                ? Icons.check_box
-                                : Icons.check_box_outline_blank,
-                            size: 18,
-                          ),
-                          const Icon(Icons.video_library_outlined, size: 20),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              spacing: 2,
-                              children: [
-                                Text(
-                                  library.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  library.typeLabel,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+              AnimatedSwitcher(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _buildLibraryList(),
+              ),
             ],
           ),
         ),
@@ -795,6 +773,286 @@ class _EmbyLibrarySheetState extends State<EmbyLibrarySheet> {
       ],
     );
   }
+
+  Widget _buildLibraryList() {
+    if (_loading) {
+      return const _RemoteLibraryLoadingState(
+        key: ValueKey('remote-libraries-loading'),
+      );
+    }
+    if (_error case final error?) {
+      return _SheetStatusNotice(
+        key: const ValueKey('remote-libraries-error'),
+        message: '媒体库列表读取失败\n$error',
+        error: true,
+        actionLabel: '重试',
+        onAction: _saving ? null : _load,
+      );
+    }
+    if (_libraries.isEmpty) {
+      return const _RemoteLibrariesEmptyState(
+        key: ValueKey('remote-libraries-empty'),
+      );
+    }
+    return Column(
+      key: const ValueKey('remote-libraries-list'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < _libraries.length; index++) ...[
+          if (index > 0) const SizedBox(height: 8),
+          _RemoteLibraryChoiceRow(
+            key: ValueKey('remote-library-${_libraries[index].id}'),
+            selected: !_all && _selected.contains(_libraries[index].id),
+            enabled: !_saving,
+            title: _libraries[index].name,
+            subtitle: _libraries[index].typeLabel,
+            leadingIcon: _remoteLibraryIcon(_libraries[index]),
+            onTap: () => setState(() {
+              _all = false;
+              if (!_selected.add(_libraries[index].id)) {
+                _selected.remove(_libraries[index].id);
+              }
+            }),
+          ),
+        ],
+      ],
+    );
+  }
+
+  IconData _remoteLibraryIcon(EmbyLibrary library) =>
+      switch (library.collectionType?.toLowerCase()) {
+        'movies' => Icons.movie_outlined,
+        'tvshows' => Icons.tv_outlined,
+        'music' => Icons.music_note_rounded,
+        'boxsets' => Icons.video_library_outlined,
+        'playlists' => Icons.playlist_play_rounded,
+        'homevideos' => Icons.video_file_outlined,
+        'livetv' => Icons.live_tv_outlined,
+        _ => Icons.view_module_outlined,
+      };
+}
+
+class _RemoteLibraryChoiceRow extends StatefulWidget {
+  const _RemoteLibraryChoiceRow({
+    required this.selected,
+    required this.enabled,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.leadingIcon,
+    this.radio = false,
+    super.key,
+  });
+
+  final bool selected;
+  final bool enabled;
+  final bool radio;
+  final String title;
+  final String subtitle;
+  final IconData? leadingIcon;
+  final VoidCallback onTap;
+
+  @override
+  State<_RemoteLibraryChoiceRow> createState() =>
+      _RemoteLibraryChoiceRowState();
+}
+
+class _RemoteLibraryChoiceRowState extends State<_RemoteLibraryChoiceRow> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final active = widget.enabled && (_hovered || _focused);
+    final indicator = widget.radio
+        ? widget.selected
+              ? Icons.check_circle_rounded
+              : Icons.circle_outlined
+        : widget.selected
+        ? Icons.check_box_rounded
+        : Icons.check_box_outline_blank_rounded;
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      enabled: widget.enabled,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: reduceMotion ? 0 : 140),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: widget.selected
+              ? palette.iconChip
+              : active
+              ? Color.lerp(palette.staticSurface, palette.iconChip, .12)
+              : palette.staticSurface,
+          borderRadius: BorderRadius.circular(widget.radio ? 14 : 12),
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(widget.radio ? 14 : 12),
+          border: Border.all(
+            color: _focused
+                ? palette.selectedTint.withValues(alpha: .72)
+                : widget.selected
+                ? palette.selectedTint.withValues(alpha: .42)
+                : active
+                ? palette.selectedTint.withValues(alpha: .18)
+                : palette.border,
+            width: _focused ? 1.4 : .94,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.enabled ? widget.onTap : null,
+            onHover: (value) => setState(() => _hovered = value),
+            onFocusChange: (value) => setState(() => _focused = value),
+            borderRadius: BorderRadius.circular(widget.radio ? 14 : 12),
+            hoverColor: Colors.transparent,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: Padding(
+              padding: widget.radio
+                  ? const EdgeInsets.all(12)
+                  : const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              child: Row(
+                children: [
+                  Icon(
+                    indicator,
+                    size: 18,
+                    color: widget.selected
+                        ? palette.selectedTint
+                        : palette.secondary,
+                  ),
+                  if (widget.leadingIcon != null) ...[
+                    const SizedBox(width: 10),
+                    Icon(
+                      widget.leadingIcon,
+                      size: 20,
+                      color: palette.selectedTint.withValues(alpha: .88),
+                    ),
+                  ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: palette.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RemoteLibraryLoadingState extends StatelessWidget {
+  const _RemoteLibraryLoadingState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Container(
+      constraints: const BoxConstraints(minHeight: 130),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: palette.staticSurface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(
+              value: .72,
+              strokeWidth: 2,
+              color: palette.selectedTint,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            '正在读取服务器媒体库…',
+            style: TextStyle(fontSize: 12, color: palette.secondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RemoteLibrariesEmptyState extends StatelessWidget {
+  const _RemoteLibrariesEmptyState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = SourceSheetPalette(
+      Theme.of(context).brightness == Brightness.dark,
+    );
+    return Container(
+      constraints: const BoxConstraints(minHeight: 150),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: palette.staticSurface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: palette.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.layers_clear_outlined,
+            size: 32,
+            color: palette.selectedTint.withValues(alpha: .88),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '服务器未返回媒体库',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '可以保持同步全部，稍后再重新打开设置。',
+            style: TextStyle(fontSize: 12, color: palette.secondary),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SheetStatusNotice extends StatelessWidget {
@@ -803,6 +1061,7 @@ class _SheetStatusNotice extends StatelessWidget {
     this.error = false,
     this.actionLabel,
     this.onAction,
+    super.key,
   });
 
   final String message;

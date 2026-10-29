@@ -829,13 +829,15 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('媒体源').first);
       await tester.pumpAndSettle();
-      for (var n = 0; n < 100 && find.text('浏览媒体').evaluate().isEmpty; n++) {
+      final syncedSource = (await sources.sources()).single;
+      final browse = find.byKey(ValueKey('source-browse-${syncedSource.id}'));
+      for (var n = 0; n < 100 && browse.evaluate().isEmpty; n++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump(const Duration(milliseconds: 20));
       }
-      await tester.tap(find.text('浏览媒体'));
+      await tester.tap(browse);
       await tester.pumpAndSettle();
       for (
         var n = 0;

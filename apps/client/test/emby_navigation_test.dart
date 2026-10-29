@@ -1057,6 +1057,8 @@ void main() {
           }
 
           await openSources();
+          await tester.tap(find.byKey(ValueKey('source-more-${source.id}')));
+          await tester.pumpAndSettle();
           await tester.tap(find.byKey(ValueKey('source-alias-${source.id}')));
           await tester.pumpAndSettle();
           await tester.enterText(
@@ -1066,8 +1068,9 @@ void main() {
           await tester.tap(find.text('保存'));
           await tester.pumpAndSettle();
           expect((await sources.source(source.id)).name, '客厅 Emby');
-          // Both the source card and sidebar observe the same persisted name.
-          expect(find.text('客厅 Emby'), findsNWidgets(2));
+          // The original row uses the provider title; the sidebar exposes the
+          // persisted alias used for navigation.
+          expect(find.text('客厅 Emby'), findsOneWidget);
           await openSources();
           router.go(embyVideoLocation(dest(view: 'movies')));
           await tester.pumpAndSettle();

@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:math' as math;
 
 import 'package:ffi/ffi.dart';
 import 'package:media_kit/generated/libmpv/bindings.dart' as mpv;
+
+typedef MpvPreviewPixels = ({Uint8List bytes, int width, int height});
 
 class MpvPreviewArguments {
   const MpvPreviewArguments({
@@ -13,21 +16,25 @@ class MpvPreviewArguments {
     required this.position,
     required this.ready,
     this.format,
+    this.sampleRatio,
+    this.protocols = 'file,http,tcp',
   });
   final String library;
   final String location;
   final Duration position;
   final String? format;
+  final double? sampleRatio;
+  final String protocols;
   final SendPort ready;
 }
 
 // Keep the Isolate.run closure outside the session/proxy stack. No player,
 // credential repository or HTTP socket is accidentally captured and copied.
-Future<Uint8List?> decodeMpvPreview(MpvPreviewArguments arguments) =>
+Future<MpvPreviewPixels?> decodeMpvPreview(MpvPreviewArguments arguments) =>
     Isolate.run(() => _decode(arguments));
 
-Future<Uint8List?> _decode(MpvPreviewArguments args) async {
-  Uint8List? unavailable(String code) {
+Future<MpvPreviewPixels?> _decode(MpvPreviewArguments args) async {
+  MpvPreviewPixels? unavailable(String code) {
     args.ready.send(code);
     return null;
   }
@@ -103,6 +110,8 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
       'pause': 'yes',
       'keep-open': 'yes',
       'force-window': 'no',
+      'terminal': 'no',
+      'msg-level': 'all=no',
       'hwdec': 'no',
       'cache': 'no',
       'cache-on-disk': 'no',
@@ -111,7 +120,8 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
       'demuxer-max-back-bytes': '0',
       'hr-seek': 'yes',
       'start': '${args.position.inMicroseconds / 1000000}',
-      'demuxer-lavf-o': 'protocol_whitelist=%13%file,http,tcp',
+      'demuxer-lavf-o':
+          'protocol_whitelist=%${args.protocols.length}%${args.protocols}',
       if (args.format != null) 'demuxer-lavf-format': args.format!,
     }.entries) {
       if (option(entry.key, entry.value) < 0) {
@@ -125,10 +135,26 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
       return unavailable('decoder_load');
     }
     var restarted = false;
+    var sampleSeconds = args.position.inMicroseconds / 1000000;
+    var ratioApplied = args.sampleRatio == null;
     while (!cancelled && DateTime.now().isBefore(deadline)) {
       // Consume libmpv events on this worker, without any Flutter rendering
       // thread, output pipes, or synchronous wait on the UI isolate.
       final event = api.mpv_wait_event(context, .02);
+      if (!ratioApplied &&
+          event.ref.event_id == mpv.mpv_event_id.MPV_EVENT_FILE_LOADED) {
+        ratioApplied = true;
+        final duration = property('duration');
+        if (duration != null && duration.isFinite && duration > 0) {
+          sampleSeconds = math.max(
+            1,
+            duration * args.sampleRatio!.clamp(.01, .95),
+          );
+          if (command(['seek', '$sampleSeconds', 'absolute+exact']) < 0) {
+            return unavailable('decoder_seek');
+          }
+        }
+      }
       if (event.ref.event_id == mpv.mpv_event_id.MPV_EVENT_PLAYBACK_RESTART) {
         restarted = true;
       }
@@ -136,9 +162,10 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
         return unavailable('decoder_end');
       }
       final pts = property('time-pos');
-      if (restarted &&
+      if (ratioApplied &&
+          restarted &&
           pts != null &&
-          (pts - args.position.inMicroseconds / 1000000).abs() <= 1.5) {
+          (pts - sampleSeconds).abs() <= 1.5) {
         final w = property('video-out-params/w');
         final h = property('video-out-params/h');
         if (w == null ||
@@ -182,7 +209,16 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
           final source = pixels.ref.data.cast<Uint8>().asTypedList(
             pixels.ref.size,
           );
-          const outWidth = 312, outHeight = 176;
+          final coverScale = math.min(
+            1.0,
+            math.min(900 / width, 1350 / height),
+          );
+          final outWidth = args.sampleRatio == null
+              ? 312
+              : math.max(1, (width * coverScale).round());
+          final outHeight = args.sampleRatio == null
+              ? 176
+              : math.max(1, (height * coverScale).round());
           final rgba = Uint8List(outWidth * outHeight * 4);
           final scale = (outWidth / width < outHeight / height)
               ? outWidth / width
@@ -211,9 +247,22 @@ Future<Uint8List?> _decode(MpvPreviewArguments args) async {
               if ((rgba[to] + rgba[to + 1] + rgba[to + 2]) / 3 < 14) dark++;
             }
           }
-          return dark / (drawWidth * drawHeight) > .90
+          var black = dark / (drawWidth * drawHeight) > .90;
+          if (args.sampleRatio != null) {
+            final count = math.min(800, outWidth * outHeight);
+            var darkSamples = 0;
+            for (var i = 0; i < count; i++) {
+              final at =
+                  (((i * 53) % outHeight) * outWidth + (i * 37) % outWidth) * 4;
+              if ((rgba[at] + rgba[at + 1] + rgba[at + 2]) ~/ 3 < 16) {
+                darkSamples++;
+              }
+            }
+            black = darkSamples / count > .88;
+          }
+          return black
               ? unavailable('frame_dark')
-              : rgba;
+              : (bytes: rgba, width: outWidth, height: outHeight);
         } finally {
           api.mpv_free_node_contents(result);
           calloc.free(result);

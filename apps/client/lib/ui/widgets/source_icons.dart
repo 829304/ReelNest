@@ -12,6 +12,8 @@ enum SourceGlyph {
   checkCircle,
   warning,
   folder,
+  missingFolder,
+  duplicates,
   grid,
   sliders,
   info,
@@ -183,6 +185,49 @@ class _LinePainter extends CustomPainter {
           radius: const Radius.circular(1.5),
         );
         path.close();
+      case SourceGlyph.missingFolder:
+        path.moveTo(3, 7.5);
+        path.arcToPoint(
+          const Offset(4.5, 6),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(9, 6);
+        path.lineTo(11, 8.5);
+        path.lineTo(19.5, 8.5);
+        path.arcToPoint(
+          const Offset(21, 10),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(21, 18);
+        path.arcToPoint(
+          const Offset(19.5, 19.5),
+          radius: const Radius.circular(1.5),
+        );
+        path.lineTo(4.5, 19.5);
+        path.arcToPoint(
+          const Offset(3, 18),
+          radius: const Radius.circular(1.5),
+        );
+        path.close();
+        path.moveTo(10, 12.2);
+        path.cubicTo(10, 10.6, 11, 10, 12.2, 10);
+        path.cubicTo(13.5, 10, 14.4, 10.8, 14.4, 12);
+        path.cubicTo(14.4, 13.2, 13.6, 13.6, 12.3, 14.4);
+        path.moveTo(12.2, 17);
+        path.lineTo(12.21, 17);
+      case SourceGlyph.duplicates:
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(7, 4, 13, 13),
+            const Radius.circular(2),
+          ),
+        );
+        path.addRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(4, 7, 13, 13),
+            const Radius.circular(2),
+          ),
+        );
       case SourceGlyph.grid:
         for (final x in [3.5, 13.5]) {
           for (final y in [3.5, 13.5]) {

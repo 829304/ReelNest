@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,13 +17,15 @@ import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../metadata/application/metadata_supplement_providers.dart';
 import '../../sources/application/source_providers.dart';
+import '../../sources/application/url_video_providers.dart';
+import '../../sources/presentation/url_source_sheet.dart';
 import '../application/health_providers.dart';
 import '../../../app/runtime_observations.dart';
 import 'health_overview.dart';
 import '../../sources/presentation/emby_task_center.dart';
 
-/// LibraryHealthCenterView's video scores, source/file checks and metadata /
-/// duplicate candidates. Music, URL connectors and metadata repair are separate.
+/// LibraryHealthCenterView's video scores, source/file checks, failed URL
+/// links and metadata / duplicate candidates. Music remains a separate module.
 class LibraryHealthPage extends ConsumerStatefulWidget {
   const LibraryHealthPage({super.key});
   @override
@@ -117,6 +120,53 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
     }
   }
 
+  Future<void> _copyURL(MediaIdentity identity) async {
+    try {
+      final url = await ref.read(urlVideoRepositoryProvider).location(identity);
+      await Clipboard.setData(ClipboardData(text: url));
+      if (mounted) {
+        showAppToast(context, '已复制链接', kind: AppFeedbackKind.success);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = sourceErrorMessage(error));
+    }
+  }
+
+  Future<void> _removeURL(IndexedMedia item) async {
+    if (_saving) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AppConfirmationDialog(
+        title: '从其他视频移除“${item.title}”？',
+        message: '将移除这个网络视频地址；已下载到本机的文件不会被删除。',
+        confirmLabel: '移除',
+        destructive: true,
+      ),
+    );
+    if (confirmed != true || !mounted || _saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await ref.read(urlVideoRepositoryProvider).remove({item.identity});
+      ref.invalidate(urlVideosProvider);
+      ref.invalidate(rawLibraryHealthProvider);
+      if (mounted) {
+        showAppToast(context, '网络视频地址已移除。', kind: AppFeedbackKind.success);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = sourceErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _manageURLs() => showDialog<void>(
+    context: context,
+    builder: (_) => const UrlSourceManagementSheet(),
+  );
+
   Future<void> _supplementMetadata() async {
     setState(() => _error = null);
     try {
@@ -159,6 +209,22 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
           onPressed: onPressed,
         ),
       );
+
+  Widget _materialAction(
+    String label,
+    IconData icon,
+    VoidCallback? onPressed, {
+    Color? color,
+  }) => Tooltip(
+    message: label,
+    child: SourceSheetButton(
+      label: '',
+      icon: Icon(icon, size: 14, color: color),
+      height: 30,
+      horizontalPadding: 9,
+      onPressed: onPressed,
+    ),
+  );
   Widget _pill(String label, Color tint) =>
       DashboardStatusBadge(label: label, tint: tint);
   Widget _heading(
@@ -648,7 +714,112 @@ class _LibraryHealthPageState extends ConsumerState<LibraryHealthPage>
   ) {
     final details = snapshot.detailGapItems;
     final rows = snapshot.duplicateRows;
+    final videos = ref.watch(urlVideosProvider).value ?? const [];
+    final urlByIdentity = {
+      for (final video in videos) video.identity: video.url,
+    };
+    final itemByIdentity = {
+      for (final item in snapshot.inventory.items) item.identity: item,
+    };
+    final unhealthyEntries = snapshot.unhealthyURLs.entries.toList(
+      growable: false,
+    );
     return [
+      if (snapshot.unhealthyURLs.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        _HealthCard(
+          title: '失效链接',
+          status: '${snapshot.unhealthyURLs.length} 项',
+          accent: palette.accent,
+          children: [
+            const Text(
+              'URL 媒体源中无法访问或无法解析为视频的地址。可复制链接排查，或从「其他视频」移除。',
+              style: TextStyle(fontSize: 11),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 430),
+              child: ListView.separated(
+                shrinkWrap: true,
+                primary: false,
+                itemCount: unhealthyEntries.length,
+                separatorBuilder: (_, _) =>
+                    Divider(height: 1, color: palette.border),
+                itemBuilder: (context, index) {
+                  final entry = unhealthyEntries[index];
+                  final item = itemByIdentity[entry.key]!;
+                  final url = urlByIdentity[entry.key] ?? '地址读取中';
+                  return Padding(
+                    key: ValueKey(
+                      'unhealthy-url-${entry.key.sourceId}-${entry.key.localId}',
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Tooltip(
+                            message: url,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.cardTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  '${entry.value} · $url',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: palette.secondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        SourceSheetButton(
+                          label: '管理',
+                          height: 30,
+                          horizontalPadding: 9,
+                          onPressed: _saving ? null : _manageURLs,
+                        ),
+                        _materialAction(
+                          '复制链接',
+                          Icons.link_rounded,
+                          _saving ? null : () => _copyURL(entry.key),
+                        ),
+                        _materialAction(
+                          '移除链接',
+                          Icons.delete_outline_rounded,
+                          _saving ? null : () => _removeURL(item),
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        _action(
+                          '忽略此失效链接，可在设置中恢复',
+                          SourceGlyph.eyeOff,
+                          _saving
+                              ? null
+                              : () => _ignore((
+                                  kind: HealthIssueKind.unhealthyURL,
+                                  sourceId: entry.key.sourceId,
+                                  localId: entry.key.localId,
+                                )),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
       if (rows.isNotEmpty) ...[
         const SizedBox(height: 14),
         _HealthCard(

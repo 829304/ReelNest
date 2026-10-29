@@ -6,7 +6,12 @@
 
 2026-10-27 P0 前端视觉状态：`LocalMediaCard` 悬浮阴影及评分胶囊已按原版 `PosterGridView.swift` / `HomeVividTokens` 修正；媒体卡视觉专项1/1、核心 UI 35/35、Jellyfin/Plex 前端4/4、全项目 analyze、Windows Release 40.9秒及五秒 smoke 通过（10:38:12 +08，窗口响应、正常关闭、exit 0）。人工复核首页/侧栏/媒体库/占位/评分/筛选正常；缺图占位内标题和卡片底部标题是原版设计，保留。详见[当前阶段 P0 记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-本地媒体卡视觉一致性修正windows-验证通过)。
 
-2026-10-27 侧边栏状态卡 P0 第一、二批：原版 `SidebarStatusCenterCard` 部分迁移为固定底部 `SidebarStatusCard`、独立滚动菜单，已接入继续观看、真实缓存统计快照和任务完成提示；既有来源/健康状态只读，不因显示卡片额外探测磁盘/服务器。第二批专项20/20、首页/缓存/侧栏/健康联合117/117、analyze、diff-check、Windows Release 38.9秒和隐藏 smoke通过。仍未完整迁移音乐迷你控制、应用更新、保险库快捷锁定、赞赏提示、缺失/重复项专属卡、任务重试/取消等原版能力。详见[第二批记录](NEXT_STAGE.zh-CN.md#2026-10-27-侧边栏状态卡-p0-第二批部分迁移windows-验证通过)。
+2026-10-29 侧边栏状态卡 P0 第三批收口：失效文件/疑似重复 attention 轮换、严格224×58卡体及图标/渐变/动画/进度条细节已按原版收口。最终5文件59/59、专项复核7/7、analyze clean（61.4秒）、3文件format 0 changed、diff-check通过、Windows Release44.7秒及五秒hidden smoke通过。可见逐像素、真实健康数据长时轮换、macOS/Linux仍待；侧栏其他原版能力仍未迁移。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-侧边栏状态卡-p0-第三批收口windows-定向交付验证通过)。
+2026-10-29 媒体源系统 P1 首批：SourcesPage空态/加载态和来源类型卡按原版几何、动效、无障碍语义收口；14个前端用例、全项目analyze及Windows Release通过。启动探针仅确认5秒响应；隐藏窗口无法正常关闭，进程后续被终止，故不计smoke通过。可见像素验收仍待，详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源系统-p1-首批windows-前端与-release-验证通过smoke-未完成正常关闭)。
+2026-10-29 媒体源系统 P1 第二批：新增共享三步 `source_wizard_steps.dart` 并接入本地、来源类型选择和 Emby/Jellyfin/Plex 连接流程；补齐步骤语义、Reduce Motion 和连接/设置切换，统一类型卡单焦点交互，业务行为不变。7文件41/41、analyze clean、Windows Release38.0秒及正常关闭 smoke通过（10:38:42 +08，ExitCode 0，无进程残留）。可见像素及 macOS/Linux仍待。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源系统-p1-第二批windows-定向交付验证通过)。
+2026-10-29 媒体源设置 P0：远程媒体库行、类型图标、加载/空态与错误重试按 Swift 基线收口，业务保存与同步逻辑未变。7文件57/57、analyze clean（60.9秒）、Windows Release46.2秒及正常关闭 hidden smoke通过（14:54:06 +08，ExitCode 0）；diff-check通过、无进程残留。可见像素及macOS/Linux仍待，详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源设置-p0windows-定向交付验证通过)。
+2026-10-29 播放器窗口尺寸与自适应 P0：默认1120优选宽度、横竖屏/实际视频比例自适应、仅普通横屏记忆宽度、迷你窗往返约束恢复及360px Dock窄态已实现。5文件54/54、analyze、Windows Release38.5秒和正常关闭 smoke通过；可见真实窗口、实体缩放、竖屏真实视频、macOS/Linux与全量Flutter测试未验。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0windows-定向验证通过)。
+2026-10-28 侧边栏状态卡 P0 第三批初始实现记录：新增健康扫描快照驱动的失效文件/疑似重复专属状态，只在快照完整且与当前来源修订、配置和扫描时间匹配时显示；当时尚未测试、analyze、构建或人工验收。后续收口及验证见2026-10-29记录。音乐迷你控制、应用更新、保险库快捷锁定、赞赏提示、失败任务重试/活动任务取消仍未迁移。
 
 2026-10-27 P0 媒体网格绘制层级：`HoverLiftShadow` 以 `OverlayPortal` 显示主悬浮阴影，解决 SliverGrid 索引绘制下海报阴影被后绘制兄弟覆盖的问题；主卡片仍独立负责交互、焦点、tilt 和缩放。视觉专项最终2/2、跨来源组合最终63/63、analyze、diff-check、Windows Release 39.7秒及五秒 smoke通过。首次组合因退出断言少 pump 一帧失败，修正测试时序后最终63/63通过。此修正不代表工具栏/图标/全页面像素审计完成。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-媒体网格悬浮阴影绘制层级修正)。
 
@@ -34,15 +39,15 @@
 
 | 模块 | 实现状态 | Windows 自动化/构建 | 真实来源与人工验收 | macOS 原生 | Linux 原生 | 原版 UI 视觉 |
 |---|---|---|---|---|---|---|
-| 本地视频来源与索引 | 文件夹、移动盘、已挂载 NAS 路径、自动监控/增量更新及当前四种可用来源的三步向导已接入；SourceRow 视觉仍待逐项对照，原版完整连接器集合仍有缺口 | 来源向导/策略定向与核心测试90/90、analyze 0 issues、Windows Release 41.9秒及五秒 smoke 通过；自动扫描独立证据见[本地来源](LOCAL_SOURCES.zh-CN.md) | 真实目录选择器、NAS/移动盘拔插仍待验收 | 原生行为及持久目录授权待验 | 原生行为待设备实测 | 来源主页 SourceRow 仍非完整原版逐像素/逐交互验收 |
+| 本地视频来源与索引 | 文件夹、移动盘、已挂载 NAS 路径、自动监控/增量更新及当前四种可用来源的三步向导已接入；SourceRow、媒体源设置 P0 与媒体源系统 P1 前两批视觉部分按原版迁移，原版完整连接器集合仍有缺口 | SourceRow：8文件82/82、Windows Release52.7秒及正常关闭 smoke通过。P1首批：14前端用例、analyze、Release34.7秒通过；隐藏探针未正常关闭，不计smoke。P1第二批：7文件41/41、analyze、Release38.0秒、正常关闭 smoke通过。媒体源设置 P0：7文件57/57、analyze、Release46.2秒、正常关闭 smoke通过。详见阶段记录 | 系统目录选择器、真实远程服务、空态/加载态/向导/类型卡/远程媒体库设置可见像素验收待 | 原生行为及持久目录授权、视觉验收待 | 原生行为及视觉验收待 | P0/P1自动化覆盖相应尺寸及交互；可见UI逐项对照仍待，不代表全局UI一致 |
 | Emby 视频 | 连接、同步/浏览/详情/用户操作/播放与缓存等主要视频流程已接入 | 有大量分层自动化证据；详见[Emby 文档](README.md#emby-视频)及专项记录 | 真实 Emby 全流程仍待系统验收 | 未完成全平台验收 | 未完成全平台验收 | 原版逐页/逐交互视觉仍待 |
 | Plex 基础视频来源 | 基础 server+Token、独立来源、浏览/搜索/详情、direct 播放及用户状态回写已实现；本地收藏语义已明确 | 前端2/2、Windows Native mpv单业务用例、Plex专属后端24/24、共享后端255/255、同步/UI 63项、Windows Release/smoke通过；组合日志276/276和85/85含重叠不重复累计 | 不使用真实 Token，真实 Plex 待后续 | 待验证 | 待验证 | 原版逐项视觉待验 |
 | 原版视觉纠偏（第一批） | 新增可复用 `PointerInspectTilt`，海报与详情 hero 按 Swift `PointerInspectTiltModifier` 迁移；详情 hero 恢复直接 HStack/窄屏结构，海报边框渐变及收藏/书签独立按钮按原版对齐。媒体卡主悬浮阴影绘制层级已由后续 `HoverLiftShadow` 修正 | 专项16/16、跨来源 Emby/source/Jellyfin/Plex/TMDB 47/47；后续阴影视觉专项2/2、跨来源63/63最终通过；analyze clean、Windows Release 39.7秒、隐藏 smoke 通过 | Windows Release 已运行；未覆盖全页人工像素审计 | 待验证 | 待验证 | 阴影层级修正不等于工具栏/图标映射或全页面像素一致；SF Symbols/自定义图标和逐页尺寸颜色动效审计仍待 |
 | 媒体库主界面页头 P0 | 共享 `VideoLibraryPageHeader` 对齐原版标题簇/TV 图标/动作基线；移除 Emby 页头额外卡片和管理按钮，恢复原版搜索尺寸、线性图标、副标题与窄布局轨道；保留原版双层筛选表面及全部业务语义 | 跨来源四文件63 passed；media_card_visual_parity + sidebar_status_card + app_test 22 passed；format 0 changed、analyze clean、Windows Release41.0秒、hidden smoke通过 | 未验证真实 Emby/Jellyfin/Plex 可见 UI、实体输入及高 DPI | 待验证 | 待验证 | 此次仅页头 P0 对齐；全局像素一致、其他页面精确视觉待 |
-| 侧边栏状态卡（部分迁移） | `SidebarStatusCard` 固定在侧栏底部；菜单为独立 Expanded ListView。显示活动任务、离线/健康异常、轮换近期任务/来源摘要、继续观看首项、真实缓存统计及任务完成提示；只读观察快照，不新增磁盘/服务器探测 | 第一批 app_test17/17、交叉回归70/70；第二批专项20/20、首页/缓存/侧栏/健康联合117/117、analyze clean、Windows Release38.9秒、隐藏 smoke通过 | Windows自动化覆盖来源摘要/续播动作链路/缓存显示；不推定真实来源全流程人工验收 | 待验证 | 待验证 | 对照原版 `SidebarStatusCenterCard` 的部分迁移；音乐迷你控制、应用更新、保险库锁定、赞赏提示、缺失/重复项专属卡、失败重试/活动任务取消未迁移 |
+| 侧边栏状态卡（部分迁移） | `SidebarStatusCard` 固定在侧栏底部；显示活动任务、离线/健康异常、扫描有效时的失效文件/疑似重复专属状态、轮换近期任务/来源摘要、继续观看、真实缓存统计及任务完成提示；观察快照，不新增磁盘/服务器探测 | 第三批最终5文件59/59、复核7/7、analyze clean、format/diff-check通过、Windows Release44.7秒、hidden smoke通过；第一、二批证据见阶段记录 | 自动化范围见第三批阶段记录；真实健康数据长时轮换与全流程人工验收待 | 待验证 | 待验证 | 卡体尺寸、glyph/渐变、转场和进度条已做自动化约束；可见窗口逐像素对照待。仍缺音乐迷你控制、更新、保险库锁定、赞赏、失败重试/活动任务取消 |
 | Jellyfin 基础视频来源 | 独立 kind/provider/凭据/URI；登录恢复、选库、浏览/搜索/详情、视频播放/音轨字幕/续播/切集/上报基础闭环已实现 | 定向分组 255/255、同步/界面 61/61、UI 2/2、Windows Native 真实 mpv、Release 44.1 秒及五秒 smoke 通过；本批未跑全量 | 真实 Jellyfin 服务未验 | Windows Native 基础链路通过 | macOS/Linux 原生待验 | 人工精确视觉待验 |
 | 首页 | 影视 Hero、统计、剧集推荐、播放/最近/想看/收藏/新增/高分及运行状态、编排和搜索已接入；不等于完整公共浏览/集合系统 | 自动化和 Windows 验证见[首页文档](README.md#首页)及各优化记录 | 大库可见交互和真实来源组合仍待 | 原生性能/视觉待验 | 原生性能/视觉待验 | 原版逐项视觉仍待 |
-| 共用视频播放器 | 本地/Emby 共用会话；大量基础、精确控制和高级画面/音频功能已接入 | 多个模块有 Windows Profile/native/Release 证据；见[播放器状态及专项索引](README.md#视频播放) | 真实 Emby、真实设备听感/硬解/HDR/长播等按项目分别待验 | 原生验收待 | 原生验收待 | 完整原版布局/图标/字体/材质/交互对照待 |
+| 共用视频播放器 | 本地/Emby共用会话；基础/高级播放能力持续迁移。2026-10-29窗口尺寸与自适应 P0 已完成 Windows 定向实现和自动化验证 | 本批播放器窗口/播放/基础设置/画面设置/快捷键5文件54/54、analyze、Windows Release38.5秒与正常关闭 smoke通过；见[播放器状态页](PLAYER_STATUS.zh-CN.md) | 可见真实窗口、实体拖拽缩放、竖屏真实视频及真实 Emby/设备听感/硬解/HDR/长播等仍待 | 原生验收待 | 原生验收待 | 窗口自动化约束通过；完整原版布局/图标/字体/材质及可见交互对照待 |
 | 健康/任务/应用设置 | 健康评分与忽略恢复、失效路径/重复/详情缺口、扫描/分析/缓存任务中心已有接线 | 各模块有分层自动化及 Windows 证据 | 在线补资料修复未实现；通用原版后台任务/重试系统并未全部迁移 | 原生验收待 | 原生验收待 | 当前不是完整原版设置/引导 |
 | 发布与平台支持 | Windows 便携存储、DPAPI、路径防逃逸及打包白名单已实现 | CI 有 Ubuntu check 与三桌面 build artifact workflow；build workflow 只由 main push/手动触发，Codex 分支 push 不自动 build | 当前 workflow 不调用 windows-smoke，也不运行原生播放器 Profile；没有三端全绿/实机结论 | 原生目录权限/稳定卷身份、构建及运行待 | 构建与运行验收待 | 三平台视觉/交互验收待 |
 
@@ -54,7 +59,7 @@
 
 - 当前已交付的来源入口为 `localFolder`、Emby、Jellyfin 与 Plex 基础视频连接器；Jellyfin 保持独立来源身份并复用 Emby-compatible 协议实现。分组验证、Windows Native/Release/smoke 及未验边界见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。本地入口可使用移动盘及已经由操作系统挂载的 NAS 路径。
 - 本地文件侧已有多选去重、部分成功、扫描队列/取消/错误、分类/阈值/隐藏属性、文件名和季集识别、NFO/本地资料/海报/背景、来源重定位、离线保护、索引安全清理；清理索引不删除用户媒体文件。
-- 当前 `add_source_dialog` 已按原版三步结构提供来源选择、连接/目录与分类、设置/参与策略；当前类型为本地目录、Emby、Jellyfin、Plex。URL/网络位置/ReelNest Server 等当前未实现入口仍属迁移范围，不是永久删除。
+- 当前 `add_source_dialog` 已按原版三步结构提供来源选择、连接/目录与分类、设置/参与策略；当前已接入本地目录、Emby、Jellyfin、Plex。持久 URL 视频来源已进入实现阶段，规格见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)；网络位置/ReelNest Server 等仍待迁移。原版入口未实现不代表永久删除。
 - `source_providers` 中 `localFolder`、`removableDrive`、`mountedNas` 共用 `FileSourceAdapter`；Emby/Jellyfin 走远程连接器与 Emby-compatible 协议链路，按 kind 隔离身份并处理差异；Plex 独立协议连接器已实现基础视频闭环，前端/Windows Native、Plex专属后端24/24、共享后端255/255和同步/UI 63项、Windows Release/smoke均通过。组合日志276/276与85/85不重复累计。
 
 ### 明确未闭环
@@ -62,7 +67,7 @@
 - 来源设置可选择并持久化元数据拉取/写回参与偏好；偏好保存不等同于相关执行链路的完整验收。TMDB 电影/剧集功能状态分别见[电影元数据计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)和[剧集元数据计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。
 - macOS 的目录持久授权未接入且相关按钮禁用；macOS 当前没有可用的稳定卷 UUID 身份，不能笼统记成“待实机验证”。
 - 内置 SMB/FTP/FTPS 网络设备连接与挂载未实现。“已挂载 NAS 路径可作为本地目录”不等于 ReelNest 内置网络设备支持。
-- Jellyfin 基础视频来源闭环已实现；真实 Jellyfin、macOS/Linux 和人工 UI 视觉验收仍待。Plex 基础视频连接器已完成本阶段实现；真实服务与跨平台验收仍待。网络视频 URL 来源仍未实现。旧 Mlink router 仅为测试原型且 `enableLegacyMlink=false`，不构成 ReelNest Server 正式连接器或自有服务端。
+- Jellyfin 基础视频来源闭环已实现；真实 Jellyfin、macOS/Linux 和人工 UI 视觉验收仍待。Plex 基础视频连接器已完成本阶段实现；真实服务与跨平台验收仍待。持久 URL 封面修订后8文件52/52、最终 analyze、Windows Release 39.0秒及 smoke 通过；旧版189/189、修订前20/20和53.1秒Release/14:59 smoke仅作前序中间证据。后续 HTTP(S) URL 离线缓存仅为建议候选，尚未实施或纳入本批。详情见[专项计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。旧 Mlink router 仅为测试原型且 `enableLegacyMlink=false`，不构成 ReelNest Server 正式连接器或自有服务端。
 
 ### 自动监控与增量扫描（实现完成；平台/真实设备验收待）
 
@@ -139,6 +144,7 @@ Emby 服务端转码是服务器对视频流的转换能力，不代表 ReelNest
 | 5c（Windows 定向交付验证通过；平台/真实公服验收待） | TMDB 本地剧集/动漫手动批量匹配 | 13文件160/160（41秒）、analyze clean4.8秒、44个变更 Dart 文件 format0 changed、diff-check通过；Windows Release52.7秒及五秒 smoke通过。首轮74/159为中间计数不累计。没有全量/native Flutter drive、真实TMDB公服、macOS/Linux、实体目录或可见UI验收；SourceRow未改，来源列表视觉对照未完成。详见[专项计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。 |
 | 5d（Windows 定向交付验证通过；平台/真实公服验收待） | TMDB 本地剧集/动漫定时自动匹配 | 15文件179/179（48秒）、analyze clean4.4秒；Windows Release45.9秒，`data/app.so` 为2026-10-27 22:07:19 +08、13,239,176 bytes；五秒 hidden smoke 于22:08:29 +08响应、正常关闭、ExitCode 0。48个工作区变更 Dart 文件 format0 changed、diff-check通过。与手动批量160项有覆盖重叠，分批记录不累计。未跑全量/native Flutter drive、真实TMDB公服、macOS/Linux、可见UI或真实15分钟墙钟周期验收。详见[专项计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)。 |
 | 5e（Windows 定向交付验证通过；平台/实地视觉验收待） | 本地视频健康补充与 NFO 写回 | 定向15文件164/164（约9秒）、analyze无问题（3.9秒）、61个变更/新增 Dart 文件格式检查0更改、diff-check通过；覆盖 writer/policy/supplement、health UI、来源配置、TMDB与app回归，并验证 NFO 写入后读取及真实来源重扫恢复字段。此前失败/重复运行不累计。Windows Release44.3秒及五秒 hidden smoke通过（09:52:30 +08，响应/正常关闭/ExitCode 0）。仅本地电影、电视剧/动漫的健康一键补充可触发写回；默认关闭且要求来源参与元数据。索引先提交、NFO独立写入，失败保留索引并提示 warning，不是跨数据库/文件系统原子事务。普通单项/批量/定时匹配不写 NFO。macOS/Linux、真实 NAS/挂载与可见 UI 验收待。详见[阶段计划](LOCAL_VIDEO_METADATA_WRITEBACK_PLAN.zh-CN.md)。 |
+| 5f（URL管理弹窗 P0 Windows 定向交付验证通过；平台/真实服务/完整 UI 验收待） | 持久 URL 视频媒体源 | URL来源浏览/详情/播放/进度、自动封面、健康管理与管理弹窗已接入。管理弹窗按原版保留单条/批量添加、名称、健康检查、封面、编辑、删除及空容器清理；删除确认说明本机下载文件不删除。URL/UI/数据/来源联动21项通过、2项native mpv conditional skipped、analyze 0 issue、Windows Release38.5秒及正常关闭 smoke通过（15:05:46 +08，ExitCode 0，无残留进程）；Flutter SDK临时兼容改动已还原。此前封面修订8文件52/52、analyze、Release39.0秒/smoke通过，详见[URL计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。封面源比例/取样规则详见专项计划。可见逐像素UI、真实服务、macOS/Linux及全量测试待。URL离线下载、手动截帧设海报、自定义封面及全局其他视频分类入口未迁移；HTTP(S) URL离线缓存仅为下一阶段候选，未实施。 |
 | 6（基础闭环已实现；Windows 交付验证通过） | Jellyfin 基础视频连接器 | 共享协议 255/255、同步/界面组 61/61、独立 UI 2/2、Emby 基线 37/37、Windows Native 真实 mpv、Release/smoke 通过；本批未跑全量。真实服务器、macOS/Linux 与人工视觉验收待。详见[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)。 |
 | 7（Plex 基础连接器已实现；Windows 自动验证通过） | Plex 视频来源闭环 | 独立 XML/`X-Plex-*` protocol、source identity 与本地 favorite 保护；Plex专属后端24/24、共享后端255/255、同步/UI 63项、前端2/2、Windows Native和Windows Release/smoke通过。组合报告有重叠，不重复累计。真实服务、macOS/Linux、人工视觉及辅助功能验收待。见[Plex 计划](PLEX_PLAN.zh-CN.md)。 |
 | 8 | 其他来源 | 网络视频来源/网络设备支持分别立项；内置 SMB/FTP/FTPS 连接挂载不能由已挂载目录替代。 |

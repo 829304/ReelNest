@@ -151,7 +151,8 @@ void main() {
         isTrue,
       );
       expect(find.text('扫描完成：1 个媒体文件'), findsNWidgets(2));
-      await tester.tap(find.text('浏览媒体').first);
+      final firstSource = (await repository.sources()).first;
+      await tester.tap(find.byKey(ValueKey('source-browse-${firstSource.id}')));
       await tester.pumpAndSettle();
       expect(find.byType(LocalMediaCard), findsOneWidget);
       await tester.tap(find.byType(LocalMediaCard));
