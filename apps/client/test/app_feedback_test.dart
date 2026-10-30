@@ -5,6 +5,20 @@ import 'package:reelnest/ui/widgets/app_confirmation_dialog.dart';
 import 'package:reelnest/ui/widgets/app_feedback.dart';
 
 void main() {
+  test('floating feedback queue keeps the newest twelve pending notices', () {
+    final controller = AppFeedbackController();
+    addTearDown(controller.dispose);
+    controller.show('当前通知', duration: const Duration(minutes: 1));
+    for (var index = 1; index <= 14; index++) {
+      controller.show('排队通知 $index', duration: const Duration(minutes: 1));
+    }
+
+    expect(controller.visible?.message, '当前通知');
+    expect(controller.pendingCount, 12);
+    controller.dismiss(controller.visible!.id);
+    expect(controller.visible?.message, '排队通知 3');
+  });
+
   testWidgets('confirmation dialog returns the selected result', (
     tester,
   ) async {
@@ -148,12 +162,20 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(brightness: Brightness.dark),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () =>
-                  showAppToast(context, '设置已保存', kind: AppFeedbackKind.success),
-              child: const Text('保存'),
+        home: AppFeedbackScope(
+          child: Scaffold(
+            body: AppFloatingNoticeHost(
+              child: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showAppToast(
+                    context,
+                    '设置已保存',
+                    kind: AppFeedbackKind.success,
+                    duration: const Duration(minutes: 1),
+                  ),
+                  child: const Text('保存'),
+                ),
+              ),
             ),
           ),
         ),
@@ -161,12 +183,108 @@ void main() {
     );
 
     await tester.tap(find.text('保存'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('设置已保存'), findsOneWidget);
-    expect(find.byType(SnackBar), findsOneWidget);
-    expect(find.byType(AppInlineNotice), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(
+      find.byKey(const ValueKey('app-floating-notice-card')),
+      findsOneWidget,
+    );
     expect(find.byIcon(Icons.check_circle_outline_rounded), findsOneWidget);
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('app-floating-notice-card')))
+          .top,
+      18,
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('app-floating-notice-card')))
+          .width,
+      lessThanOrEqualTo(560),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('floating notices queue in order and can be dismissed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppFeedbackScope(
+          child: Scaffold(
+            body: AppFloatingNoticeHost(
+              child: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () {
+                    showAppToast(
+                      context,
+                      '第一条通知',
+                      duration: const Duration(minutes: 1),
+                    );
+                    showAppToast(
+                      context,
+                      '第二条通知',
+                      kind: AppFeedbackKind.warning,
+                      duration: const Duration(minutes: 1),
+                    );
+                  },
+                  child: const Text('显示两条'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('显示两条'));
+    await tester.pumpAndSettle();
+    expect(find.text('第一条通知'), findsOneWidget);
+    expect(find.text('第二条通知'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('app-floating-notice-close')));
+    await tester.pumpAndSettle();
+    expect(find.text('第一条通知'), findsNothing);
+    expect(find.text('第二条通知'), findsOneWidget);
+    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+  });
+
+  testWidgets('floating notice respects narrow content width', (tester) async {
+    tester.view.physicalSize = const Size(320, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppFeedbackScope(
+          child: Scaffold(
+            body: AppFloatingNoticeHost(
+              child: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showAppToast(
+                    context,
+                    '这是一条需要在窄窗口中截断但不能溢出的较长通知文案',
+                    duration: const Duration(minutes: 1),
+                  ),
+                  child: const Text('显示'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('显示'));
+    await tester.pumpAndSettle();
+    final card = tester.getRect(
+      find.byKey(const ValueKey('app-floating-notice-card')),
+    );
+    expect(card.left, greaterThanOrEqualTo(20));
+    expect(card.right, lessThanOrEqualTo(300));
     expect(tester.takeException(), isNull);
   });
 }

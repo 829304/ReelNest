@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/settings/application/appearance_controller.dart';
 import '../ui/theme/app_theme.dart';
+import '../ui/widgets/app_feedback.dart';
 import 'router.dart';
 
 class ReelNestApp extends ConsumerStatefulWidget {
@@ -57,6 +58,8 @@ class _ReelNestAppState extends ConsumerState<ReelNestApp>
       darkTheme: AppTheme.dark,
       themeMode: ref.watch(appearanceProvider),
       routerConfig: ref.watch(routerProvider),
+      builder: (context, child) =>
+          AppFeedbackScope(child: child ?? const SizedBox.shrink()),
     );
   }
 }

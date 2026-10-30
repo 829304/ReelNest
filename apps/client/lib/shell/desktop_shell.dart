@@ -6,6 +6,7 @@ import '../features/sources/presentation/emby_sidebar.dart';
 import '../ui/theme/app_palette.dart';
 import '../ui/theme/design_tokens.dart';
 import '../ui/widgets/source_icons.dart';
+import '../ui/widgets/app_feedback.dart';
 import 'destinations.dart';
 import 'sidebar_components.dart';
 import 'sidebar_status_card.dart';
@@ -131,7 +132,9 @@ class _DesktopShellState extends State<DesktopShell> {
               ),
             ),
             Expanded(
-              child: ColoredBox(color: palette.page, child: widget.child),
+              child: AppFloatingNoticeHost(
+                child: ColoredBox(color: palette.page, child: widget.child),
+              ),
             ),
           ],
         ),
