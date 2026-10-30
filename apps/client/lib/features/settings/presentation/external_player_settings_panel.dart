@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../playback/application/external_playback_providers.dart';
 import '../../playback/domain/external_player_settings.dart';
@@ -106,31 +107,20 @@ class _ExternalPlayerSettingsPanelState
             title: '视频播放器',
             subtitle: '选择内置播放器或交给系统播放器打开',
             icon: Icons.play_circle_outline_rounded,
-            trailing: PopupMenuButton<ExternalPlayerMode>(
+            trailing: AppMenuControl<ExternalPlayerMode>(
               key: const ValueKey('external-player-mode'),
+              value: settings.mode,
+              label: settings.mode == ExternalPlayerMode.builtIn ? '内置' : '系统',
+              values: ExternalPlayerMode.values,
+              itemLabel: (mode) =>
+                  mode == ExternalPlayerMode.builtIn ? '内置' : '系统',
               enabled: !_busy,
-              initialValue: settings.mode,
+              busy: _busy,
               tooltip: '视频播放器',
               onSelected: (mode) => _change(
                 () => ref
                     .read(externalPlayerSettingsProvider.notifier)
                     .setMode(mode),
-              ),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: ExternalPlayerMode.builtIn,
-                  child: Text('内置'),
-                ),
-                PopupMenuItem(
-                  value: ExternalPlayerMode.external,
-                  child: Text('系统'),
-                ),
-              ],
-              child: _MenuControl(
-                label: settings.mode == ExternalPlayerMode.builtIn
-                    ? '内置'
-                    : '系统',
-                busy: _busy,
               ),
             ),
           ),
@@ -183,46 +173,6 @@ class _ExternalPlayerSettingsPanelState
                 backgroundColor: palette.control,
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MenuControl extends StatelessWidget {
-  const _MenuControl({required this.label, required this.busy});
-
-  final String label;
-  final bool busy;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = SourceSheetPalette(
-      Theme.of(context).brightness == Brightness.dark,
-    );
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: palette.control,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: palette.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (busy) ...[
-            const SizedBox.square(
-              dimension: 12,
-              child: CircularProgressIndicator(strokeWidth: 1.5),
-            ),
-            const SizedBox(width: 7),
-          ],
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 6),
-          Icon(Icons.expand_more, size: 15, color: palette.secondary),
         ],
       ),
     );

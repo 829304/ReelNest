@@ -6,6 +6,7 @@
 
 ## 当前快照
 
+- 设置页下拉选择控件统一 P0（2026-10-30）：共享 `AppMenuControl<T>` 按原版玻璃菜单与自适应控件收口，已迁移自动扫描、播放器模式、已看判定和缓存上限，业务值与持久化未改。定向29 passed、analyze clean（4.9秒）、Windows Release59.4秒、正常关闭 smoke通过；本批未跑全量。上一批1247/14/2为独立历史基线。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-设置页下拉选择控件统一windows-定向验证通过)。
 - 普通页面桌面菜单与首页媒体卡右键菜单 P0（2026-10-30）：菜单主题、表面、紧凑项及 hover/focus 统一；首页右键菜单按原版现有功能子集补语义图标/分组，危险操作标红，播放器局部深色菜单保持独立。定向25 passed、analyze clean、Windows Release60.5秒及 smoke通过。全量当前1247 passed / 14 skipped / 2 failed；Emby browse 与 scroll 两项单独复跑仍失败且未修改对应实现，因此不记全量通过。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-普通页面菜单表面与首页媒体卡右键菜单windows-release-验证通过全量测试有既有失败)。
 - 全局顶部浮窗通知 P0（2026-10-30）：生产 toast 移至 DesktopShell 内容区顶部并对齐原版通知胶囊；FIFO单条显示、最多12条等待、超时/手动关闭及宿主清理已实现。最终有效测试80项通过（组合79/79及追加队列上限；app_feedback最终7/7），analyze、format/diff-check、Windows Release59.3秒和正常关闭 smoke通过。首轮6项为旧隔离测试缺应用作用域，后增加安全降级后通过。可见像素、实体鼠标、长时队列、高DPI及macOS/Linux原生实机仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-全局顶部浮窗通知对齐原版windows-定向交付验证通过)。
 - 全局危险操作确认弹窗 P0（2026-10-30）：共享确认样式收口为紧凑单层表面，默认安全聚焦“取消”，危险确认保持红色；调用方业务语义不变。7文件60项通过、analyze、format/diff-check、Windows Release104.6秒和正常关闭 smoke通过。可见逐像素、实体键鼠、高DPI及macOS/Linux原生实机仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-全局危险操作确认弹窗收口windows-定向交付验证通过)。

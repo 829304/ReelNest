@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import '../../sources/application/source_providers.dart';
@@ -88,47 +89,15 @@ class _WatchedSettingsState extends ConsumerState<WatchedSettings> {
                     _busy ? '读取中…' : '--',
                     style: TextStyle(color: palette.secondary),
                   )
-                : PopupMenuButton<double>(
+                : AppMenuControl<double>(
+                    value: _threshold!,
+                    label: '${(_threshold! * 100).round()}%',
+                    values: const [.7, .8, .9, .95],
+                    itemLabel: (value) => '播放 ${(value * 100).round()}%',
                     enabled: !_busy,
-                    initialValue: _threshold,
+                    busy: _busy,
                     tooltip: '已看判定',
                     onSelected: _save,
-                    itemBuilder: (_) => [
-                      for (final value in const [.7, .8, .9, .95])
-                        PopupMenuItem(
-                          value: value,
-                          child: Text('播放 ${(value * 100).round()}%'),
-                        ),
-                    ],
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: palette.control,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: palette.border),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${(_threshold! * 100).round()}%',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Icon(
-                            Icons.expand_more,
-                            size: 15,
-                            color: palette.secondary,
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
           ),
           if (_error != null)

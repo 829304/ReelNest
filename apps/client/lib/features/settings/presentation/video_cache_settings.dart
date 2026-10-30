@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../../../ui/widgets/source_sheet_button.dart';
 import '../../../app/runtime_observations.dart';
@@ -142,60 +143,27 @@ class _VideoCacheSettingsState extends ConsumerState<VideoCacheSettings> {
             AppSettingsRow(
               title: '缓存容量上限',
               icon: Icons.data_usage_outlined,
-              trailing: PopupMenuButton<double>(
+              trailing: AppMenuControl<double>(
+                value: data.limit,
+                label: data.limit == 0
+                    ? '不限制'
+                    : '${data.limit.toStringAsFixed(0)} GB',
+                values: ({
+                  0.0,
+                  20.0,
+                  50.0,
+                  100.0,
+                  200.0,
+                  500.0,
+                  data.limit,
+                }.toList()..sort()),
+                itemLabel: (value) => value == 0
+                    ? '不限制'
+                    : '${value.toStringAsFixed(value == value.roundToDouble() ? 0 : 1)} GB',
                 enabled: !_busy,
-                initialValue: data.limit,
+                busy: _busy,
+                tooltip: '缓存容量上限',
                 onSelected: (v) => _run(() => repository.setLimit(v)),
-                itemBuilder: (_) => [
-                  for (final value in ({
-                    0.0,
-                    20.0,
-                    50.0,
-                    100.0,
-                    200.0,
-                    500.0,
-                    data.limit,
-                  }.toList()..sort()))
-                    PopupMenuItem(
-                      value: value,
-                      child: Text(
-                        value == 0
-                            ? '不限制'
-                            : '${value.toStringAsFixed(value == value.roundToDouble() ? 0 : 1)} GB',
-                      ),
-                    ),
-                ],
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: palette.control,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: palette.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        data.limit == 0
-                            ? '不限制'
-                            : '${data.limit.toStringAsFixed(0)} GB',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        Icons.expand_more,
-                        size: 15,
-                        color: palette.secondary,
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
             const SizedBox(height: 10),
