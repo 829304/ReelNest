@@ -13,6 +13,7 @@ class SourceSheetButton extends StatefulWidget {
     this.icon,
     this.prominent = false,
     this.outlined = false,
+    this.autofocus = false,
     this.height = 41,
     this.horizontalPadding = 18,
     super.key,
@@ -22,6 +23,7 @@ class SourceSheetButton extends StatefulWidget {
   final Widget? icon;
   final bool prominent;
   final bool outlined;
+  final bool autofocus;
   final double height;
   final double horizontalPadding;
 
@@ -87,6 +89,7 @@ class _SourceSheetButtonState extends State<SourceSheetButton> {
           ),
           child: TextButton(
             statesController: _states,
+            autofocus: widget.autofocus,
             onPressed: widget.onPressed,
             style: ButtonStyle(
               foregroundColor: WidgetStatePropertyAll(foreground),

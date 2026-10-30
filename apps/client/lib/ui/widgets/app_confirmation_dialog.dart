@@ -41,15 +41,16 @@ class AppConfirmationDialog extends StatelessWidget {
       backgroundColor: palette.page,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      insetPadding: const EdgeInsets.all(20),
+      insetPadding: const EdgeInsets.all(16),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: palette.border),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 560),
+        key: const ValueKey('app-confirmation-dialog'),
+        constraints: const BoxConstraints(maxWidth: 430, maxHeight: 520),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(20, 19, 20, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -58,26 +59,30 @@ class AppConfirmationDialog extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 46,
-                    height: 46,
+                    width: 38,
+                    height: 38,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: tint.withValues(alpha: .10),
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: tint.withValues(alpha: .12)),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: tint.withValues(alpha: .18)),
                     ),
-                    child: icon,
+                    child: IconTheme(
+                      data: IconThemeData(color: tint, size: 20),
+                      child: icon,
+                    ),
                   ),
-                  const SizedBox(width: 13),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           title,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                          style: TextStyle(
+                            color: palette.text,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         if (subtitle != null) ...[
@@ -88,6 +93,7 @@ class AppConfirmationDialog extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
+                              height: 1.35,
                               color: palette.secondary,
                             ),
                           ),
@@ -97,52 +103,48 @@ class AppConfirmationDialog extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 17),
+              const SizedBox(height: 14),
               Flexible(
                 child: SingleChildScrollView(
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: palette.staticSurface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: palette.border),
-                    ),
-                    child: Text(
-                      message,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.55,
-                        color: palette.secondary,
-                      ),
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.5,
+                      color: palette.secondary,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 17),
               Wrap(
                 alignment: WrapAlignment.end,
                 spacing: 10,
                 runSpacing: 8,
                 children: [
                   SourceSheetButton(
+                    key: const ValueKey('app-confirmation-cancel'),
                     label: cancelLabel,
                     outlined: true,
+                    autofocus: true,
+                    height: 36,
+                    horizontalPadding: 15,
                     onPressed: () => Navigator.pop(context, false),
                   ),
                   if (destructive)
                     FilledButton(
+                      key: const ValueKey('app-confirmation-confirm'),
                       onPressed: () => Navigator.pop(context, true),
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 41),
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 15),
                         backgroundColor: theme.colorScheme.error,
                         foregroundColor: theme.colorScheme.onError,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(11),
                         ),
                         textStyle: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -150,8 +152,11 @@ class AppConfirmationDialog extends StatelessWidget {
                     )
                   else
                     SourceSheetButton(
+                      key: const ValueKey('app-confirmation-confirm'),
                       label: confirmLabel,
                       prominent: true,
+                      height: 36,
+                      horizontalPadding: 15,
                       onPressed: () => Navigator.pop(context, true),
                     ),
                 ],

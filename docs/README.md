@@ -6,6 +6,7 @@
 
 ## 当前快照
 
+- 全局危险操作确认弹窗 P0（2026-10-30）：共享确认样式收口为紧凑单层表面，默认安全聚焦“取消”，危险确认保持红色；调用方业务语义不变。7文件60项通过、analyze、format/diff-check、Windows Release104.6秒和正常关闭 smoke通过。可见逐像素、实体键鼠、高DPI及macOS/Linux原生实机仍待。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-全局危险操作确认弹窗收口windows-定向交付验证通过)。
 - 播放器错误反馈与决策弹窗 P0（2026-10-29）：进度保存失败采用专用决策弹窗，播放操作错误改播放器内通知，外部字幕选择错误改面板内联显示；原业务行为不变。6文件87项通过、analyze、Windows Release37.9秒和正常关闭 smoke通过。真实文件选择器失败注入、可见媒体视觉与macOS/Linux验收仍待。详见[播放器状态](PLAYER_STATUS.zh-CN.md#2026-10-29-播放器错误反馈与决策弹窗-p0)和[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-播放器错误反馈与决策弹窗-p0windows-定向验证通过)。
 - 播放器窗口尺寸与自适应 P0（2026-10-29）：默认1120优选宽度，横竖屏与真实视频比例自适应，记忆普通横屏宽度并正确恢复全屏/最大化/迷你窗状态；360px窄窗 Dock 约束已覆盖。5文件54/54、analyze、Windows Release38.5秒及正常关闭 smoke通过。未验可见真实窗口、实体缩放、竖屏真实视频、macOS/Linux或全量测试。详见[播放器状态](PLAYER_STATUS.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0)与[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0windows-定向验证通过)。
 - 来源主页 P0 以原版 Swift `SourcesView.SourceRowView` 为基线，Windows 定向交付验证通过：8文件82/82、analyze clean、33个Dart文件format 0 changed、diff-check通过；Windows Release52.7秒及五秒 smoke（21:32:15 +08，响应/正常关闭/ExitCode 0）通过。严格84px常态/hover行高与52×52头像断言通过。真实可见UI逐像素复核、macOS/Linux原生、系统目录选择器和真实远程服务仍待，不宣称全局UI一致。见[本地来源文档](LOCAL_SOURCES.zh-CN.md#2026-10-28来源主页-p0windows定向交付验证通过)及[当前阶段记录](NEXT_STAGE.zh-CN.md#2026-10-28-来源主页-p0windows定向交付验证通过)。

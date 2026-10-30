@@ -12,6 +12,7 @@
 2026-10-29 媒体源设置 P0：远程媒体库行、类型图标、加载/空态与错误重试按 Swift 基线收口，业务保存与同步逻辑未变。7文件57/57、analyze clean（60.9秒）、Windows Release46.2秒及正常关闭 hidden smoke通过（14:54:06 +08，ExitCode 0）；diff-check通过、无进程残留。可见像素及macOS/Linux仍待，详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-媒体源设置-p0windows-定向交付验证通过)。
 2026-10-29 播放器窗口尺寸与自适应 P0：默认1120优选宽度、横竖屏/实际视频比例自适应、仅普通横屏记忆宽度、迷你窗往返约束恢复及360px Dock窄态已实现。5文件54/54、analyze、Windows Release38.5秒和正常关闭 smoke通过；可见真实窗口、实体缩放、竖屏真实视频、macOS/Linux与全量Flutter测试未验。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-播放器窗口尺寸与自适应-p0windows-定向验证通过)。
 2026-10-29 播放器错误反馈与决策弹窗 P0：保存失败决策、播放器内播放操作通知及字幕面板内联错误已按原行为收口；6文件87项通过、analyze、Windows Release37.9秒及正常关闭 smoke通过。真实文件选择器失败注入、可见媒体视觉与macOS/Linux未验，播放业务/持久化/后端未改。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-29-播放器错误反馈与决策弹窗-p0windows-定向验证通过)。
+2026-10-30 前端 P0 全局危险操作确认弹窗：共享确认表面、默认安全取消焦点、窄窗布局已收口，现有调用方行为不变。7文件60项、analyze、format/diff-check、Windows Release和正常关闭 smoke通过；可见逐像素/实体键鼠、高DPI及macOS/Linux原生实机仍待。详见[NEXT_STAGE](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-全局危险操作确认弹窗收口windows-定向交付验证通过)。
 2026-10-28 侧边栏状态卡 P0 第三批初始实现记录：新增健康扫描快照驱动的失效文件/疑似重复专属状态，只在快照完整且与当前来源修订、配置和扫描时间匹配时显示；当时尚未测试、analyze、构建或人工验收。后续收口及验证见2026-10-29记录。音乐迷你控制、应用更新、保险库快捷锁定、赞赏提示、失败任务重试/活动任务取消仍未迁移。
 
 2026-10-27 P0 媒体网格绘制层级：`HoverLiftShadow` 以 `OverlayPortal` 显示主悬浮阴影，解决 SliverGrid 索引绘制下海报阴影被后绘制兄弟覆盖的问题；主卡片仍独立负责交互、焦点、tilt 和缩放。视觉专项最终2/2、跨来源组合最终63/63、analyze、diff-check、Windows Release 39.7秒及五秒 smoke通过。首次组合因退出断言少 pump 一帧失败，修正测试时序后最终63/63通过。此修正不代表工具栏/图标/全页面像素审计完成。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-27-p0-媒体网格悬浮阴影绘制层级修正)。

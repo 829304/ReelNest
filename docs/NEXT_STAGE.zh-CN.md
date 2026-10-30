@@ -1,6 +1,13 @@
 # 当前阶段与历史实施记录
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
-更新：2026-10-29。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+更新：2026-10-30。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-30 前端 P0 全局危险操作确认弹窗收口（Windows 定向交付验证通过）
+
+- `AppConfirmationDialog` 从双层厚重矩形改为紧凑单层表面：最大宽430px、圆形语义图标、16px标题、12.5px正文、36px操作按钮，并移除正文内嵌矩形卡。`SourceSheetButton` 增加可选 autofocus；确认弹窗默认聚焦安全“取消”，Enter 执行取消，危险确认继续使用红色。340×300窄窗在16px安全边距内布局。
+- 既有共享确认入口覆盖媒体源删除、URL移除、媒体库批量移除、健康索引清理、缓存清理等。所有调用方的业务、文案及返回值保持不变。
+- 7个测试文件共60项通过，覆盖Windows/macOS/Linux组件变体、深浅主题及取消不删除；`flutter analyze` No issues（110.1秒）；`dart format` 3 files、0 changed；diff-check通过。Windows Release 104.6秒成功；五秒 smoke 于2026-10-30 12:27:12 +08通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0），无残留进程；Flutter临时工具链修改已还原。
+- 未做可见窗口逐像素/实体键鼠、高DPI及macOS/Linux原生实机验收；未改变删除/清理业务、持久化或后端。详见既有[全局弹层与反馈表面记录](NEXT_STAGE.zh-CN.md#2026-10-21-前端-p1-g-全局弹层与反馈表面统一)。
 
 ## 2026-10-29 播放器错误反馈与决策弹窗 P0（Windows 定向验证通过）
 
