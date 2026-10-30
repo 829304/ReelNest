@@ -125,21 +125,38 @@ class _HomeVideoCardState extends ConsumerState<HomeVideoCard> {
                   details.globalPosition.dy,
                 ),
                 items: [
-                  const PopupMenuItem(value: 'play', child: Text('播放')),
-                  PopupMenuItem(
-                    value: 'watchlist',
-                    child: Text(video.entry.watchlist ? '移出想看' : '加入想看'),
+                  _menuItem(
+                    value: 'play',
+                    icon: Icons.play_arrow_rounded,
+                    label: '播放',
                   ),
-                  PopupMenuItem(
+                  const PopupMenuDivider(),
+                  _menuItem(
+                    value: 'watchlist',
+                    icon: video.entry.watchlist
+                        ? Icons.bookmark_remove_outlined
+                        : Icons.bookmark_add_outlined,
+                    label: video.entry.watchlist ? '移出想看' : '加入想看',
+                  ),
+                  _menuItem(
                     value: 'favorite',
-                    child: Text(video.favorite ? '取消喜欢' : '喜欢'),
+                    icon: video.favorite
+                        ? Icons.heart_broken_outlined
+                        : Icons.favorite_border_rounded,
+                    label: video.favorite ? '取消喜欢' : '喜欢',
                   ),
                   if (video.entry.hasTrace || video.entry.record.watched)
-                    const PopupMenuItem(value: 'clear', child: Text('清除播放记录')),
+                    _menuItem(
+                      value: 'clear',
+                      icon: Icons.history_toggle_off_rounded,
+                      label: '删除播放记录',
+                      destructive: true,
+                    ),
                   if (canAnalyze)
-                    const PopupMenuItem(
+                    _menuItem(
                       value: 'markerAnalysis',
-                      child: Text('检测片头片尾'),
+                      icon: Icons.auto_awesome_outlined,
+                      label: '检测片头片尾',
                     ),
                 ],
               );
@@ -275,6 +292,32 @@ class _HomeVideoCardState extends ConsumerState<HomeVideoCard> {
       ),
     );
   }
+
+  PopupMenuItem<String> _menuItem({
+    required String value,
+    required IconData icon,
+    required String label,
+    bool destructive = false,
+  }) => PopupMenuItem<String>(
+    value: value,
+    height: 36,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          key: ValueKey('home-context-$value-icon'),
+          size: 17,
+          color: destructive ? Colors.redAccent : null,
+        ),
+        const SizedBox(width: 9),
+        Text(
+          label,
+          style: destructive ? const TextStyle(color: Colors.redAccent) : null,
+        ),
+      ],
+    ),
+  );
 }
 
 class _GlyphPlaceholder extends StatelessWidget {

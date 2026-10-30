@@ -21,6 +21,7 @@ import 'package:reelnest/features/sources/data/source_repository.dart';
 import 'package:reelnest/features/sources/presentation/emby_task_center.dart';
 import 'package:reelnest/features/sources/presentation/marker_analysis_menu.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/theme/app_theme.dart';
 
 class _Scans extends SourceScans {
   @override
@@ -226,6 +227,7 @@ void main() {
       UncontrolledProviderScope(
         container: harness.container,
         child: MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(body: HomeVideoCard(video: video)),
         ),
       ),
@@ -240,6 +242,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(harness.eligibility.calls, 1);
     expect(find.text('检测片头片尾'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-context-play-icon')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('home-context-watchlist-icon')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('home-context-favorite-icon')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('home-context-markerAnalysis-icon')),
+      findsOneWidget,
+    );
+    expect(find.byType(PopupMenuDivider), findsOneWidget);
     await tester.tap(find.text('检测片头片尾'));
     for (var attempt = 0; attempt < 100; attempt++) {
       await tester.runAsync(

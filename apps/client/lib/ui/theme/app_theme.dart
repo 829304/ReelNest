@@ -167,10 +167,64 @@ abstract final class AppTheme {
       popupMenuTheme: PopupMenuThemeData(
         color: palette.surface,
         surfaceTintColor: Colors.transparent,
+        shadowColor: palette.shadow.withValues(alpha: isLight ? .16 : .34),
+        elevation: 7,
+        menuPadding: const EdgeInsets.symmetric(vertical: 6),
+        position: PopupMenuPosition.under,
+        iconColor: palette.secondary,
+        iconSize: 17,
         textStyle: baseText.bodyMedium,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(DesignTokens.controlRadius),
           side: BorderSide(color: palette.border),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(palette.surface),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(
+            palette.shadow.withValues(alpha: isLight ? .16 : .34),
+          ),
+          elevation: const WidgetStatePropertyAll(7),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 6),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(DesignTokens.controlRadius),
+              side: BorderSide(color: palette.border),
+            ),
+          ),
+        ),
+      ),
+      menuButtonTheme: MenuButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          ),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled)
+                ? palette.subtle
+                : palette.body,
+          ),
+          iconColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled)
+                ? palette.subtle
+                : palette.secondary,
+          ),
+          overlayColor: WidgetStateProperty.resolveWith(
+            (states) =>
+                states.contains(WidgetState.hovered) ||
+                    states.contains(WidgetState.focused)
+                ? palette.hoverFill
+                : Colors.transparent,
+          ),
+          textStyle: WidgetStatePropertyAll(baseText.bodyMedium),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
         ),
       ),
       dialogTheme: DialogThemeData(

@@ -2,6 +2,14 @@
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 更新：2026-10-30。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 
+## 2026-10-30 前端 P0 普通页面菜单表面与首页媒体卡右键菜单（Windows Release 验证通过；全量测试有既有失败）
+
+- `AppTheme` 为普通页面桌面 `PopupMenu` / `MenuAnchor` / `MenuItemButton` 统一 surface、透明 tint、12px圆角、边框、紧凑36px菜单项及 hover/focus 状态，并覆盖明暗主题。播放器局部深色菜单不在本次范围。
+- `HomeVideoCard` 右键菜单对照原版 `VideoItemContextMenuItems` 的现有可用子集补齐语义图标与分组；危险操作显示红色“删除播放记录”。保留播放、想看、喜欢、片头/片尾检测行为。
+- `dart format` 4 files；`flutter analyze` clean；定向 `app_theme_test`、`marker_analysis_ui_test`、`playback_test` 共25 passed。Windows Release 60.5秒成功；`windows-smoke` 于2026-10-30 19:11:57 +08通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0）。
+- 全量 `flutter test` 当前 **1247 passed / 14 skipped / 2 failed**，不可记为全量通过。两条失败单独复跑仍失败：`emby_browse_test` 的“first cards render without a complete scan”未找到预期“已载入”文本；`emby_scroll_performance_test` 的“poster hover is cleared while its scroll view is moving”出现 finder Too many elements。本轮未修改相应浏览/滚动实现，作为待调查基线问题分别记录，不归因于本次菜单改动。
+- 本轮仅前端普通页面菜单表面与首页媒体卡菜单；未改变播放/收藏等业务定义，也不覆盖播放器专用菜单。详见[实施状态总览](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md#状态基线)。
+
 ## 2026-10-30 前端 P0 全局顶部浮窗通知对齐原版（Windows 定向交付验证通过）
 
 - 生产环境 `showAppToast` 不再使用底部 SnackBar。`ReelNestApp` 根部安装 `AppFeedbackScope`，`DesktopShell` 内容区安装 `AppFloatingNoticeHost`，通知在内容区顶部居中显示，不遮挡侧边栏。
