@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/app_confirmation_dialog.dart';
 import '../../../ui/widgets/app_feedback.dart';
 import '../../../ui/widgets/source_icons.dart';
@@ -505,15 +506,16 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                           if (genres.isNotEmpty)
                             _menu(
                               settings.genre.isEmpty ? '全部类型' : settings.genre,
+                              settings.genre,
                               <String>['', ...genres],
                               (value) => value.isEmpty ? '全部类型' : value,
                               (value) =>
                                   _change(settings.copyWith(genre: value)),
-                              palette,
                               key: const ValueKey('emby-library-genre-menu'),
                             ),
                           _menu(
                             '${settings.sort.label} · ${settings.reverse ? '倒序' : '正序'}',
+                            settings.sort,
                             sorts,
                             (value) => value.label,
                             (mode) => _change(
@@ -524,7 +526,6 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                                     : false,
                               ),
                             ),
-                            palette,
                             key: const ValueKey('emby-library-sort-menu'),
                           ),
                         ],
@@ -1019,18 +1020,18 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
   );
   Widget _menu<T>(
     String title,
+    T value,
     List<T> items,
     String Function(T) label,
-    void Function(T) select,
-    SourceSheetPalette palette, {
+    void Function(T) select, {
     Key? key,
-  }) => _LibraryMenuButton<T>(
+  }) => AppMenuControl<T>(
     key: key,
-    title: title,
-    items: items,
+    value: value,
+    label: title,
+    values: items,
     itemLabel: label,
     onSelected: select,
-    palette: palette,
   );
 
   List<String> _posterBadges(VideoLibraryEntry entry, bool cached) {
@@ -1405,115 +1406,6 @@ class _LibraryFilterChipState extends State<_LibraryFilterChip> {
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LibraryMenuButton<T> extends StatefulWidget {
-  const _LibraryMenuButton({
-    required this.title,
-    required this.items,
-    required this.itemLabel,
-    required this.onSelected,
-    required this.palette,
-    super.key,
-  });
-
-  final String title;
-  final List<T> items;
-  final String Function(T) itemLabel;
-  final ValueChanged<T> onSelected;
-  final SourceSheetPalette palette;
-
-  @override
-  State<_LibraryMenuButton<T>> createState() => _LibraryMenuButtonState<T>();
-}
-
-class _LibraryMenuButtonState<T> extends State<_LibraryMenuButton<T>> {
-  bool _hovered = false;
-  bool _focused = false;
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = widget.palette;
-    final animated = !MediaQuery.disableAnimationsOf(context);
-    final highlighted = _hovered || _focused || _open;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: Focus(
-        canRequestFocus: false,
-        onFocusChange: (value) => setState(() => _focused = value),
-        child: PopupMenuButton<T>(
-          tooltip: widget.title,
-          onOpened: () => setState(() => _open = true),
-          onCanceled: () => setState(() => _open = false),
-          onSelected: (value) {
-            setState(() => _open = false);
-            widget.onSelected(value);
-          },
-          itemBuilder: (_) => widget.items
-              .map(
-                (value) => PopupMenuItem<T>(
-                  value: value,
-                  child: Text(widget.itemLabel(value)),
-                ),
-              )
-              .toList(),
-          child: AnimatedContainer(
-            duration: animated
-                ? const Duration(milliseconds: 150)
-                : Duration.zero,
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              color: highlighted ? palette.control : palette.card,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: _focused
-                    ? palette.selectedTint.withValues(alpha: .68)
-                    : palette.border.withValues(alpha: highlighted ? 1 : .72),
-                width: .8,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 13),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    height: 38,
-                    child: Center(
-                      child: Text(
-                        widget.title,
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1,
-                          fontWeight: FontWeight.w600,
-                          color: palette.menuText,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AnimatedRotation(
-                    turns: _open ? .5 : 0,
-                    duration: animated
-                        ? const Duration(milliseconds: 160)
-                        : Duration.zero,
-                    curve: Curves.easeOutCubic,
-                    child: Icon(
-                      Icons.unfold_more_rounded,
-                      size: 15,
-                      color: palette.secondary,
-                    ),
-                  ),
-                ],
               ),
             ),
           ),

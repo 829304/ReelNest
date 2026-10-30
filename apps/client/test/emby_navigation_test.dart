@@ -33,6 +33,7 @@ import 'package:reelnest/features/sources/presentation/local_media_detail_page.d
 import 'package:reelnest/features/sources/presentation/sources_page.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/widgets/app_menu_control.dart';
 
 import 'support/emby_server_fixture.dart';
 import 'support/fake_online_subtitle_settings.dart';
@@ -862,6 +863,7 @@ void main() {
             find.byKey(const ValueKey('emby-library-sort-menu')),
             findsOneWidget,
           );
+          expect(find.byType(AppMenuControl<VideoLibrarySort>), findsOneWidget);
           tester.view.physicalSize = const Size(680, 382);
           await tester.pumpAndSettle();
           expect(

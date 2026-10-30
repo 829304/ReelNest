@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../domain/automatic_scan_interval.dart';
 import '../../../domain/media_source.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/settings_surfaces.dart';
 import '../application/tmdb_batch_providers.dart';
 import '../application/tmdb_providers.dart';
@@ -168,9 +169,6 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
   Widget build(BuildContext context) {
     final settings = ref.watch(tmdbSettingsProvider);
     final batch = ref.watch(tmdbBatchProvider);
-    final palette = SourceSheetPalette(
-      Theme.of(context).brightness == Brightness.dark,
-    );
     return AppSettingsSection(
       title: '元数据与匹配',
       subtitle: '管理本地电影、电视剧与动漫的 TMDB 信息来源。',
@@ -243,58 +241,16 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
                 title: '影视匹配宽容度',
                 subtitle: _savingTolerance ? '正在保存…' : null,
                 icon: Icons.center_focus_strong_rounded,
-                trailing: PopupMenuButton<TmdbMatchTolerance>(
+                trailing: AppMenuControl<TmdbMatchTolerance>(
                   key: const ValueKey('tmdb-match-tolerance'),
+                  value: value.matchTolerance,
+                  label: value.matchTolerance.displayName,
+                  values: TmdbMatchTolerance.values,
+                  itemLabel: (tolerance) => tolerance.displayName,
                   enabled: !_savingTolerance,
-                  initialValue: value.matchTolerance,
+                  busy: _savingTolerance,
                   tooltip: '影视匹配宽容度',
                   onSelected: _saveTolerance,
-                  itemBuilder: (_) => [
-                    for (final tolerance in TmdbMatchTolerance.values)
-                      PopupMenuItem(
-                        value: tolerance,
-                        child: Text(tolerance.displayName),
-                      ),
-                  ],
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: palette.control,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: palette.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_savingTolerance) ...[
-                          SizedBox.square(
-                            dimension: 13,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.8,
-                              color: palette.selectedTint,
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                        ],
-                        Text(
-                          value.matchTolerance.displayName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.expand_more,
-                          size: 15,
-                          color: palette.secondary,
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -330,58 +286,16 @@ class _TmdbSettingsPanelState extends ConsumerState<TmdbSettingsPanel> {
                 title: '自动拉取周期',
                 subtitle: _savingAutomaticInterval ? '正在保存…' : '独立于媒体库文件自动扫描',
                 icon: Icons.update_rounded,
-                trailing: PopupMenuButton<AutomaticScanInterval>(
+                trailing: AppMenuControl<AutomaticScanInterval>(
                   key: const ValueKey('tmdb-automatic-match-interval'),
+                  value: value.automaticMatchInterval,
+                  label: value.automaticMatchInterval.displayName,
+                  values: AutomaticScanInterval.values,
+                  itemLabel: (interval) => interval.displayName,
                   enabled: !_savingAutomaticInterval,
-                  initialValue: value.automaticMatchInterval,
+                  busy: _savingAutomaticInterval,
                   tooltip: '自动拉取周期',
                   onSelected: _saveAutomaticInterval,
-                  itemBuilder: (_) => [
-                    for (final interval in AutomaticScanInterval.values)
-                      PopupMenuItem(
-                        value: interval,
-                        child: Text(interval.displayName),
-                      ),
-                  ],
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: palette.control,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: palette.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_savingAutomaticInterval) ...[
-                          SizedBox.square(
-                            dimension: 13,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.8,
-                              color: palette.selectedTint,
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                        ],
-                        Text(
-                          value.automaticMatchInterval.displayName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.expand_more,
-                          size: 15,
-                          color: palette.secondary,
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(height: 12),

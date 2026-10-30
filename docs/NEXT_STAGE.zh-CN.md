@@ -1,6 +1,13 @@
 # 当前阶段与历史实施记录
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
-更新：2026-10-30。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+更新：2026-10-31。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
+
+## 2026-10-31 前端 P0 共享下拉控件第二批：媒体库与 TMDB（Windows 定向验证通过）
+
+- `EmbyVideoLibraryPage` 的类型/排序菜单迁移到既有共享 `AppMenuControl<T>`，移除页面内重复的 `_LibraryMenuButton`；Emby/Jellyfin/Plex 共用媒体库菜单外观统一。
+- `TmdbSettingsPanel` 的“影视匹配宽容度”和“自动拉取周期”改用共享控件，保留原有 key、值、选择、保存及忙碌逻辑。本批不改筛选、排序、反序切换、TMDB 设置值或持久化业务，播放器菜单不在范围。
+- `dart format` 4 files；定向 `tmdb_frontend_test`、`emby_navigation_test`、`app_menu_control_test` 共43 passed，Jellyfin/Plex frontend另4 passed，合计47 passed；`flutter analyze` clean（5.3秒）；Windows Release 48.6秒成功；`windows-smoke` 于2026-10-31 00:08:28 +08通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0）；diff-check无错误（只有行尾提示）。
+- 本批未运行全量 `flutter test`。此前全量测试基线保持独立，不改写，也不作为本批验证结果。详见[共享下拉控件首批](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-设置页下拉选择控件统一windows-定向验证通过)。
 
 ## 2026-10-30 前端 P0 设置页下拉选择控件统一（Windows 定向验证通过）
 

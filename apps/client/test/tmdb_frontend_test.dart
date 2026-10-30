@@ -25,6 +25,7 @@ import 'package:reelnest/features/sources/presentation/local_media_detail_page.d
 import 'package:reelnest/sources/filesystem/file_source_adapter.dart';
 import 'package:reelnest/storage/credential_store.dart';
 import 'package:reelnest/storage/library_database.dart';
+import 'package:reelnest/ui/widgets/app_menu_control.dart';
 
 import 'support/tmdb_fixture.dart';
 
@@ -323,6 +324,7 @@ void main() {
       );
 
       expect(find.text('宽松'), findsOneWidget);
+      expect(find.byType(AppMenuControl<TmdbMatchTolerance>), findsOneWidget);
       expect(find.textContaining('置信度偏低的结果会跳过'), findsOneWidget);
       expect(find.text('自动拉取周期'), findsOneWidget);
 
@@ -356,6 +358,10 @@ void main() {
       );
       expect(start.onPressed, isNull);
       expect(find.text('关闭'), findsOneWidget);
+      expect(
+        find.byType(AppMenuControl<AutomaticScanInterval>),
+        findsOneWidget,
+      );
       await tester.ensureVisible(
         find.byKey(const ValueKey('tmdb-automatic-match-interval')),
       );
