@@ -87,9 +87,8 @@ class ExternalPlaybackService implements ExternalPlaybackLauncher {
           !await sources.isReachable(source)) {
         throw const SourceFailure('视频文件不存在或 NAS 未连接。');
       }
-    } else if (source.kind == MediaSourceKind.url) {
-      location = await UrlVideoRepository(sources).location(identity);
-    } else if (source.kind.isRemoteVideoSource) {
+    } else if (source.kind == MediaSourceKind.url ||
+        source.kind.isRemoteVideoSource) {
       try {
         cached = await acquireCache?.call(identity);
       } catch (_) {
@@ -101,7 +100,9 @@ class ExternalPlaybackService implements ExternalPlaybackLauncher {
       try {
         location =
             cached?.path ??
-            await remoteResource?.call(item) ??
+            (source.kind == MediaSourceKind.url
+                ? await UrlVideoRepository(sources).location(identity)
+                : await remoteResource?.call(item)) ??
             (throw const SourceFailure('无法获取服务器视频地址。'));
       } catch (_) {
         if (cached != null) await releaseCache?.call(cached.lease);

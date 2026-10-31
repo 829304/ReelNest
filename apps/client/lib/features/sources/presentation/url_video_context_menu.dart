@@ -10,6 +10,7 @@ import '../application/source_providers.dart';
 import '../application/url_video_providers.dart';
 import 'external_playback_actions.dart';
 import 'marker_analysis_menu.dart';
+import 'url_video_cache_actions.dart';
 
 /// VideoItemContextMenuItems URL branch: normal video actions plus the stored
 /// address command. The URL stays repository-owned and is never reconstructed
@@ -81,6 +82,7 @@ class _UrlVideoContextMenuState extends ConsumerState<UrlVideoContextMenu> {
         onPressed: _busy ? null : () => unawaited(_external()),
         child: const Text('外部打开'),
       ),
+      UrlVideoCacheActions(item: widget.item, menuOnly: true),
       MarkerAnalysisMenuItem(identity: widget.item.identity),
       MenuItemButton(
         key: const ValueKey('copy-url-video-link'),

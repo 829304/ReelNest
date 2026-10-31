@@ -1025,15 +1025,16 @@ class PlaybackSession extends ChangeNotifier {
           throw const SourceFailure('媒体文件不存在，可能是 NAS 未挂载、移动硬盘断开，或文件已被移动。');
         }
         resource = localPath;
-      } else if (source.kind == MediaSourceKind.url) {
-        trace?.stage('stream_resource');
-        resource = await UrlVideoRepository(sources).location(identity);
-      } else if (source.kind.isRemoteVideoSource && emby != null) {
+      } else if (source.kind == MediaSourceKind.url ||
+          (source.kind.isRemoteVideoSource && emby != null)) {
         ({String path, String lease})? cached;
         if (!force) {
           trace?.stage('cache_lookup');
           try {
             cached = await cache?.acquire(identity);
+            if (cached == null && (await cache?.hasRecord(identity) ?? false)) {
+              nextCacheWarning = '本地缓存文件缺失或不完整，已尝试在线播放。请检查缓存目录或重新缓存。';
+            }
           } catch (error, stack) {
             trace?.failure('cache_fallback', error, stack);
             // A disconnected cache volume must not prevent online playback.
@@ -1044,6 +1045,9 @@ class PlaybackSession extends ChangeNotifier {
         if (cached != null) {
           candidateLease = cached.lease;
           resource = localPath = cached.path;
+        } else if (source.kind == MediaSourceKind.url) {
+          trace?.stage('stream_resource');
+          resource = await UrlVideoRepository(sources).location(identity);
         } else {
           trace?.stage('emby_resource');
           playSessionId = newEmbyIdentity();

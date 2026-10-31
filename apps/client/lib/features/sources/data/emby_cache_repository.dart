@@ -8,14 +8,20 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../api/emby/emby_quality.dart';
+import '../../../api/emby/emby_download.dart';
+import '../../../api/emby/emby_subtitle.dart';
 import '../../../application/async_tasks.dart';
 import '../../../domain/media_source.dart';
+import '../../../sources/filesystem/media_file_policy.dart';
 import '../../../storage/preference_store.dart';
 import '../../../storage/runtime_storage_paths.dart';
 import '../../playback/data/player_preferences_repository.dart';
 import 'artwork_decode_queue.dart';
 import 'emby_connection_repository.dart';
 import 'source_repository.dart';
+import 'url_video_download.dart';
+import 'url_video_repository.dart';
+import '../domain/url_video.dart';
 
 enum VideoCacheTaskState {
   queued,
@@ -448,6 +454,20 @@ class EmbyCacheRepository {
     );
   }
 
+  /// A manifest record may outlive a disconnected or damaged cache file. Read
+  /// without touching its volume so playback can distinguish a cache miss.
+  Future<bool> hasRecord(MediaIdentity identity) async =>
+      await sources.database
+          .customSelect(
+            'SELECT 1 FROM video_disk_cache WHERE source_id=? AND local_id=?',
+            variables: [
+              Variable(identity.sourceId),
+              Variable(identity.localId),
+            ],
+          )
+          .getSingleOrNull() !=
+      null;
+
   Future<List<CachedVideo>> entries({MediaIdentity? identity}) async {
     final rows = await sources.database
         .customSelect(
@@ -589,11 +609,24 @@ class EmbyCacheRepository {
   }
 
   Future<void> enqueue(IndexedMedia item, EmbyVideoQuality quality) async {
+    _checkOpen();
+    final source = await sources.source(
+      item.identity.sourceId,
+      includeCounts: false,
+    );
+    final urlSource = source.kind == MediaSourceKind.url;
+    if (urlSource &&
+        !UrlVideoPolicy.isCacheable(
+          await UrlVideoRepository(sources).location(item.identity),
+        )) {
+      throw const SourceFailure('仅 HTTP/HTTPS 视频直链支持离线缓存。');
+    }
     final items = item.isSeries
         ? await sources.indexedChildren(item.identity)
         : [item];
+    _checkOpen();
     for (final candidate in items) {
-      if (candidate.remote == null ||
+      if ((!urlSource && candidate.remote == null) ||
           candidate.isSeries ||
           candidate.type == 'music') {
         continue;
@@ -608,11 +641,12 @@ class EmbyCacheRepository {
           ].contains(current.state)) {
         continue;
       }
-      final selected =
-          EmbyVideoQuality.options(candidate)
-              .where((q) => q.id == quality.id)
-              .firstOrNull ??
-          EmbyVideoQuality.source;
+      final selected = urlSource
+          ? EmbyVideoQuality.source
+          : EmbyVideoQuality.options(candidate)
+                    .where((q) => q.id == quality.id)
+                    .firstOrNull ??
+                EmbyVideoQuality.source;
       final task = VideoCacheTask(candidate, selected);
       tasks.value = {...tasks.value, candidate.identity: task};
       _queue.add(task);
@@ -639,6 +673,14 @@ class EmbyCacheRepository {
     Directory? root, staging;
     bool published = false;
     try {
+      final source = await sources.source(
+        task.item.identity.sourceId,
+        includeCounts: false,
+      );
+      final url = source.kind == MediaSourceKind.url
+          ? await UrlVideoRepository(sources).location(task.item.identity)
+          : null;
+      task.cancellation.check();
       root = await videoRoot();
       task.rootPath = root.path;
       task.heartbeat?.cancel();
@@ -661,40 +703,58 @@ class EmbyCacheRepository {
               .catchError((Object _) {}),
         );
       });
-      final extension = task.quality.original
+      final extension = url != null
+          ? p.posix
+                .extension(Uri.parse(url).path)
+                .replaceFirst('.', '')
+                .toLowerCase()
+          : task.quality.original
           ? task.item.remote?.container?.trim().toLowerCase()
           : 'mp4';
       final filename =
-          'video.${extension != null && RegExp(r'^[a-z0-9]{1,10}$').hasMatch(extension) ? extension : 'bin'}';
+          'video.${extension != null && RegExp(r'^[a-z0-9]{1,10}$').hasMatch(extension) && (url == null || MediaFilePolicy.videoExtensions.contains(extension)) ? extension : 'bin'}';
       final file = File(p.join(staging.path, filename));
       task.state = VideoCacheTaskState.downloading;
       _notify();
       var lastProgress = 0;
-      final result = await connections.downloadVideo(
-        task.item,
-        file,
-        task.cancellation,
-        quality: task.quality,
-        etag: task.etag,
-        onProgress: (progress) {
-          task.received = progress.received;
-          task.expected = progress.expected;
-          task.etag = progress.etag;
-          if (_now() - lastProgress > 150) {
-            lastProgress = _now();
-            _notify();
-          }
-        },
-      );
+      void progress(EmbyDownloadProgress progress) {
+        task.received = progress.received;
+        task.expected = progress.expected;
+        task.etag = progress.etag;
+        if (_now() - lastProgress > 150) {
+          lastProgress = _now();
+          _notify();
+        }
+      }
+
+      final result = url != null
+          ? await downloadUrlVideo(
+              url,
+              file,
+              task.cancellation,
+              etag: task.etag,
+              onProgress: progress,
+            )
+          : await connections.downloadVideo(
+              task.item,
+              file,
+              task.cancellation,
+              quality: task.quality,
+              etag: task.etag,
+              onProgress: progress,
+            );
       task.cancellation.check();
       task.state = VideoCacheTaskState.saving;
       _notify();
       // Subtitle failure does not discard a successful video, matching original.
       try {
-        final streams = await _subtitleWork(
-          task,
-          (token) => connections.subtitles(task.item, cancellation: token),
-        );
+        final streams = url != null
+            ? <EmbySubtitle>[]
+            : await _subtitleWork(
+                task,
+                (token) =>
+                    connections.subtitles(task.item, cancellation: token),
+              );
         for (final stream in streams) {
           task.cancellation.check();
           try {

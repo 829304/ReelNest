@@ -6,6 +6,8 @@
 
 ## 当前快照
 
+- HTTP(S) URL 单视频离线缓存（2026-10-31）：本轮实现完成，Windows 定向交付通过；11文件175/175、显式 native mpv、`dart analyze lib test integration_test`、格式检查、Release67.7秒及正常关闭 smoke通过。全量测试未运行，历史 Emby browse/scroll 两条全量失败仍待调查；macOS/Linux、真实公网和人工可见 UI验收待，手动封面未迁移。详见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
+
 - 前端 P0 剩余桌面菜单与远程来源策略面板（2026-10-31）：Mlink 媒体库排序/剧集季选择统一迁移到 `AppMenuControl<T>`；远程痕迹同步模式文案与紧凑菜单对齐原 Swift，ReelNest 品牌按项目约束保留。定向5 passed、analyze clean（63.9秒）、Windows Release58.0秒及正常关闭 smoke通过；未跑全量，未做可见 UI 或 macOS/Linux 实机验收。代码提交 `16d082be93009205d82c10f7a6cc476ecfac4d00` 已推送。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-剩余桌面菜单与远程来源策略面板windows-定向验证通过)。
 - 共享下拉控件第二批：媒体库与 TMDB（2026-10-31）：Emby/Jellyfin/Plex 类型/排序菜单和 TMDB 匹配宽容度/自动拉取周期已复用 `AppMenuControl<T>`，设置与业务逻辑不变。定向47 passed、analyze clean（5.3秒）、Windows Release48.6秒、正常关闭 smoke通过。本批未跑全量，上一批全量基线不变。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-共享下拉控件第二批媒体库与-tmdbwindows-定向验证通过)。
 - 设置页下拉选择控件统一 P0（2026-10-30）：共享 `AppMenuControl<T>` 按原版玻璃菜单与自适应控件收口，已迁移自动扫描、播放器模式、已看判定和缓存上限，业务值与持久化未改。定向29 passed、analyze clean（4.9秒）、Windows Release59.4秒、正常关闭 smoke通过；本批未跑全量。上一批1247/14/2为独立历史基线。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-设置页下拉选择控件统一windows-定向验证通过)。

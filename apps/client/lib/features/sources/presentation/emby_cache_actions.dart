@@ -18,11 +18,17 @@ class EmbyCacheActions extends ConsumerWidget {
     required this.item,
     this.compact = false,
     this.menuOnly = false,
+    this.downloadEnabled = true,
+    this.disabledReason,
+    this.savingLabel = '正在保存字幕…',
     super.key,
   });
   final IndexedMedia item;
   final bool compact;
   final bool menuOnly;
+  final bool downloadEnabled;
+  final String? disabledReason;
+  final String savingLabel;
   Future<void> _run(
     BuildContext context,
     Future<void> Function() action,
@@ -63,33 +69,41 @@ class EmbyCacheActions extends ConsumerWidget {
               VideoCacheTaskState.paused,
               VideoCacheTaskState.saving,
             ].contains(task.state);
+        final unavailable = disabledReason ?? '此视频不支持离线缓存';
         final title = item.isSeries && entries.isNotEmpty
             ? '${entries.length == candidates.length ? '已缓存' : '部分缓存'} ${entries.length}/${candidates.length} 集'
             : active
             ? switch (task.state) {
                 VideoCacheTaskState.queued => '等待缓存…',
                 VideoCacheTaskState.paused => '缓存已暂停',
-                VideoCacheTaskState.saving => '正在保存字幕…',
+                VideoCacheTaskState.saving => savingLabel,
                 _ =>
                   task.expected == null
                       ? '已下载 ${cacheBytes(task.received)}'
                       : '正在缓存 ${(task.received / task.expected! * 100).clamp(0, 100).round()}%',
               }
             : entries.isEmpty
-            ? '缓存到本地'
+            ? downloadEnabled
+                  ? '缓存到本地'
+                  : unavailable
             : '已缓存 · ${entries.first.qualityLabel}';
         if (menuOnly) {
           final choices = options.isEmpty ? [EmbyVideoQuality.source] : options;
           final label = entries.isEmpty ? '缓存到本地' : '重新缓存到本地';
-          Widget download(EmbyVideoQuality option, String text) =>
-              MenuItemButton(
-                onPressed: active || candidates.isEmpty
-                    ? null
-                    : () => unawaited(
-                        _run(context, () => repository.enqueue(item, option)),
-                      ),
-                child: Text(text),
-              );
+          Widget download(
+            EmbyVideoQuality option,
+            String text,
+          ) => MenuItemButton(
+            key: ValueKey(
+              'cache-video-${item.identity.sourceId}-${item.identity.localId}-${option.id}',
+            ),
+            onPressed: active || candidates.isEmpty || !downloadEnabled
+                ? null
+                : () => unawaited(
+                    _run(context, () => repository.enqueue(item, option)),
+                  ),
+            child: Text(downloadEnabled ? text : unavailable),
+          );
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -106,6 +120,9 @@ class EmbyCacheActions extends ConsumerWidget {
                 ),
               if (entries.isNotEmpty)
                 MenuItemButton(
+                  key: ValueKey(
+                    'delete-cache-${item.identity.sourceId}-${item.identity.localId}',
+                  ),
                   onPressed: () => unawaited(
                     _run(context, () async {
                       for (final entry in entries) {
@@ -128,7 +145,13 @@ class EmbyCacheActions extends ConsumerWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             PopupMenuButton<String>(
-              enabled: !active && candidates.isNotEmpty,
+              key: ValueKey(
+                'cache-video-popup-${item.identity.sourceId}-${item.identity.localId}',
+              ),
+              enabled:
+                  !active &&
+                  candidates.isNotEmpty &&
+                  (downloadEnabled || entries.isNotEmpty),
               tooltip: title,
               onSelected: (value) => unawaited(
                 _run(context, () async {
@@ -154,7 +177,7 @@ class EmbyCacheActions extends ConsumerWidget {
                 }),
               ),
               itemBuilder: (_) => [
-                if (!active) ...[
+                if (!active && downloadEnabled) ...[
                   for (final option
                       in options.isEmpty ? [EmbyVideoQuality.source] : options)
                     PopupMenuItem(
@@ -164,6 +187,11 @@ class EmbyCacheActions extends ConsumerWidget {
                       ),
                     ),
                 ],
+                if (!downloadEnabled && entries.isNotEmpty)
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    child: Text(unavailable),
+                  ),
                 if (entries.isNotEmpty)
                   const PopupMenuItem(value: 'delete', child: Text('删除缓存文件')),
               ],

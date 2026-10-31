@@ -24,8 +24,9 @@ import 'local_media_artwork.dart';
 import 'emby_media_actions.dart';
 import 'emby_video_context_menu.dart';
 import 'external_playback_actions.dart';
-import 'url_video_context_menu.dart';
 import 'marker_analysis_menu.dart';
+import 'url_video_context_menu.dart';
+import 'url_video_cache_actions.dart';
 import '../../../api/emby/emby_detail.dart';
 import '../application/emby_providers.dart';
 import 'emby_detail_extras.dart';
@@ -995,7 +996,10 @@ class _DetailHero extends StatelessWidget {
                 ),
               if (source.kind.isRemoteVideoSource && !item.isSeries)
                 EmbyMediaActions(item: item),
-              if (source.kind.isRemoteVideoSource) EmbyCacheActions(item: item),
+              if (source.kind.isRemoteVideoSource)
+                EmbyCacheActions(item: item)
+              else if (source.kind == MediaSourceKind.url)
+                UrlVideoCacheActions(item: item),
             ],
           ),
         ],

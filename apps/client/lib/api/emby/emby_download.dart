@@ -20,6 +20,8 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
   String? etag,
   void Function(EmbyDownloadProgress)? onProgress,
   Duration idleTimeout = const Duration(seconds: 30),
+  bool authenticatedOrigin = true,
+  bool directVideoOnly = false,
 }) async {
   HttpClientRequest? active;
   RandomAccessFile? output;
@@ -57,34 +59,44 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
         final location = response.headers.value(HttpHeaders.locationHeader);
         final next = location == null ? null : uri.resolve(location);
         if (next == null ||
-            next.origin != resource.origin ||
+            !['http', 'https'].contains(next.scheme) ||
+            (authenticatedOrigin && next.origin != resource.origin) ||
             next.userInfo.isNotEmpty) {
           throw const SourceFailure('下载地址发生跨站跳转，缓存已停止。');
         }
         await response.take(0).drain<void>();
         // Preserve the current credential only for this authenticated origin.
-        uri = next.replace(
-          queryParameters: {
-            for (final entry in next.queryParameters.entries)
-              if (!{
-                'api_key',
-                'apikey',
-                'x-plex-token',
-              }.contains(entry.key.toLowerCase()))
-                entry.key: entry.value,
-            if (resource.queryParameters['X-Plex-Token']
-                case final String token)
-              'X-Plex-Token': token,
-            if (resource.queryParameters['ApiKey'] case final String token)
-              'ApiKey': token,
-            if (resource.queryParameters['api_key'] case final String token)
-              'api_key': token,
-          },
-        );
+        uri = !authenticatedOrigin
+            ? next
+            : next.replace(
+                queryParameters: {
+                  for (final entry in next.queryParameters.entries)
+                    if (!{
+                      'api_key',
+                      'apikey',
+                      'x-plex-token',
+                    }.contains(entry.key.toLowerCase()))
+                      entry.key: entry.value,
+                  if (resource.queryParameters['X-Plex-Token']
+                      case final String token)
+                    'X-Plex-Token': token,
+                  if (resource.queryParameters['ApiKey']
+                      case final String token)
+                    'ApiKey': token,
+                  if (resource.queryParameters['api_key']
+                      case final String token)
+                    'api_key': token,
+                },
+              );
         continue;
       }
       if (response.statusCode != 200 && response.statusCode != 206) {
         request.abort();
+        if (!authenticatedOrigin) {
+          throw SourceFailure(
+            '视频缓存失败（HTTP ${response.statusCode}），请检查链接是否已失效。',
+          );
+        }
         throw EmbyFailure(
           response.statusCode == 401
               ? EmbyError.authentication
@@ -94,6 +106,19 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
         );
       }
       final mime = response.headers.contentType?.mimeType;
+      if (directVideoOnly &&
+          ([
+                'application/vnd.apple.mpegurl',
+                'application/x-mpegurl',
+                'audio/mpegurl',
+                'audio/x-mpegurl',
+                'application/dash+xml',
+                'application/xml',
+                'text/xml',
+              ].contains(mime) ||
+              ['.m3u', '.m3u8', '.mpd'].any(uri.path.toLowerCase().endsWith))) {
+        throw const SourceFailure('此地址返回在线播放列表，暂不支持离线缓存。');
+      }
       if (mime == 'text/html' ||
           mime == 'application/json' ||
           mime == 'text/plain') {
@@ -125,9 +150,29 @@ Future<EmbyDownloadProgress> streamEmbyDownload(
       );
       onProgress?.call(EmbyDownloadProgress(received, expected, receivedTag));
       chunks = StreamIterator(response.timeout(idleTimeout));
+      // Only a bounded prefix is inspected; video data continues straight to disk.
+      final prefix = <int>[];
+      // A resumed byte range starts in the middle of a container. Subtitle/text
+      // bytes there are not a new document and must not be treated as a playlist.
+      final inspectPrefix =
+          directVideoOnly && (response.statusCode == 200 || offset == 0);
       while (await chunks.moveNext()) {
         final chunk = chunks.current;
         cancellation.check();
+        if (inspectPrefix && prefix.length < 512) {
+          prefix.addAll(chunk.take(512 - prefix.length));
+          final text = String.fromCharCodes(prefix)
+              .replaceFirst(RegExp(r'^\xEF\xBB\xBF'), '')
+              .trimLeft()
+              .toLowerCase();
+          if (text.startsWith('#extm3u') ||
+              text.startsWith('<!doctype html') ||
+              text.startsWith('<html') ||
+              text.startsWith('<?xml') ||
+              text.startsWith('<mpd')) {
+            throw const SourceFailure('此地址未返回可离线缓存的视频文件，请使用视频直链。');
+          }
+        }
         if (expected != null && received + chunk.length > expected) {
           throw const SourceFailure('视频长度校验失败。');
         }

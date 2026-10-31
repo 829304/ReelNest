@@ -1,4 +1,16 @@
 # 当前阶段与历史实施记录
+
+## 2026-10-31 HTTP(S) URL 单视频离线缓存（本轮实现与 Windows 定向交付通过）
+
+- 用户已授权为持久 URL 来源添加 HTTP(S) 单视频原画缓存。后端已复用现有视频缓存队列、清单、暂存发布、播放租约及清理机制；失败/取消/提交失败保留旧副本，离线优先本地并在副本不可用时回退在线。
+- 当前实现支持原画 HTTP(S)、取消/暂停/续传；HTTP 错误、断流、SQL 发布失败及实际落盘失败保护旧缓存，缓存目录失败时在线回退。独立 URL `HttpClient` 不使用 Emby 凭据；CDN 重定向保留目标 query、不复制旧凭据，服务器认证下载跨站会拒绝。HLS/DASH 按 URL、MIME 和最多 512 字节前缀拒绝，不下载分段。
+- manifest 有记录但文件缺失或长度损坏时提示并在线回退，旧记录保留；`hasRecord` 只读 manifest。非 HTTP(S)/清单地址显示禁用原因，但已有缓存仍可删除。
+- 最终11文件定向组合175/175通过（23秒，exit 0，`apps/client/build/url-cache-final-tests.log`）；显式配置 `REELNEST_MPV_PATH`，原生 mpv 缓存解码用例执行且未跳过，覆盖实际 Matroska 下载、在线端点503时从 lease 路径解码及播放中清理保护。先前68/68与20/20为中间组，与最终组合有覆盖重叠，不累计。
+- `dart analyze lib test integration_test` 无问题（`apps/client/build/url-cache-final-analyze.log`），12个变更新增 Dart 文件格式检查0 changed；Windows Release 67.7秒成功（`apps/client/build/url-cache-release.log`），五秒 `windows-smoke` 于 `2026-10-31T19:31:42.0886533+08:00` 通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0），报告 `apps/client/build/url-cache-smoke.json` 已复制并核验。本轮未修改 Flutter SDK。
+- HLS/DASH 离线打包、转码、非 HTTP(S) 协议下载及手动/自定义封面不在本轮范围。
+- 本轮 HTTP(S) URL 单视频缓存实现与 Windows 定向交付验证通过；全量测试未运行，历史 Emby 全量 browse/scroll 两条失败仍待调查。macOS/Linux、真实公网和人工可见 UI 验收待，手动截帧/自定义封面仍未迁移。本轮完成不代表整个 URL 模块完成。
+- 验收边界见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
+
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 更新：2026-10-31。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 

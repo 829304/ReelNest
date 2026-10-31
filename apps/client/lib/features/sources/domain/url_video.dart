@@ -40,6 +40,14 @@ class UrlAddResult {
 /// URLSourcePolicy.swift. Preserve the trimmed string: do not reorder signed
 /// query parameters, normalize host case, decode escapes or strip fragments.
 abstract final class UrlVideoPolicy {
+  static bool isCacheable(String value) {
+    final uri = Uri.tryParse(value);
+    return normalize(value) != null &&
+        uri != null &&
+        ['http', 'https'].contains(uri.scheme.toLowerCase()) &&
+        !['.m3u', '.m3u8', '.mpd'].any(uri.path.toLowerCase().endsWith);
+  }
+
   static const schemes = {
     'http',
     'https',
