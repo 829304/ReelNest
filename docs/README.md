@@ -6,6 +6,7 @@
 
 ## 当前快照
 
+- 前端 P0 剩余桌面菜单与远程来源策略面板（2026-10-31）：Mlink 媒体库排序/剧集季选择统一迁移到 `AppMenuControl<T>`；远程痕迹同步模式文案与紧凑菜单对齐原 Swift，ReelNest 品牌按项目约束保留。定向5 passed、analyze clean（63.9秒）、Windows Release58.0秒及正常关闭 smoke通过；未跑全量，未做可见 UI 或 macOS/Linux 实机验收。代码提交 `16d082be93009205d82c10f7a6cc476ecfac4d00` 已推送。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-剩余桌面菜单与远程来源策略面板windows-定向验证通过)。
 - 共享下拉控件第二批：媒体库与 TMDB（2026-10-31）：Emby/Jellyfin/Plex 类型/排序菜单和 TMDB 匹配宽容度/自动拉取周期已复用 `AppMenuControl<T>`，设置与业务逻辑不变。定向47 passed、analyze clean（5.3秒）、Windows Release48.6秒、正常关闭 smoke通过。本批未跑全量，上一批全量基线不变。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-共享下拉控件第二批媒体库与-tmdbwindows-定向验证通过)。
 - 设置页下拉选择控件统一 P0（2026-10-30）：共享 `AppMenuControl<T>` 按原版玻璃菜单与自适应控件收口，已迁移自动扫描、播放器模式、已看判定和缓存上限，业务值与持久化未改。定向29 passed、analyze clean（4.9秒）、Windows Release59.4秒、正常关闭 smoke通过；本批未跑全量。上一批1247/14/2为独立历史基线。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-设置页下拉选择控件统一windows-定向验证通过)。
 - 普通页面桌面菜单与首页媒体卡右键菜单 P0（2026-10-30）：菜单主题、表面、紧凑项及 hover/focus 统一；首页右键菜单按原版现有功能子集补语义图标/分组，危险操作标红，播放器局部深色菜单保持独立。定向25 passed、analyze clean、Windows Release60.5秒及 smoke通过。全量当前1247 passed / 14 skipped / 2 failed；Emby browse 与 scroll 两项单独复跑仍失败且未修改对应实现，因此不记全量通过。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-30-前端-p0-普通页面菜单表面与首页媒体卡右键菜单windows-release-验证通过全量测试有既有失败)。

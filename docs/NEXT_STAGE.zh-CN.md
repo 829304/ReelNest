@@ -2,6 +2,13 @@
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 更新：2026-10-31。遵循[项目边界](PROJECT_SCOPE.zh-CN.md)。
 
+## 2026-10-31 前端 P0 剩余桌面菜单与远程来源策略面板（Windows 定向验证通过）
+
+- 已推送提交 `16d082be93009205d82c10f7a6cc476ecfac4d00`（`refactor(client): unify remaining desktop menus`）。旧 Mlink 媒体库排序从 Flutter 默认 DropdownButton 迁移到共享 `AppMenuControl<T>`；Mlink 剧集季选择也改用共享控件，原有排序值、滚动归零、查询、季选择及数据请求逻辑不变。`apps/client/lib` 中已无 `DropdownButton` / `DropdownMenu` 残留。
+- 远程来源痕迹同步模式按原 Swift `SourceBehaviorSettingsPanel` 恢复为“痕迹数据同步 + 150–240px 紧凑菜单 + 当前模式说明”；三个标题/说明遵循原版含义，但旧 MediaLIB 品牌文案按项目约束改为 ReelNest。业务枚举及回调不变。
+- 定向 `app_menu_control_test.dart`、`remote_policy_panel_test.dart`、`library_smoke_test.dart` 共5项通过；`flutter analyze` 0问题（63.9秒）；Windows Release 58.0秒成功；五秒 Windows smoke（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0）通过。Flutter `shared.bat` 临时容错已还原，SHA256 `B1B8A1B696ECD1265C0CFDC1408C340F0D8351C0E1624710BB8FBF1AB218D4DB`。
+- 未做可见 UI 人工验收、macOS/Linux 实机验收，也未重跑全量测试；不将历史全量结果外推为本批验收。详见[共享下拉控件第二批](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-共享下拉控件第二批媒体库与-tmdbwindows-定向验证通过)和[项目状态总览](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md#状态基线)。
+
 ## 2026-10-31 前端 P0 共享下拉控件第二批：媒体库与 TMDB（Windows 定向验证通过）
 
 - `EmbyVideoLibraryPage` 的类型/排序菜单迁移到既有共享 `AppMenuControl<T>`，移除页面内重复的 `_LibraryMenuButton`；Emby/Jellyfin/Plex 共用媒体库菜单外观统一。
