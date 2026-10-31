@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/media.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/status_notice.dart';
 import '../application/library_providers.dart';
 import 'media_card.dart';
@@ -88,18 +89,15 @@ class _BrowsePageState extends ConsumerState<BrowsePage> {
                             icon: const Icon(Icons.arrow_back),
                             label: const Text('媒体库'),
                           ),
-                          DropdownButton<MediaSort>(
+                          AppMenuControl<MediaSort>(
+                            key: const ValueKey('legacy-library-sort-menu'),
                             value: _sort,
-                            items: MediaSort.values
-                                .map(
-                                  (sort) => DropdownMenuItem(
-                                    value: sort,
-                                    child: Text(sort.label),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (sort) {
-                              if (sort == null || sort == _sort) return;
+                            label: _sort.label,
+                            values: MediaSort.values,
+                            itemLabel: (sort) => sort.label,
+                            tooltip: '排序方式',
+                            onSelected: (sort) {
+                              if (sort == _sort) return;
                               if (_scroll.hasClients) _scroll.jumpTo(0);
                               setState(() => _sort = sort);
                             },

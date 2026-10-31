@@ -6,6 +6,7 @@ import '../../../api/emby/emby_client.dart';
 import '../../../domain/media_source.dart';
 import '../../../domain/source_options.dart';
 import '../../../ui/theme/source_sheet_palette.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/app_sheet.dart';
 import '../../../ui/widgets/source_icons.dart';
 import '../../../ui/widgets/source_policy_switch.dart';
@@ -564,6 +565,19 @@ class RemotePolicyPanel extends StatelessWidget {
   final RemoteTraceSyncMode trace;
   final ValueChanged<bool> onMetadata, onHealth;
   final ValueChanged<RemoteTraceSyncMode> onTrace;
+
+  static String _traceTitle(RemoteTraceSyncMode mode) => switch (mode) {
+    RemoteTraceSyncMode.bidirectional => '数据双向同步',
+    RemoteTraceSyncMode.importOnly => '仅从服务器同步',
+    RemoteTraceSyncMode.disabled => '数据不同步',
+  };
+
+  static String _traceDetail(RemoteTraceSyncMode mode) => switch (mode) {
+    RemoteTraceSyncMode.bidirectional => '本地播放记录、收藏和已观看状态会与远程服务器互相更新。',
+    RemoteTraceSyncMode.importOnly => '只接收服务器状态，不把本机痕迹写回服务器。',
+    RemoteTraceSyncMode.disabled => '本机痕迹完全保留在 ReelNest，不受多人共用服务器影响。',
+  };
+
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -576,35 +590,31 @@ class RemotePolicyPanel extends StatelessWidget {
       ),
       SourcePolicySwitch(label: '参与健康检查', value: health, onChanged: onHealth),
       const SizedBox(height: 2),
-      const Text(
-        '痕迹数据同步',
-        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
-      DropdownButtonFormField<RemoteTraceSyncMode>(
-        initialValue: trace,
-        isExpanded: true,
-        decoration: InputDecoration(
-          filled: true,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
+      Row(
+        children: [
+          const Text(
+            '痕迹数据同步',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        items: [
-          for (final mode in RemoteTraceSyncMode.values)
-            DropdownMenuItem(
-              value: mode,
-              child: Text(switch (mode) {
-                RemoteTraceSyncMode.bidirectional => '双向同步',
-                RemoteTraceSyncMode.importOnly => '仅从服务器导入',
-                RemoteTraceSyncMode.disabled => '关闭同步',
-              }),
-            ),
+          const SizedBox(width: 10),
+          AppMenuControl<RemoteTraceSyncMode>(
+            key: const ValueKey('remote-trace-sync-menu'),
+            value: trace,
+            label: _traceTitle(trace),
+            values: RemoteTraceSyncMode.values,
+            itemLabel: _traceTitle,
+            tooltip: '痕迹数据同步',
+            minWidth: 150,
+            maxWidth: 240,
+            onSelected: onTrace,
+          ),
+          const Spacer(),
         ],
-        onChanged: (v) {
-          if (v != null) onTrace(v);
-        },
+      ),
+      Text(
+        _traceDetail(trace),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     ],
   );

@@ -71,6 +71,10 @@ void main() {
   ) async {
     final client = SmokeMlinkClient()..failNextPage = true;
     final store = await login(tester, client);
+    expect(
+      find.byKey(const ValueKey('legacy-library-sort-menu')),
+      findsOneWidget,
+    );
     await tap(tester, find.text('加载更多'));
     expect(find.text('模拟追加失败'), findsOneWidget);
     expect(find.text('测试系列'), findsOneWidget);
@@ -81,10 +85,10 @@ void main() {
     expect(client.summaryCalls, 1);
     expect(find.text('2 集 · 3 个季分组'), findsOneWidget);
     expect(find.text('首集'), findsOneWidget);
-    await tap(tester, find.byType(DropdownButton<String>));
+    await tap(tester, find.byKey(const ValueKey('legacy-season-menu')));
     await tap(tester, find.text('未分季 · 0 集').last);
     expect(find.text('这一季暂时没有可访问的剧集。'), findsOneWidget);
-    await tap(tester, find.byType(DropdownButton<String>));
+    await tap(tester, find.byKey(const ValueKey('legacy-season-menu')));
     await tap(tester, find.text('特别篇 · 1 集').last);
     await tap(tester, find.text('特别篇单集'));
     expect(client.selectedSeasons, containsAll(['1', 'unspecified', '0']));

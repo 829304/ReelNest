@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../domain/app_failure.dart';
 import '../../../domain/media.dart';
+import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/page_content.dart';
 import '../../../ui/widgets/status_notice.dart';
 import '../application/library_providers.dart';
@@ -243,6 +244,11 @@ class _EpisodesPanelState extends ConsumerState<_EpisodesPanel> {
         ? preferred
         : seasons.first.selector;
     final season = seasons.firstWhere((season) => season.selector == selected);
+    String seasonLabel(String selector) {
+      final value = seasons.firstWhere((season) => season.selector == selector);
+      return '${value.title} · ${value.episodeCount} 集';
+    }
+
     final key = (
       scope: widget.scope,
       type: 'episode',
@@ -259,22 +265,18 @@ class _EpisodesPanelState extends ConsumerState<_EpisodesPanel> {
         const SizedBox(height: 12),
         Text('已看 ${season.watchedCount} 集 · 观看中 ${season.inProgressCount} 集'),
         const SizedBox(height: 8),
-        DropdownButton<String>(
+        AppMenuControl<String>(
+          key: const ValueKey('legacy-season-menu'),
           value: selected,
-          isExpanded: true,
-          items: seasons
-              .map(
-                (season) => DropdownMenuItem(
-                  value: season.selector,
-                  child: Text(
-                    '${season.title} · ${season.episodeCount} 集',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged: (value) => setState(() => _selected = value),
+          label: seasonLabel(selected),
+          values: seasons.map((season) => season.selector).toList(),
+          itemLabel: seasonLabel,
+          tooltip: '选择季',
+          minWidth: 180,
+          maxWidth: 360,
+          onSelected: (value) {
+            if (value != selected) setState(() => _selected = value);
+          },
         ),
         const SizedBox(height: 12),
         Wrap(
