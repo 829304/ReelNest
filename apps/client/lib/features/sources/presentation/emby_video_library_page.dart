@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../ui/theme/source_sheet_palette.dart';
@@ -9,6 +8,7 @@ import '../../../ui/widgets/app_menu_control.dart';
 import '../../../ui/widgets/app_confirmation_dialog.dart';
 import '../../../ui/widgets/app_feedback.dart';
 import '../../../ui/widgets/source_icons.dart';
+import '../../../ui/widgets/scroll_hover_scope.dart';
 import '../../../ui/widgets/video_library_page_header.dart';
 import '../../../domain/media_source.dart';
 import 'emby_library_selection_bar.dart';
@@ -40,7 +40,6 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
   String? _error;
   bool _selectionMode = false;
   bool _batchBusy = false;
-  bool _suppressPosterHover = false;
   double _contentOpacity = 1;
   int _contentBreath = 0;
   final _selected = <MediaIdentity>{};
@@ -52,6 +51,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
 
   EmbyBrowseCursor? _browse;
   ScanCancellation? _browseToken;
+  bool _browsePreparing = false;
   bool _browseLoading = false;
   String? _browseError;
 
@@ -59,6 +59,12 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     final token = ScanCancellation();
     _browseToken?.cancel();
     _browseToken = token;
+    if (mounted && generation == _generation) {
+      setState(() {
+        _browsePreparing = true;
+        _browseError = null;
+      });
+    }
     try {
       final source = await ref
           .read(sourceRepositoryProvider)
@@ -74,13 +80,23 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
             cancellation: token,
           );
       if (!mounted || generation != _generation) return;
-      _browse = cursor;
+      setState(() {
+        _browse = cursor;
+        _browsePreparing = false;
+      });
       await _loadNext();
     } on ScanCancelled {
       // Navigation cancels only foreground browsing, never the background sync.
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _browseError = sourceErrorMessage(error));
+        setState(() {
+          _browsePreparing = false;
+          _browseError = sourceErrorMessage(error);
+        });
+      }
+    } finally {
+      if (mounted && generation == _generation && _browsePreparing) {
+        setState(() => _browsePreparing = false);
       }
     }
   }
@@ -89,19 +105,6 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     if (_scroll.hasClients && _scroll.position.extentAfter < 600) {
       unawaited(_loadNext());
     }
-  }
-
-  bool _handleScrollNotification(ScrollNotification notification) {
-    final suppress = switch (notification) {
-      ScrollStartNotification() => true,
-      ScrollEndNotification() => false,
-      UserScrollNotification(direction: ScrollDirection.idle) => false,
-      _ => _suppressPosterHover,
-    };
-    if (suppress != _suppressPosterHover) {
-      setState(() => _suppressPosterHover = suppress);
-    }
-    return false;
   }
 
   Future<void> _loadNext() async {
@@ -283,6 +286,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     if (oldWidget.destination != widget.destination) {
       _browseToken?.cancel();
       _browse = null;
+      _browsePreparing = false;
       _browseLoading = false;
       _browseError = null;
       _debounce?.cancel();
@@ -455,8 +459,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                 ? Duration.zero
                 : const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _handleScrollNotification,
+            child: ScrollHoverScope(
               child: CustomScrollView(
                 controller: _scroll,
                 key: PageStorageKey(destination),
@@ -470,6 +473,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                       palette: palette,
                       sourceId: destination.sourceId,
                       visibleCount: visibleCount,
+                      partiallyLoaded: data?.source.lastScan == null,
                     ),
                   ),
                   if (data != null && settings != null)
@@ -628,14 +632,14 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                               title: settings.search.isNotEmpty
                                   ? '没有匹配的内容'
                                   : data!.source.lastScan == null
-                                  ? _browseLoading
+                                  ? _browsePreparing || _browseLoading
                                         ? '正在读取服务端视频…'
                                         : '暂无已载入的视频'
                                   : '暂无${settings.filter == LibraryWatchFilter.all ? title : settings.filter.label}',
                               message: settings.search.isNotEmpty
                                   ? '尝试缩短关键词，或清除部分筛选条件。'
                                   : '同步完成后，符合当前条件的视频会显示在这里。',
-                              loading: _browseLoading,
+                              loading: _browsePreparing || _browseLoading,
                             ),
                           )
                         else
@@ -696,7 +700,6 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                                         selected: _selected.contains(
                                           entries[index].item.identity,
                                         ),
-                                        suppressHover: _suppressPosterHover,
                                         onOpen: () {
                                           final id =
                                               entries[index].item.identity;
@@ -719,26 +722,21 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
                           ),
                       ],
                     ),
-                  if (data?.source.lastScan == null &&
-                      (_browse?.hasMore == true || _browseError != null))
+                  if (data?.source.lastScan == null)
                     inset(
-                      TextButton(
-                        onPressed: _browseLoading
-                            ? null
-                            : () {
-                                if (_browse == null) {
-                                  unawaited(_prepareBrowse(_generation));
-                                } else {
-                                  unawaited(_loadNext());
-                                }
-                              },
-                        child: Text(
-                          _browseLoading
-                              ? '正在加载更多视频…'
-                              : _browseError == null
-                              ? '加载更多'
-                              : '$_browseError 重试',
-                        ),
+                      _BrowseFooter(
+                        palette: palette,
+                        preparing: _browsePreparing,
+                        loading: _browseLoading,
+                        hasMore: _browse?.hasMore == true,
+                        error: _browseError,
+                        onRetry: () {
+                          if (_browse == null) {
+                            unawaited(_prepareBrowse(_generation));
+                          } else {
+                            unawaited(_loadNext());
+                          }
+                        },
                       ),
                     ),
                 ],
@@ -840,6 +838,7 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     required SourceSheetPalette palette,
     required String sourceId,
     required int visibleCount,
+    required bool partiallyLoaded,
   }) {
     final search = TextField(
       controller: _search,
@@ -919,7 +918,9 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     );
     return VideoLibraryPageHeader(
       title: title,
-      subtitle: '浏览、筛选和管理当前内容 · $visibleCount 项',
+      subtitle: partiallyLoaded
+          ? '浏览、筛选和管理已载入内容 · $visibleCount 项'
+          : '浏览、筛选和管理当前内容 · $visibleCount 项',
       actions: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -1059,6 +1060,83 @@ class _EmbyVideoLibraryPageState extends ConsumerState<EmbyVideoLibraryPage> {
     if (normalized.contains('720')) return '720P';
     if (normalized.contains('480')) return '480P';
     return value!.trim().toUpperCase();
+  }
+}
+
+class _BrowseFooter extends StatelessWidget {
+  const _BrowseFooter({
+    required this.palette,
+    required this.preparing,
+    required this.loading,
+    required this.hasMore,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final SourceSheetPalette palette;
+  final bool preparing;
+  final bool loading;
+  final bool hasMore;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = preparing || loading;
+    final content = busy
+        ? Row(
+            key: const ValueKey('emby-browse-footer-loading'),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: palette.selectedTint,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Text(
+                preparing ? '正在读取服务端视频…' : '正在加载更多视频…',
+                style: TextStyle(color: palette.secondary, fontSize: 12.5),
+              ),
+            ],
+          )
+        : error != null
+        ? TextButton.icon(
+            key: const ValueKey('emby-browse-footer-error'),
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 17),
+            label: Text('$error 重试', maxLines: 1),
+          )
+        : hasMore
+        ? TextButton(
+            key: const ValueKey('emby-browse-footer-more'),
+            onPressed: onRetry,
+            child: const Text('加载更多'),
+          )
+        : Text(
+            '已载入当前可用内容',
+            key: const ValueKey('emby-browse-footer-complete'),
+            style: TextStyle(color: palette.secondary, fontSize: 12.5),
+          );
+    return Semantics(
+      liveRegion: true,
+      child: SizedBox(
+        key: const ValueKey('emby-browse-footer'),
+        height: 46,
+        child: Center(
+          child: AnimatedSwitcher(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            child: content,
+          ),
+        ),
+      ),
+    );
   }
 }
 

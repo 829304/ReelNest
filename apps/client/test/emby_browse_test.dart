@@ -627,10 +627,127 @@ void main() {
     }
     expect(find.byType(LocalMediaCard), findsWidgets);
     expect(find.textContaining('已载入'), findsOneWidget);
+    expect(find.byKey(const ValueKey('emby-browse-footer')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('emby-browse-footer'))).height,
+      46,
+    );
+    expect(
+      find.byKey(const ValueKey('emby-browse-footer-more')),
+      findsOneWidget,
+    );
     expect(
       (await tester.runAsync(() => sources.source(source.id)))!.lastScan,
       isNull,
     );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    client.close();
+    await tester.pump();
+  });
+
+  testWidgets('paging errors retain cards and stable footer geometry', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var failNextPage = true;
+    server.itemsHandler = (request) async {
+      final query = request.uri.queryParameters;
+      final start = int.parse(query['StartIndex']!);
+      if (start > 0 && failNextPage) {
+        request.response.statusCode = 503;
+        request.response.write('{}');
+        await request.response.close();
+        return;
+      }
+      await _respond(
+        request,
+        List.generate(2, (index) => _movie('${start + index}')),
+        total: 100,
+      );
+    };
+    final container = ProviderContainer(
+      overrides: [
+        sourceRepositoryProvider.overrideWithValue(sources),
+        embyConnectionProvider.overrideWithValue(connections),
+        embyClientProvider.overrideWith((_) async => client),
+        embyCredentialStoresProvider.overrideWithValue((id) => stores[id]!),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Scaffold(
+            body: EmbyVideoLibraryPage(
+              destination: (
+                sourceId: source.id,
+                section: EmbyVideoSection.videos,
+                libraryId: 'movies',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (
+      var i = 0;
+      i < 50 && find.byType(LocalMediaCard).evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(find.byType(LocalMediaCard), findsNWidgets(2));
+    expect(
+      find.byKey(const ValueKey('emby-browse-footer-more')),
+      findsOneWidget,
+    );
+    final footer = find.byKey(const ValueKey('emby-browse-footer'));
+    final footerSize = tester.getSize(footer);
+
+    await tester.tap(find.byKey(const ValueKey('emby-browse-footer-more')));
+    for (
+      var i = 0;
+      i < 50 &&
+          find
+              .byKey(const ValueKey('emby-browse-footer-error'))
+              .evaluate()
+              .isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(find.byType(LocalMediaCard), findsNWidgets(2));
+    expect(tester.getSize(footer), footerSize);
+    expect(
+      find.byKey(const ValueKey('emby-browse-footer-error')),
+      findsOneWidget,
+    );
+
+    failNextPage = false;
+    await tester.tap(find.byKey(const ValueKey('emby-browse-footer-error')));
+    for (
+      var i = 0;
+      i < 50 && find.byType(LocalMediaCard).evaluate().length < 4;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(find.byType(LocalMediaCard), findsNWidgets(4));
+    expect(tester.getSize(footer), footerSize);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     client.close();

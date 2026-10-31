@@ -97,6 +97,6 @@
 - manifest 有记录但文件缺失或长度损坏时提示并在线回退，保留旧记录；`hasRecord` 只读 manifest。非 HTTP(S)/清单地址保留禁用原因，已有缓存仍可删除。
 - 最终定向自动化：11文件175/175，23秒，exit 0（`apps/client/build/url-cache-final-tests.log`），覆盖 URL 缓存/来源 UI、共享 Emby 缓存/离线、外部播放、播放和健康回归。显式设置 `REELNEST_MPV_PATH`，原生 mpv 缓存解码用例实际执行、未跳过。先前68/68与20/20为阶段组，与最终组覆盖重叠、不累计；首轮UI等待超时为中间结果，修正后最终组通过。
 - `dart analyze lib test integration_test` 无问题（`apps/client/build/url-cache-final-analyze.log`）；12个变更新增 Dart 文件格式检查0 changed。Windows Release 67.7秒成功（`apps/client/build/url-cache-release.log`）；五秒 `windows-smoke` 于 `2026-10-31T19:31:42.0886533+08:00` 通过（`HiddenWindowResponding=true`、`ClosedNormally=true`、`ExitCode=0`），报告 `apps/client/build/url-cache-smoke.json` 已实际复制并核验。本轮未修改 Flutter SDK。
-- 本轮未运行全量 Flutter 测试；历史 Emby 全量 browse/scroll 两条失败仍待调查，不外推为本轮结论。macOS/Linux、真实公网及人工可见 UI 验收仍待。
+- 本轮未运行全量 Flutter 测试；此前 Emby browse/scroll 两项已在媒体库浏览 P0 中修复并通过目标回归。URL 缓存专项不改变其全量测试口径。macOS/Linux、真实公网及人工可见 UI 验收仍待。
 
 阶段状态：**本轮 HTTP(S) URL 单视频缓存实现完成，Windows 定向交付验证通过。** 这不代表整个 URL 模块完成：全量测试、真实公网、人工可见 UI、macOS/Linux 验收未完成；手动截帧/自定义封面及全局其他视频分类入口仍未迁移。

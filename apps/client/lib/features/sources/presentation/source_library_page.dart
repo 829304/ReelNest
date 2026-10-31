@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/scroll_hover_scope.dart';
 import '../application/source_providers.dart';
 import 'local_media_artwork.dart';
 import 'marker_analysis_menu.dart';
@@ -41,85 +42,90 @@ class SourceLibraryPage extends ConsumerWidget {
     final firstPage = ref.watch(
       sourceMediaProvider((sourceId: sourceId, offset: 0)),
     );
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(32, 28, 32, 16),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  source?.name ?? '媒体库',
-                  style: Theme.of(context).textTheme.headlineLarge,
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    if (firstPage.asData case final data?)
-                      Text('共 ${data.value.total} 项'),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => context.go('/sources'),
-                      child: const Text('管理媒体源'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (sources.hasError && source == null)
-          _message(sourceErrorMessage(sources.error!))
-        else if (!sources.isLoading && sources.hasValue && source == null)
-          _message('此媒体源已移除。')
-        else if (source == null)
-          const SliverToBoxAdapter(child: LinearProgressIndicator())
-        else
-          firstPage.when(
-            skipLoadingOnReload: true,
-            loading: () =>
-                const SliverToBoxAdapter(child: LinearProgressIndicator()),
-            error: (error, stack) => SliverToBoxAdapter(
-              child: TextButton(
-                onPressed: () => ref.invalidate(sourceMediaProvider),
-                child: Text('${sourceErrorMessage(error)} 重试'),
+    return ScrollHoverScope(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(32, 28, 32, 16),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    source?.name ?? '媒体库',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (firstPage.asData case final data?)
+                        Text('共 ${data.value.total} 项'),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => context.go('/sources'),
+                        child: const Text('管理媒体源'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            data: (page) => page.total == 0
-                ? _message(
-                    source.kind.isRemoteVideoSource
-                        ? (source.lastScan == null
-                              ? '媒体内容尚未同步。请先同步媒体源。'
-                              : '所选媒体库没有可显示的媒体。')
-                        : '没有可显示的媒体。请检查来源或重新扫描。',
-                  )
-                : SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(32, 8, 32, 28),
-                    sliver: SliverLayoutBuilder(
-                      builder: (context, constraints) {
-                        // PosterGridList: default minimum width 150; 20/30 column/row gap.
-                        final columns =
-                            ((constraints.crossAxisExtent + 20) / 170)
-                                .floor()
-                                .clamp(1, 100);
-                        return SliverGrid.builder(
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                crossAxisSpacing: 20,
-                                mainAxisSpacing: 30,
-                                childAspectRatio: 2 / 3,
-                              ),
-                          itemCount: page.total,
-                          itemBuilder: (context, index) =>
-                              _LibraryItemAtIndex(source: source, index: index),
-                        );
-                      },
-                    ),
-                  ),
           ),
-      ],
+          if (sources.hasError && source == null)
+            _message(sourceErrorMessage(sources.error!))
+          else if (!sources.isLoading && sources.hasValue && source == null)
+            _message('此媒体源已移除。')
+          else if (source == null)
+            const SliverToBoxAdapter(child: LinearProgressIndicator())
+          else
+            firstPage.when(
+              skipLoadingOnReload: true,
+              loading: () =>
+                  const SliverToBoxAdapter(child: LinearProgressIndicator()),
+              error: (error, stack) => SliverToBoxAdapter(
+                child: TextButton(
+                  onPressed: () => ref.invalidate(sourceMediaProvider),
+                  child: Text('${sourceErrorMessage(error)} 重试'),
+                ),
+              ),
+              data: (page) => page.total == 0
+                  ? _message(
+                      source.kind.isRemoteVideoSource
+                          ? (source.lastScan == null
+                                ? '媒体内容尚未同步。请先同步媒体源。'
+                                : '所选媒体库没有可显示的媒体。')
+                          : '没有可显示的媒体。请检查来源或重新扫描。',
+                    )
+                  : SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(32, 8, 32, 28),
+                      sliver: SliverLayoutBuilder(
+                        builder: (context, constraints) {
+                          // PosterGridList: default minimum width 150; 20/30 column/row gap.
+                          final columns =
+                              ((constraints.crossAxisExtent + 20) / 170)
+                                  .floor()
+                                  .clamp(1, 100);
+                          return SliverGrid.builder(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  crossAxisSpacing: 20,
+                                  mainAxisSpacing: 30,
+                                  childAspectRatio: 2 / 3,
+                                ),
+                            itemCount: page.total,
+                            itemBuilder: (context, index) =>
+                                _LibraryItemAtIndex(
+                                  source: source,
+                                  index: index,
+                                ),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+        ],
+      ),
     );
   }
 

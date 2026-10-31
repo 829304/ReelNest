@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/media.dart';
 import '../../../domain/media_source.dart';
+import '../../../ui/widgets/scroll_hover_scope.dart';
 import '../../../ui/widgets/pointer_inspect_tilt.dart';
 import '../../../ui/widgets/hover_lift_shadow.dart';
 
@@ -337,6 +338,7 @@ class LocalMediaCard extends StatefulWidget {
 class _LocalMediaCardState extends State<LocalMediaCard> {
   bool _hovering = false;
   bool _focused = false;
+  bool _scopeSuppressed = false;
   late Widget _artwork;
 
   @override
@@ -362,13 +364,21 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final suppressed = ScrollHoverScope.suppressed(context);
+    if (suppressed && !_scopeSuppressed) _hovering = false;
+    _scopeSuppressed = suppressed;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final progress = widget.progress.clamp(0.0, 1.0);
     final selected = widget.selected && widget.selectionMode;
+    final suppressHover = widget.suppressHover || _scopeSuppressed;
     final active =
-        !widget.selectionMode &&
-        (_focused || (_hovering && !widget.suppressHover));
+        !widget.selectionMode && !suppressHover && (_focused || _hovering);
     return Semantics(
       button: true,
       label: widget.item.cardTitle,
@@ -381,9 +391,10 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
             enabled:
                 widget.item.type != 'music' &&
                 !widget.selectionMode &&
-                !widget.suppressHover,
+                !suppressHover,
             cornerRadius: 18,
             child: AnimatedScale(
+              key: const ValueKey('media-card-hover-scale'),
               scale: active && !reduceMotion ? 1.018 : 1,
               alignment: Alignment.bottomCenter,
               duration: reduceMotion
@@ -562,7 +573,7 @@ class _LocalMediaCardState extends State<LocalMediaCard> {
                       TextButton(
                         onPressed: widget.onOpen,
                         onHover: (value) {
-                          if (widget.suppressHover) {
+                          if (suppressHover) {
                             if (_hovering) setState(() => _hovering = false);
                             return;
                           }

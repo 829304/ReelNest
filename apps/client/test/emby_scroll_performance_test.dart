@@ -15,6 +15,7 @@ import 'package:reelnest/features/sources/data/artwork_image_pipeline.dart';
 import 'package:reelnest/features/sources/data/emby_library_repository.dart';
 import 'package:reelnest/features/sources/domain/emby_library.dart';
 import 'package:reelnest/features/sources/presentation/local_media_artwork.dart';
+import 'package:reelnest/ui/widgets/scroll_hover_scope.dart';
 
 final _date = DateTime.utc(2026, 10, 10);
 final _source = MediaSource(
@@ -320,7 +321,7 @@ void main() {
     final card = find.byType(LocalMediaCard);
     final scale = find.descendant(
       of: card,
-      matching: find.byType(AnimatedScale),
+      matching: find.byKey(const ValueKey('media-card-hover-scale')),
     );
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
@@ -336,6 +337,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<AnimatedScale>(scale).scale, 1);
 
+    await mouse.moveTo(Offset.zero);
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1.018);
+    await mouse.removePointer();
+  });
+
+  testWidgets('poster hover waits for a quiet period after grid scrolling', (
+    tester,
+  ) async {
+    final queue = ArtworkDecodeQueue();
+    final pipeline = _Pipeline(queue);
+    final item = _entry('poster').item;
+    addTearDown(pipeline.dispose);
+    addTearDown(queue.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [embyImagePipelineProvider.overrideWithValue(pipeline)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: ScrollHoverScope(
+              child: SizedBox(
+                width: 240,
+                height: 260,
+                child: ListView(
+                  key: const ValueKey('poster-scroll-view'),
+                  children: [
+                    Center(
+                      child: SizedBox(
+                        width: 150,
+                        height: 225,
+                        child: LocalMediaCard(
+                          source: _source,
+                          item: item,
+                          onOpen: () {},
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 420),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final card = find.byType(LocalMediaCard);
+    final scale = find.descendant(
+      of: card,
+      matching: find.byKey(const ValueKey('media-card-hover-scale')),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1.018);
+
+    await tester.drag(
+      find.byKey(const ValueKey('poster-scroll-view')),
+      const Offset(0, -40),
+    );
+    await tester.pump(const Duration(milliseconds: 180));
+    await mouse.moveTo(tester.getCenter(card) + const Offset(1, 0));
+    await tester.pump();
+    expect(tester.widget<AnimatedScale>(scale).scale, 1);
+
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(tester.widget<AnimatedScale>(scale).scale, 1);
     await mouse.moveTo(Offset.zero);
     await mouse.moveTo(tester.getCenter(card));
     await tester.pumpAndSettle();

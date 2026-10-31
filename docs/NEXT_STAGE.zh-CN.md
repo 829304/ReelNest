@@ -1,5 +1,13 @@
 # 当前阶段与历史实施记录
 
+## 2026-10-31 媒体库浏览 P0（定向验证通过；全量有一项无关波动失败）
+
+- 新增共享 `ScrollHoverScope`，按原 Swift `suppressHoverEffectsDuringScroll` 迁移滚动期间 hover 抑制：根滚动开始/更新后抑制，最后一次滚动通知静止200ms后解除；进入抑制时清除 `LocalMediaCard` hover，并为实际卡片缩放增加精确测试 key。`SourceLibraryPage` 与 `EmbyVideoLibraryPage` 已接入，本地、Emby、Jellyfin、Plex 网格交互统一。
+- Emby 未完整同步时，首屏副标题改为“浏览、筛选和管理已载入内容 · N 项”，不再暗示完整范围。首批打开新增 preparing 状态避免假空态；分页 footer 固定46px，在读取/加载更多/错误重试/完成间用 `AnimatedSwitcher` 切换，分页错误保留已加载卡片。
+- 修复历史 `first cards render without a complete scan` 与 `poster hover is cleared while its scroll view is moving`。增加滚动静止期和分页错误/稳定 footer 回归；8个定向测试文件64/64通过，`dart analyze lib test integration_test` clean，Windows Release 50.6秒。
+- 隐藏 smoke 仅确认进程存活5秒，随后由测试主动终止；不记为正常关闭 smoke 通过。
+- 全量默认与串行两种跑法均为1278 passed / 15 skipped / 1 failed。唯一失败为无关的 `emby_quality_cache_test.dart: detail artwork overtakes queued posters and promotes duplicate requests` 时序波动；该 case 单独1/1、整文件37/37均通过，未放宽断言。全量不记为通过。可见 UI、真实媒体和 macOS/Linux 验收待。
+
 ## 2026-10-31 HTTP(S) URL 单视频离线缓存（本轮实现与 Windows 定向交付通过）
 
 - 用户已授权为持久 URL 来源添加 HTTP(S) 单视频原画缓存。后端已复用现有视频缓存队列、清单、暂存发布、播放租约及清理机制；失败/取消/提交失败保留旧副本，离线优先本地并在副本不可用时回退在线。
@@ -8,7 +16,7 @@
 - 最终11文件定向组合175/175通过（23秒，exit 0，`apps/client/build/url-cache-final-tests.log`）；显式配置 `REELNEST_MPV_PATH`，原生 mpv 缓存解码用例执行且未跳过，覆盖实际 Matroska 下载、在线端点503时从 lease 路径解码及播放中清理保护。先前68/68与20/20为中间组，与最终组合有覆盖重叠，不累计。
 - `dart analyze lib test integration_test` 无问题（`apps/client/build/url-cache-final-analyze.log`），12个变更新增 Dart 文件格式检查0 changed；Windows Release 67.7秒成功（`apps/client/build/url-cache-release.log`），五秒 `windows-smoke` 于 `2026-10-31T19:31:42.0886533+08:00` 通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0），报告 `apps/client/build/url-cache-smoke.json` 已复制并核验。本轮未修改 Flutter SDK。
 - HLS/DASH 离线打包、转码、非 HTTP(S) 协议下载及手动/自定义封面不在本轮范围。
-- 本轮 HTTP(S) URL 单视频缓存实现与 Windows 定向交付验证通过；全量测试未运行，历史 Emby 全量 browse/scroll 两条失败仍待调查。macOS/Linux、真实公网和人工可见 UI 验收待，手动截帧/自定义封面仍未迁移。本轮完成不代表整个 URL 模块完成。
+- 本轮 HTTP(S) URL 单视频缓存实现与 Windows 定向交付验证通过；该专项未运行全量测试。媒体库 browse/scroll 历史失败已在本文件上方记录为修复并通过目标回归，不再列为待调查。macOS/Linux、真实公网和人工可见 UI 验收待，手动截帧/自定义封面仍未迁移。本轮完成不代表整个 URL 模块完成。
 - 验收边界见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
 
 当前摘要：截至 2026-10-27，Plex 基础视频来源已实现并完成 Windows 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项通过；前端2/2、Windows Native单业务及最终Windows Release/smoke通过。本批未运行全量 Flutter 测试、不使用真实Token。真实 Plex、macOS/Linux 原生、人工视觉与辅助功能验收待。Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke：共享协议 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未跑全量 Flutter 测试。真实 Jellyfin、macOS/Linux 原生与人工视觉验收待。TMDB 本地电影定向复跑 39/39 通过；TMDB 本地剧集手动匹配最终后端定向 102/102、前端 12/12、Windows Profile 原生业务用例、Release 与五秒 smoke 均通过，本批未运行全量 Flutter 测试。剧集手动批量及定时自动匹配已完成各自 Windows 定向交付验证；自动匹配 179/179、analyze、Release 与五秒 smoke 通过。真实 TMDB 公服、macOS/Linux 原生、native Flutter drive、全量测试及人工精确视觉仍待。历史电影全量 1034 passed / 2 conditional skip / 1 原生用例及其 tearDown 未完成（exit 1）仍属电影批次，不改写、不与其他专项相加。缓存关闭取消专项独立验证通过；详见[Plex 计划](PLEX_PLAN.zh-CN.md)、[Jellyfin 计划](JELLYFIN_PLAN.zh-CN.md)、[TMDB 电影计划](TMDB_MOVIE_METADATA_PLAN.zh-CN.md)、[TMDB 剧集计划](TMDB_SERIES_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
@@ -40,7 +48,7 @@
 - `AppTheme` 为普通页面桌面 `PopupMenu` / `MenuAnchor` / `MenuItemButton` 统一 surface、透明 tint、12px圆角、边框、紧凑36px菜单项及 hover/focus 状态，并覆盖明暗主题。播放器局部深色菜单不在本次范围。
 - `HomeVideoCard` 右键菜单对照原版 `VideoItemContextMenuItems` 的现有可用子集补齐语义图标与分组；危险操作显示红色“删除播放记录”。保留播放、想看、喜欢、片头/片尾检测行为。
 - `dart format` 4 files；`flutter analyze` clean；定向 `app_theme_test`、`marker_analysis_ui_test`、`playback_test` 共25 passed。Windows Release 60.5秒成功；`windows-smoke` 于2026-10-30 19:11:57 +08通过（HiddenWindowResponding=true、ClosedNormally=true、ExitCode=0）。
-- 全量 `flutter test` 当前 **1247 passed / 14 skipped / 2 failed**，不可记为全量通过。两条失败单独复跑仍失败：`emby_browse_test` 的“first cards render without a complete scan”未找到预期“已载入”文本；`emby_scroll_performance_test` 的“poster hover is cleared while its scroll view is moving”出现 finder Too many elements。本轮未修改相应浏览/滚动实现，作为待调查基线问题分别记录，不归因于本次菜单改动。
+- 当时全量 `flutter test` 为 **1247 passed / 14 skipped / 2 failed**；其中 `first cards render without a complete scan` 与 `poster hover is cleared while its scroll view is moving` 后续在2026-10-31媒体库浏览 P0 中修复并通过目标回归。媒体库 P0 后的全量结果见本文件顶部；当前唯一失败为独立 Emby quality cache 时序波动，不把全量写为通过。
 - 本轮仅前端普通页面菜单表面与首页媒体卡菜单；未改变播放/收藏等业务定义，也不覆盖播放器专用菜单。详见[实施状态总览](IMPLEMENTATION_STATUS_2026-10-23.zh-CN.md#状态基线)。
 
 ## 2026-10-30 前端 P0 全局顶部浮窗通知对齐原版（Windows 定向交付验证通过）

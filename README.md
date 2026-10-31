@@ -14,7 +14,8 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 - Jellyfin 基础视频来源闭环已实现并完成 Windows Release/smoke。共享协议定向 255/255、同步/界面 61/61、Emby 基线 37/37、Jellyfin UI 2/2、Windows Native 真实 mpv 业务链路通过；本批未运行全量 Flutter 测试。真实 Jellyfin、macOS/Linux 和人工精确视觉验收仍待。范围与证据见[Jellyfin 计划](docs/JELLYFIN_PLAN.zh-CN.md)。
 - Plex 基础视频来源闭环已实现并完成 Windows 自动化及 Release/smoke 验证：Plex 专属后端24/24、共享后端255/255、同步/UI 63项、前端2/2及Windows Native业务用例通过；未运行全量Flutter测试，未使用真实Token。真实 Plex、macOS/Linux、人工精确视觉及辅助功能验收仍待。范围见[Plex 计划](docs/PLEX_PLAN.zh-CN.md)。
-- HTTP(S) URL 单视频原画离线缓存（2026-10-31）：本轮实现完成，Windows 定向交付通过。11文件175/175、显式 native mpv、`dart analyze lib test integration_test` 与格式检查通过；Windows Release 67.7秒及五秒正常关闭 smoke通过（`apps/client/build/url-cache-release.log`、`url-cache-smoke.json`）。覆盖实际 Matroska 下载、503时从缓存租约播放、播放中清理保护、失败保留旧缓存与目录故障在线回退。非HTTP(S)/清单地址显示禁用原因，已有缓存仍可删除；记录缺失/长度损坏时提示、在线回退并保留manifest。未运行全量测试；历史 Emby browse/scroll 两条全量失败仍待调查，不外推为本轮结果。macOS/Linux、真实公网和人工可见 UI 验收待，手动封面仍未迁移。此轮不代表整个URL模块完成。详见[URL缓存计划与阶段进度](docs/URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
+- 媒体库浏览 P0（2026-10-31）：共享 `ScrollHoverScope` 统一本地/Emby/Jellyfin/Plex 网格滚动期间 hover 抑制，静止200ms恢复；修复 Emby 首屏未完整同步文案、首开假空态及分页错误状态。8个定向测试文件64/64、`dart analyze lib test integration_test` clean、Windows Release50.6秒。全量默认及串行均为1278 passed/15 skipped/1 failed，唯一失败为无关 artwork 队列时序波动，单项及整文件复跑通过；两条历史 browse/scroll 失败已修复。本轮隐藏 smoke 仅确认进程存活5秒，随后由测试主动终止。详见[阶段记录](docs/NEXT_STAGE.zh-CN.md)。
+- HTTP(S) URL 单视频原画离线缓存（2026-10-31）：本轮实现完成，Windows 定向交付通过。11文件175/175、显式 native mpv、`dart analyze lib test integration_test` 与格式检查通过；Windows Release 67.7秒及五秒正常关闭 smoke通过（`apps/client/build/url-cache-release.log`、`url-cache-smoke.json`）。覆盖实际 Matroska 下载、503时从缓存租约播放、播放中清理保护、失败保留旧缓存与目录故障在线回退。非HTTP(S)/清单地址显示禁用原因，已有缓存仍可删除；记录缺失/长度损坏时提示、在线回退并保留manifest。未运行全量测试；macOS/Linux、真实公网和人工可见 UI 验收待，手动封面仍未迁移。此轮不代表整个URL模块完成。详见[URL缓存计划与阶段进度](docs/URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
 
 - TMDB 本地电影元数据已完成实现及 Windows Delivery Release/smoke 验证；最终定向合并复跑 39/39（client16 + service14 + UI9，18秒，exit 0，含series拒绝用例）。全量测试为 1034 passed / 2 conditional skip / 1 native business test unfinished（exit 1），不能视为全量通过。随后缓存关闭取消专项46项通过，Windows Release/smoke 通过；该次未复现先前约4.9秒的具体任务状态。真实 TMDB 公服、macOS/Linux 原生与精确视觉验收仍待。详见[TMDB 专项计划](docs/TMDB_MOVIE_METADATA_PLAN.zh-CN.md)及[缓存关闭取消记录](docs/CACHE_SHUTDOWN_2026-10-26.zh-CN.md)。
 
@@ -35,7 +36,7 @@ ReelNest 是 [MediaLib](https://github.com/829304/MediaLib) 的 Flutter 多平�
 
 2026-10-16 用户明确授权播放器右上角显示输入速率，并随底部进度 Dock 同步显隐。代码已冻结：backend 54、UI 27、隔离 native 2 项通过；analyze、269 文件格式及 diff 检查通过。本轮未重跑上一轮 701 项全量；Windows Release 39.6 秒及五秒 smoke 通过。真实 Emby、实体键鼠、macOS/Linux 原生和三端视觉验收仍待。详情见[播放器记录](docs/PLAYER_PRECISION_BACKEND.zh-CN.md#用户授权播放器输入速率提示代码冻结windows-验证完成三端验收待定2026-10-16)。
 
-仍未完成或未完整验收的主要范围包括：Jellyfin/Plex 真实服务器、macOS/Linux 原生与人工视觉验收；URL 缓存真实公网、可见 UI 和 macOS/Linux 验收；ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权及三桌面端整体视觉对照。URL 缓存全量测试未运行；历史 Emby 全量 browse/scroll 两条失败仍待调查。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
+仍未完成或未完整验收的主要范围包括：Jellyfin/Plex 真实服务器、macOS/Linux 原生与人工视觉验收；URL 缓存真实公网、可见 UI 和 macOS/Linux 验收；ReelNest Server 等其余来源，公共集合与搜索的完整范围，音乐、保险库等后续模块，macOS 持久目录授权及三桌面端整体视觉对照。URL 缓存全量测试未运行；媒体库浏览 P0 全量有一项独立 artwork 队列时序失败，见上方记录。历史 browse/scroll 两项已修复。未迁移不代表允许删减。用户于 2026-10-12 明确暂不实现照片模块，照片/相册及首页照片墙已移出当前计划和验收范围；影视图片功能保留，详见[范围调整](docs/PROJECT_SCOPE.zh-CN.md)。
 
 ## 项目结构
 
