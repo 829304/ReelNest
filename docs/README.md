@@ -1,13 +1,13 @@
 # ReelNest 文档
 
-更新时间：2026-10-31。
+更新时间：2026-11-01。
 
 本目录保存 ReelNest 的项目约束、实施计划、模块说明、验证记录和历史试验资料。ReelNest 是 MediaLib 的 Flutter 重构版；第一阶段只开发和验收 Windows、macOS、Linux，功能、UI 与交互不自行增删改。
 
 ## 当前快照
 
-- HTTP(S) URL 单视频离线缓存（2026-10-31）：本轮实现完成，Windows 定向交付通过；11文件175/175、显式 native mpv、`dart analyze lib test integration_test`、格式检查、Release67.7秒及正常关闭 smoke通过。全量测试未运行；macOS/Linux、真实公网和人工可见 UI验收待，手动封面未迁移。此前 browse/scroll 两项已由媒体库浏览 P0 修复，详见[URL 视频来源计划](URL_VIDEO_SOURCE_PLAN.zh-CN.md)。
-- 媒体库浏览 P0（2026-10-31）：共享滚动 hover 抑制覆盖本地及 Emby/Jellyfin/Plex 网格；Emby 首屏加载文案、preparing、分页 footer 和错误保留卡片已收口。8个定向测试文件64/64、analyze clean、Windows Release50.6秒；隐藏 smoke 仅确认进程存活5秒，随后由测试主动终止。全量两种跑法均1278/15/1，唯一失败为独立 artwork 队列时序用例，单项/整文件复跑通过；此前两项 browse/scroll 失败已修。详见[阶段记录](NEXT_STAGE.zh-CN.md)。
+- 本地媒体库主界面 P0（2026-11-01）：本地/URL 网格布局、焦点遍历、滚动状态及共享卡片行为对齐；加载/空态/错误稳定占位、分页失败保留已载入内容、窄窗高字号页头适配完成。最终本地页/生命周期/来源定向10/10、较宽组18/18通过；核心实现全量 analyze clean、全量基线1283 passed / 15 skipped / 0 failed，最终补丁后未重跑全量。Windows Release57.4秒及00:25:35 +08正常关闭 smoke通过，烟测数据已清理。详见[阶段记录](NEXT_STAGE.zh-CN.md)。
+- 媒体库浏览 P0（2026-10-31）：共享滚动 hover 抑制覆盖本地及 Emby/Jellyfin/Plex 网格；Emby 首屏文案、preparing、分页 footer 和错误保留卡片已收口。8个定向测试文件64/64、analyze clean、Windows Release50.6秒；该批 smoke 只确认进程存活5秒后由测试主动终止。全量历史中间结果1278/15/1已由11-01全量1283/15/0取代，artwork 队列时序失败未在最新全量复现；两项 browse/scroll 失败已修。详见[阶段记录](NEXT_STAGE.zh-CN.md)。
 
 - 前端 P0 剩余桌面菜单与远程来源策略面板（2026-10-31）：Mlink 媒体库排序/剧集季选择统一迁移到 `AppMenuControl<T>`；远程痕迹同步模式文案与紧凑菜单对齐原 Swift，ReelNest 品牌按项目约束保留。定向5 passed、analyze clean（63.9秒）、Windows Release58.0秒及正常关闭 smoke通过；未跑全量，未做可见 UI 或 macOS/Linux 实机验收。代码提交 `16d082be93009205d82c10f7a6cc476ecfac4d00` 已推送。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-剩余桌面菜单与远程来源策略面板windows-定向验证通过)。
 - 共享下拉控件第二批：媒体库与 TMDB（2026-10-31）：Emby/Jellyfin/Plex 类型/排序菜单和 TMDB 匹配宽容度/自动拉取周期已复用 `AppMenuControl<T>`，设置与业务逻辑不变。定向47 passed、analyze clean（5.3秒）、Windows Release48.6秒、正常关闭 smoke通过。本批未跑全量，上一批全量基线不变。详见[阶段记录](NEXT_STAGE.zh-CN.md#2026-10-31-前端-p0-共享下拉控件第二批媒体库与-tmdbwindows-定向验证通过)。

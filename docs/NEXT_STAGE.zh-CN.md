@@ -1,12 +1,21 @@
 # 当前阶段与历史实施记录
 
+## 2026-11-01 本地媒体库主界面 P0（Windows 与全量验证通过）
+
+- `SourceLibraryPage` 按原版 `LibraryView` / `PosterGridList` 对齐页边距32/28、`VideoLibraryPageHeader`、20/30 海报网格、150px最小列宽和独立38px返回顶部。Local 与 URL 网格统一 `FocusTraversalGroup`、`ScrollHoverScope`、`PageStorageKey` 及共享 `LocalMediaCard` 行为。
+- 新增 `library_state_panel.dart`：加载、空态、错误使用稳定最小420px卡片；分页 provider 刷新/失败时优先保留成功页，冷分页错误只在该页首格提供重试，避免整批替换已有海报。页头68px固定高度改为 minHeight，修复320px窄窗、150%字号溢出。
+- 初始实现新增 `source_library_page_test.dart` 4项，覆盖状态等高、刷新失败保留海报与滚动、10000项/高DPI/长标题/缩放、本地与URL网格一致；生命周期测试同步更新。较宽定向组18/18通过；全量 analyze 无问题（48.6秒）；全量测试1283 passed / 15 conditional skipped / 0 failed（4分43秒），作为核心实现基线。该基线取代10-31媒体库浏览 P0的中间全量1278/15/1。
+- 最终补丁为冷分页失败保留前页、仅显示一个重试入口，并避免其他失败占位持续转圈；`source_library_page_test.dart` 增至5项，最终本地页/生命周期/来源定向10/10通过，先前较宽定向18/18仍通过。此最终补丁后未重跑全量测试。
+- 最终代码变更后 Windows Release 57.4秒成功；隐藏 smoke 于2026-11-01 00:25:35 +08:00响应5秒、正常关闭、ExitCode 0。烟测目录已再次清理，仅保留 data 与发行二进制。
+- 历史两项 browse/scroll 失败已由前一批修复；前一批 artwork 队列时序失败未在1283/15/0全量基线中复现。可见 UI、真实媒体和 macOS/Linux 验收仍待。
+
 ## 2026-10-31 媒体库浏览 P0（定向验证通过；全量有一项无关波动失败）
 
 - 新增共享 `ScrollHoverScope`，按原 Swift `suppressHoverEffectsDuringScroll` 迁移滚动期间 hover 抑制：根滚动开始/更新后抑制，最后一次滚动通知静止200ms后解除；进入抑制时清除 `LocalMediaCard` hover，并为实际卡片缩放增加精确测试 key。`SourceLibraryPage` 与 `EmbyVideoLibraryPage` 已接入，本地、Emby、Jellyfin、Plex 网格交互统一。
 - Emby 未完整同步时，首屏副标题改为“浏览、筛选和管理已载入内容 · N 项”，不再暗示完整范围。首批打开新增 preparing 状态避免假空态；分页 footer 固定46px，在读取/加载更多/错误重试/完成间用 `AnimatedSwitcher` 切换，分页错误保留已加载卡片。
 - 修复历史 `first cards render without a complete scan` 与 `poster hover is cleared while its scroll view is moving`。增加滚动静止期和分页错误/稳定 footer 回归；8个定向测试文件64/64通过，`dart analyze lib test integration_test` clean，Windows Release 50.6秒。
 - 隐藏 smoke 仅确认进程存活5秒，随后由测试主动终止；不记为正常关闭 smoke 通过。
-- 全量默认与串行两种跑法均为1278 passed / 15 skipped / 1 failed。唯一失败为无关的 `emby_quality_cache_test.dart: detail artwork overtakes queued posters and promotes duplicate requests` 时序波动；该 case 单独1/1、整文件37/37均通过，未放宽断言。全量不记为通过。可见 UI、真实媒体和 macOS/Linux 验收待。
+- 当时默认与串行全量均为1278 passed / 15 skipped / 1 failed，唯一失败为 `emby_quality_cache_test.dart` 的详情 artwork 队列时序用例；该中间结果已被2026-11-01全量1283/15/0取代。可见 UI、真实媒体和 macOS/Linux 验收仍待。
 
 ## 2026-10-31 HTTP(S) URL 单视频离线缓存（本轮实现与 Windows 定向交付通过）
 

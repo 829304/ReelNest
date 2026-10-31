@@ -270,7 +270,10 @@ void main() {
         settle: false,
       );
       expect(find.byType(EmbyVideoLibraryPage), findsNothing);
-      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('source-library-loading')),
+        findsOneWidget,
+      );
       expect(find.text('此媒体源已移除。'), findsNothing);
       release();
       await tester.pumpAndSettle();

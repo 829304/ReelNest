@@ -28,8 +28,8 @@ class VideoLibraryPageHeader extends StatelessWidget {
     ),
     child: LayoutBuilder(
       builder: (context, constraints) {
-        final titleCluster = SizedBox(
-          height: 68,
+        final titleCluster = ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 68),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
